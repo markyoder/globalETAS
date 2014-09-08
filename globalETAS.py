@@ -65,5 +65,18 @@ calipoly = [[-129.0, 42.75], [-121.5, 29.5], [-113.5, 29.5], [-114.0, 35.6], [-1
 class globalETAS_model(object):
 	# guts of ETAS. this will contain a catalog, lattice sites, etc. graphical tools, plotting, etc. will likely
 	# be kept elsewhere.
-	
+	def __init__(self, in_cat=None, lats=[], lons=[], mc=2.5, t_0=dtm.datetime(1990,1,1, pytz=tzutc), t_now=dtm.datetime.now(tzutc)):
+		#
+		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
+		# externally provided. otherwise, get a catalog from ANSS or OH based oon the parameters provided.
+		#
+		lattice_sites = {}	# list of lattice site objects, and let's index it by... probably (i_x/lon, j_y/lat)
+							# we might alternativel store this as a simple list [] or a base index/list (that
+							# is re-sorting tolerant)) {i:[row]}, and then write indices:
+							# index_lat_lon = {(lat, lon):lattice_sites_index}, {(x,y):lattice_sites_index}, etc.
+							#
+		#
+		earthquake_catalog = {}	# and again, let's use an indexed structure, in the event that we are
+								# using indices and (inadvertently? sort it?). this may be unnecessary.
+								# that said, let's take the next step and return dict. type earthquake entries.
 
