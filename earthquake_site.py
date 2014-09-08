@@ -21,6 +21,8 @@ class site(object):
 	'''
 	# base class for (geo-spatial) locations, including (ETAS) lattice sites, earthquakes, etc.
 	# will have a "location" (center), extents, bounds, etc.
+	#
+	# and i think we can actually copy the corresponding/similar BASScast object for this.
 	'''
 	#
 	def __init__(self, x=None, y=None, z=None, lat=None, lon=None, depth=None, f_to_lat_lon=None, f_from_lat_lon=None):
