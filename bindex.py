@@ -10,8 +10,8 @@ import numpy
 import scipy
 import datetime as dtm
 import pytz
-import maptlotlib.dates as dtm
-import import multiprocessing as mpp
+import matplotlib.dates as dtm
+import multiprocessing as mpp
 
 
 class Bindex2D(object):
@@ -37,18 +37,21 @@ class Bindex2D(object):
 		y0 = (y0, self.y0)
 		return get_bin(y, dx=dy, x0=y0, bin_0=bin_0)
 	#
-	def get_xybins(self, x, y, dx=None, dy=None,  bin_x_0=0, bin_y_0, r_type='dict'):
-		x0 = get_bin(x=x, dx=dx, x0=x0, bin_0=bin_x_0)
-		y0 = get_bin(x=x, dx=dy, x0=y0, bin_0=bin_y_0)
+	def get_xybins(self, x, y, dx=None, dy=None,  bin_x_0=0, bin_y_0=0, r_type='dict'):
+		dx = (self.dx, dx)
+		dy = (self.dy, dy)
+		#
+		x_bin = get_bin(x=x, dx=dx, x0=bin_x_0, bin_0=bin_x_0)
+		y_bin = get_bin(x=x, dx=dy, x0=bint_y_0, bin_0=bin_y_0)
 		#
 		if r_type == 'tuple':
-			return (x0,y0)
+			return (x_bin,y_bin)
 		elif r_type == 'list':
-			return [x0, y0]
+			return [x_bin, y_bin]
 		elif r_type == 'dict':
-			return {'x':x0, 'y':y0}
+			return {'x':x_bin, 'y':y_bin}
 		else:
-			return [x0,y0]
+			return [x_bin,y_bin]
 	#
 	def get_bin_items(self, x=None, y=None):
 		# get all the items in the bin that contains coordinates x,y
@@ -81,7 +84,7 @@ class Bindex(dict):
 		self.dx=dx
 	#
 #
-def get_bin((x, dx=1., x0=0., bin_0=0):
+def get_bin(x, dx=1., x0=0., bin_0=0):
 	return int(bin_0) + int((x-x0)/dx)
 
 	
