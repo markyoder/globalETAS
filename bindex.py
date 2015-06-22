@@ -12,11 +12,42 @@ import datetime as dtm
 import pytz
 import matplotlib.dates as dtm
 import multiprocessing as mpp
+#
+import random
 
+def bindex2d_sample():
+	#
+	R=random.Random()
+	dx=dy=.1
+	x0=y0=0.
+	prams = {'dx':dx, 'dy':dy, 'x0':x0, 'y0':y0, 'leaf_type':float}
+	#
+	# get a float type bindex:
+	B=Bindex2D(**prams)
+	#
+	datas = [[x,y, R.random()] for x in numpy.arange(0., 2., .1) for y in numpy.arange(0.,3.,.1)]
+	#
+	B.add_list(datas)
+	#
+	b_datas = B.to_list()
+	print "datas list: d1==d2: %d, len(d1)==len(d2): %d" % (b_datas==datas, len(b_datas)==len(datas))
+	B2 = Bindex2D(**prams)
+	B2.add_list(datas)
+	#
+	print "bindex_items==bindex_items: %d" % (B.items==B2.items)
+	#
+	B3 = Bindex2D(**prams)
+	B3.leaf_type=list
+	#
+	B3.add_list([[x,y, range(j + j*i,j + j*i+5)] for i,x in enumerate(numpy.arange(0., 2., .1)) for j,y in enumerate(numpy.arange(0.,3.,.1))])
+	
+	#
+	return B3
+	
 
 class Bindex2D(object):
 	
-	# for now, let's just start with a 2D bincex and we'll generalize later
+	# for now, let's just start with a 2D bindex and we'll generalize later
 	def __init__(self, dx=1., dy=1., x0=0., y0=0., leaf_type=float):
 		# leaf_type: should be a function that will evaluate as the default value for an object type for the leaf (end) nodes.
 		#
@@ -117,8 +148,43 @@ class Bindex2D(object):
 	#
 	def to_array(self):
 		#
+		# note: in this simplified format, this will only work for float or int type objects.
+		#
 		# numpy.core.records.fromarrays(zip(*best_fit_array), names = ['section_id', 'tau', 'beta', 'sigma_tau', 'sigma_beta', 'mean_chi_sqr'], formats = [type(x).__name__ for x in best_fit_array[0]])
-		return numpy.core.records.fromarrays(zip(*self.to_list()), names = ['x', 'y', 'z'], formats = ['f8', 'f8', 'f8'])
+		if not hasattr(self.leaf_type, '__len__'):
+			z_type_name = type(leaf_type).__name__
+			return numpy.core.records.fromarrays(zip(*self.to_list()), names = ['x', 'y', 'z'], formats = ['f8', 'f8', type(leaf_type).__name__])
+		#
+		# otherwise, we've got string, list, tuple, etc. types. find the max length of all z entries.
+
+		max_z_len = max([len(x) for x in zip(*self.to_list())[2]])
+		#
+		if isinstance(self.leaf_type, str):
+			return numpy.core.records.fromarrays(zip(*self.to_list()), names = ['x', 'y', 'z'], formats = ['f8', 'f8', '|S%d' % max_z_len])
+		#
+		# otherwise, it's some sort of list or tuple. for now, let's just extend each row. we could also convert to a string... or we could figure out how to
+		# wrap list types into a recarray (which i think can be done, but there are likely issues with reference, scope, etc.... or we could use a PANDAS object,
+		# but then we change our syntax... and anyway, we should just add a separate function call for PANDAS (that is dependent upon PANDAS being present).
+		#
+		# we will have to assume that all the values in the row are of the same type. for now, we'll just let that break upon exception.
+		z_type = float
+		do_break=False
+		for j,rw_j in enumerate(self.items.values()):
+			#print "array-checking row: ", j
+			for k,rw_k in enumerate(rw_j.values()):
+				if len(rw_k)>0:
+					z_type = type(rw_k[0])
+					do_break=True
+					break
+			if do_break:
+				#print "break index: ", j,k
+				break
+		z_type = type(self.items.values()[0].values()[0][0])
+		#print "z_type: ", z_type
+		z_col_names = ['z_%d' % j for j in xrange(max_z_len)]
+		#
+		return numpy.core.records.fromarrays(zip(*[rw[0:2] + rw[2] for rw in self.to_list()]), names = ['x', 'y'] + z_col_names, formats = ['f8', 'f8'] + [z_type.__name__ for j in z_col_names])
+		
 
 class Bindex(dict):
 	# a single, 1D bindex component. stack these together for n-D bindex objects?
