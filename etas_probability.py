@@ -179,20 +179,57 @@ def omori_prob(t2, t1=0., t0=1., tau=1., p=1.0, c=None):
 ##################
 # modifications to rate/spatial density to account for large aftershocks falling outside the rupture area. eventually, this will require some sort of
 # renormalization... or maybe just normalization, to not get into an argument about language.
-def f_omori_exp(x, x1=1.0, x0=1.0, chi=1.0, q=1.5):
+def omori_demos(X=None, x1=1.0, x0=1.0, chi=1.0, q=1.5):
+	if X==None: X = numpy.arange(x0/1000., x0*20., x0/1000.)
+	#
+	plt.figure(0)
+	plt.clf()
+	ax = plt.gca()
+	ax.set_xscale('log')
+	ax.set_yscale('log')
+	#
+	plt.plot(X, f_omori(X=X, x0=x0, chi=chi, q=q), '-', label='omori')
+	Y_exp = f_omori_exp(X=X, x0=x0, x1=x1, chi=chi, q=q)
+	plt.plot(X, Y_exp, '-', label='omori_exp')
+	plt.plot(X, f_omori_inv_gamma(X=X, x0=x0, x1=x1, chi=chi, q=q), '-', label='omori_gamma')
+	#
+	plt.plot([x0, x0], [min(Y_exp), 1.1], '--')
+	
+	plt.legend(loc=0, numpoints=1)
+
+def f_omori(X, x0, chi, q):
+	# can be used for reguar space or time omori.
+	return (1.0/chi)*(x0+X)**-q
+	
+def f_omori_exp(X, x1=1.0, x0=1.0, chi=1.0, q=1.5):
 	'''
 	# probability density of omori-exponential distribution
 	# x1: exponential factor (exp(-x/x1))
 	# x0: omori factor (1/(x0+x))
 	# omori function is:
 	# f_omori = (1/chi)(x0 + x)**-q
+	#
+	# this is a simple way to "hollow out" the omiri distribution, but f_omori_inf_gamma() is probably more appropriate (for what reason?), though -- again,
+	# since we really don't know anything about r<L_r, at this point there is a lot of operator discretion. note also 	# that when we integrate this function,
+	# we normalize with a gamma function.
 	'''
 	#
 	f_in =  lambda r: 1.0 - numpy.exp(-r/x1)
 	f_out = lambda r: ((x0 + r)**(-q))/chi
 	f = lambda r: f_in(r)*f_out(r)
 	#
-	return f(numpy.array(x))
+	return f(numpy.array([f(x) for x in X]))
+
+def f_omori_inv_gamma(X, x0=1.0, x1=1.0, chi=1.0, q=1.5):
+	'''
+	# this is the "inverse gamma" distribution; see Malamud et al. 2004, "LANDSLIDE INVENTORIES AND THEIR STATISTICAL PROPERTIES"
+	# this may be a "proper" or expected distribution for this sort of work. it seems to fit well with landslide data, but f_omori_exp() might fit well too.
+	# since we don't necessarily understand the r<L_r domain, and since both -> regular_omori, it shouldn't matter too much what we use.
+	# see wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution
+	'''
+	#
+	alpha = q-1.0
+	return ((1.0/chi)**alpha)*(1.0/scipy.special.gamma(alpha))*((x0+X)**(-q))*numpy.exp(-x1/X)
 
 def F_omori_exp(x, x1=1.0, x0=1.0, chi=1.0, q=1.5):
 	'''
