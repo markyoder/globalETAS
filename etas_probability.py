@@ -179,19 +179,26 @@ def omori_prob(t2, t1=0., t0=1., tau=1., p=1.0, c=None):
 ##################
 # modifications to rate/spatial density to account for large aftershocks falling outside the rupture area. eventually, this will require some sort of
 # renormalization... or maybe just normalization, to not get into an argument about language.
-def omori_demos(X=None, x1=1.0, x0=1.0, chi=1.0, q=1.5):
+def omori_demos(X=None, x1=1.0, x0=1.0, chi=1.0, q=1.5, y_min=None, **kwargs):
 	if X==None: X = numpy.arange(x0/1000., x0*20., x0/1000.)
+	#
+	kwargs['x_scale'] = kwargs.get('x_scale', 'log')
+	kwargs['y_scale'] = kwargs.get('y_scale', 'log')
 	#
 	plt.figure(0)
 	plt.clf()
 	ax = plt.gca()
-	ax.set_xscale('log')
-	ax.set_yscale('log')
+	ax.set_xscale(kwargs['x_scale'])
+	ax.set_yscale(kwargs['y_scale'])
 	#
-	plt.plot(X, f_omori(X=X, x0=x0, chi=chi, q=q), '-', label='omori')
-	Y_exp = f_omori_exp(X=X, x0=x0, x1=x1, chi=chi, q=q)
+	Y_omori = f_omori(X=X, x0=x0, chi=chi, q=q)
+	if y_min==None: y_min = min(Y_omori)
+	#y_min = 0.
+	#
+	plt.plot(X, Y_omori, '-', label='omori')
+	Y_exp = f_omori_exp(X=X, x0=x0, x1=x1, chi=chi, q=q, y_min=y_min)
 	plt.plot(X, Y_exp, '-', label='omori_exp')
-	plt.plot(X, f_omori_inv_gamma(X=X, x0=x0, x1=x1, chi=chi, q=q), '-', label='omori_gamma')
+	plt.plot(X, f_omori_inv_gamma(X=X, x0=x0, x1=x1, chi=chi, q=q, y_min=y_min), '-', label='omori_gamma')
 	#
 	plt.plot([x0, x0], [min(Y_exp), 1.1], '--')
 	
@@ -201,9 +208,9 @@ def f_omori(X, x0, chi, q):
 	# can be used for reguar space or time omori.
 	return (1.0/chi)*(x0+X)**-q
 	
-def f_omori_exp(X, x1=1.0, x0=1.0, chi=1.0, q=1.5):
+def f_omori_exp(X, x1=1.0, x0=1.0, chi=1.0, q=1.5, y_min=0.):
 	'''
-	# probability density of omori-exponential distribution
+	# omori-exponential rate distribution
 	# x1: exponential factor (exp(-x/x1))
 	# x0: omori factor (1/(x0+x))
 	# omori function is:
@@ -216,20 +223,22 @@ def f_omori_exp(X, x1=1.0, x0=1.0, chi=1.0, q=1.5):
 	#
 	f_in =  lambda r: 1.0 - numpy.exp(-r/x1)
 	f_out = lambda r: ((x0 + r)**(-q))/chi
-	f = lambda r: f_in(r)*f_out(r)
+	f = lambda r: f_in(r)*f_out(r) + y_min*(x1-r)*(r<=x1)
 	#
 	return f(numpy.array([f(x) for x in X]))
 
-def f_omori_inv_gamma(X, x0=1.0, x1=1.0, chi=1.0, q=1.5):
+def f_omori_inv_gamma(X, x0=1.0, x1=None, chi=1.0, q=1.5, y_min=0.):
 	'''
 	# this is the "inverse gamma" distribution; see Malamud et al. 2004, "LANDSLIDE INVENTORIES AND THEIR STATISTICAL PROPERTIES"
 	# this may be a "proper" or expected distribution for this sort of work. it seems to fit well with landslide data, but f_omori_exp() might fit well too.
 	# since we don't necessarily understand the r<L_r domain, and since both -> regular_omori, it shouldn't matter too much what we use.
 	# see wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution
 	'''
+	if x1==None: x1=chi
 	#
 	alpha = q-1.0
-	return ((1.0/chi)**alpha)*(1.0/scipy.special.gamma(alpha))*((x0+X)**(-q))*numpy.exp(-x1/X)
+	#return ((1.0/chi)**alpha)*(1.0/scipy.special.gamma(alpha))*((x0+X)**(-q))*numpy.exp(-x1/X)
+	return [((1.0/chi)**alpha)*(1.0/scipy.special.gamma(alpha))*((x0+x)**(-q))*numpy.exp(-x1/x) + y_min*(x1-x)*(x<=x1) for x in X]
 
 def F_omori_exp(x, x1=1.0, x0=1.0, chi=1.0, q=1.5):
 	'''
@@ -252,9 +261,29 @@ def F_omori_exp(x, x1=1.0, x0=1.0, chi=1.0, q=1.5):
 	#
 	f_diff = ((x0)**(-q))/(chi*(q-1.0)) * ((q-1.0)*x1*math.exp(x0/x1)*(((x0)**q)/x1)*scipy.special.gamma(1.0-q, numpy.array([x0/x1])) - x0 )
 	#
-	return f1*(f2*f3 - x0 - x) - f_diff
+	# ... though i think we'll just get rid of this. since min_y applies to a rate, it's ok if it -> 0.
+	min_y_correction = (x<x1)*.5*y_min*(x0**2. - (x0-x)**2.)
+	#
+	return f1*(f2*f3 - x0 - x) - f_diff + min_y_correction
 	#return f1*(f2*f3 - x0 - x)
-
+#
+def F_omori_inv_gamma(x, x0=1.0, x1=None, chi=1.0, q=1.5, y_min=0.):
+	'''
+	#
+	'''
+	if x1==None: x1 = chi
+	#
+	alpha = q-1.0
+	
+	F = scipy.special.gamma(alpha, (1./chi)*x)/scipy.special.gamma(alpha)
+	#
+	# min_y correction(s):
+	min_y_correction = (x<x1)*.5*y_min*(x0**2. - (x0-x)**2.)
+	
+	#
+	return F + min_y_correction
+	#
+#
 def big_mag_distribution(r0=1.0, r1=1.0, chi=1.0, q=1.5, r_min=0., r_max=100., nits=1000, fnum=0, x_scale='log', y_scale='log'):
 	'''
 	# plots for "Big aftershocks are farther away" distribution 
