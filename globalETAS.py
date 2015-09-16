@@ -60,12 +60,13 @@ deg2rad = 2.0*math.pi/360.
 alpha_0 = 2.28
 #
 calipoly = [[-129.0, 42.75], [-121.5, 29.5], [-113.5, 29.5], [-114.0, 35.6], [-119.3, 39.4], [-119.5, 42.75], [-129.0, 42.75]]
+tz_utc = pytz.timezone('UTC')
 #
 #
 class globalETAS_model(object):
 	# guts of ETAS. this will contain a catalog, lattice sites, etc. graphical tools, plotting, etc. will likely
 	# be kept elsewhere.
-	def __init__(self, in_cat=None, lats=[], lons=[], mc=2.5, t_0=dtm.datetime(1990,1,1, pytz=tzutc), t_now=dtm.datetime.now(tzutc)):
+	def __init__(self, in_cat=None, lats=[], lons=[], mc=2.5, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc)):
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
 		# externally provided. otherwise, get a catalog from ANSS or OH based oon the parameters provided.
@@ -80,3 +81,36 @@ class globalETAS_model(object):
 								# using indices and (inadvertently? sort it?). this may be unnecessary.
 								# that said, let's take the next step and return dict. type earthquake entries.
 
+def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], grid_size=.1, D_fract=1.5, d_lambda=1.76):
+	'''
+	# fetch (or receive) an earthquake catalog. for each event, calculate ETAS relevant constants including rupture_length,
+	# spatial orientation, elliptical a,b, etc. This catalog will then be provided to other processes to calculate ETAS rates
+	'''
+	#
+	# handle dates:
+	if date_range[1]==None: date_range[1] = dtm.datetime.now(pytz.timezone('UTC'))
+	#
+	for j,dt in enumerate(date_range):
+		if isinstance(dt, str):
+			date_range[j] = mpd.num2date(mpd.datestr2num(dt))
+		#
+		# other date-handling....
+	#
+	start_date = date_range[0]
+	end_date = date_range[1]
+	#
+	if incat==None or (hasattr(incat, '__len__') and len(incat)==0):
+		incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[start_date, end_date], Nmax=None, fout=None, rec_array=True)
+	#
+	# now, calculate etas properties....
+	cols, formats = [list(x) for x in zip(*incat.dtype.descr)]
+	
+	#
+	return incat
+
+class Earthquake(object):
+	# an Earthquake object for global ETAS. in parallel operations, treat this more like a bag of member functions than a data container.
+	# pass an earthquake catalog list to a process; use Earthquake() to handle each earthquake event row.
+	# include "local" ETAS calculation in this object; aka, each earthquake determines its ETAS range based on rupture length and other factors...
+	# maybe.
+	pass

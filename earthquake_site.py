@@ -17,7 +17,7 @@
 import math
 deg_to_km = 111.1
 #
-class site(object):
+class Site(object):
 	'''
 	# base class for (geo-spatial) locations, including (ETAS) lattice sites, earthquakes, etc.
 	# will have a "location" (center), extents, bounds, etc.
@@ -53,10 +53,10 @@ class site(object):
 		return {'lon': self.lon, 'lat':self.lat, 'depth':self.depth}
 	
 
-class grid_site(site):
+class Grid_site(site):
 	pass
 
-class earthquake(site):
+class Earthquake(site):
 	pass
 
 def default_xy_to_lon_lat(x=None, y=None):

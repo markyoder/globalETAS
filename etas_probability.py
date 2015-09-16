@@ -240,7 +240,7 @@ def f_omori_inv_gamma(X, x0=1.0, x1=None, chi=1.0, q=1.5, y_min=0.):
 	#return ((1.0/chi)**alpha)*(1.0/scipy.special.gamma(alpha))*((x0+X)**(-q))*numpy.exp(-x1/X)
 	return [((1.0/chi)**alpha)*(1.0/scipy.special.gamma(alpha))*((x0+x)**(-q))*numpy.exp(-x1/x) + y_min*(x1-x)*(x<=x1) for x in X]
 
-def F_omori_exp(x, x1=1.0, x0=1.0, chi=1.0, q=1.5):
+def F_omori_exp(x, x_start=0., x1=None, x0=1.0, chi=1.0, q=1.5, y_min=0.):
 	'''
 	# cumulative omori-exponential (aka, integrated f_omori_exp)
 	#  - number of events in an omori-exponential process, probably used for Non-homogeneous Poisson calculations.
@@ -253,29 +253,81 @@ def F_omori_exp(x, x1=1.0, x0=1.0, chi=1.0, q=1.5):
 	# f_omori = (1/chi)(x0 + x)**-q
 	'''
 	#
+	if x1==None: x1=1./chi
+	#
 	if not hasattr(x, '__len__'): x=numpy.array([x])
 	# for readability, break this out in components, then return product... or comment and combine.
-	f1 = ((x0 + x)**(-q))/(chi*(q-1.0))
-	f2 = (q-1.0)*x1*math.exp(x0/x1)*(((x0+x)**q)/x1)
-	f3 = scipy.special.gamma((1.0-q), (x0+x)/x1)
+	f1 = -((x0 + x)**(-q))/(chi*(q-1.0))
+	f2 = -(q-1.0)*x1*numpy.exp(x0/x1)*(((x0+x)/x1)**q)
+	f3 = scipy.special.gammainc(abs(1.-q), (x0+x)/x1)
 	#
-	f_diff = ((x0)**(-q))/(chi*(q-1.0)) * ((q-1.0)*x1*math.exp(x0/x1)*(((x0)**q)/x1)*scipy.special.gamma(1.0-q, numpy.array([x0/x1])) - x0 )
+	f1a = -((x0 + x_start)**(-q))/(chi*(q-1.0))
+	f2a = -(q-1.0)*x1*math.exp(x0/x1)*(((x0+x_start)/x1)**q)
+	f3a = scipy.special.gammainc(abs(1.-q), (x0+x_start)/x1)
+
+	#f_diff = ((x0+x_start)**(-q))/(chi*(q-1.0)) * ((q-1.0)*x1*math.exp(x0/x1)*(((x0)**q)/x1)*scipy.special.gammainc(1.0-q, numpy.array([x0/x1])) - x0 )
 	#
 	# ... though i think we'll just get rid of this. since min_y applies to a rate, it's ok if it -> 0.
 	min_y_correction = (x<x1)*.5*y_min*(x0**2. - (x0-x)**2.)
 	#
-	return f1*(f2*f3 - x0 - x) - f_diff + min_y_correction
+	return f1*(f2*f3 + x0 + x) - f1a*(f2a*f3a + x0 + x_start) #+ min_y_correction
 	#return f1*(f2*f3 - x0 - x)
 #
+def omori_exp_norm_test(ldx=5., x_max=5., q=1.5):
+	# don't quite get the cumulative, F_omori_exp() integral. the first argument to the incomplete gamma
+	# function, gammainc() cannot be negative, but i seem to remember something about an absolute value.
+	# let's try a quick numerical integration comparison.
+	#
+	dx = 10.**(-ldx)
+	X = numpy.arange(0., x_max, dx)
+	dY = f_omori_exp(X, x1=1.0, x0=1.0, chi=1.0, q=q, y_min=0.)
+	#Y1 = [dY[0]*dx]
+	Y1 = [dx*.5*(dY[0]+dY[1])]
+	for j,dy in enumerate(dY[1:]):
+		#Y1 += [Y1[-1]+dy*dx]
+		Y1 += [Y1[-1] + dx*.5*(dy+dY[j])]
+	#
+	Y2 = scipy.array([F_omori_exp(x, x_start=0., x1=None, x0=1.0, chi=1.0, q=q, y_min=0.) for x in X])
+	
+	dY_gam = f_omori_inv_gamma(X, x1=1.0, x0=1.0, chi=1.0, q=q, y_min=0.)
+	Y_gam = scipy.array([F_omori_inv_gamma(x, x1=None, x0=1.0, chi=1.0, q=q, y_min=0.) for x in X])
+	Y_gam_num = [dx*.5*(dY_gam[0]+dY_gam[1])]
+	for j,dy in enumerate(dY_gam[1:]):
+		#Y1 += [Y1[-1]+dy*dx]
+		Y_gam_num += [Y_gam_num[-1] + dx*.5*(dy+dY_gam[j])]
+	#
+	
+	#
+	plt.figure(0)
+	plt.clf()
+	plt.plot(X-.5*dx,Y1, '-', label='numerical')
+	plt.plot(X[1:]-.5*dx,Y2[1:], '-', label='F_omori_exp')
+	plt.legend(loc=0, numpoints=1)
+	ax2 = plt.gca().twinx()
+	ax2.plot(X, dY, '--')
+	#
+	plt.figure(1)
+	plt.clf()
+	plt.plot(X-.5*dx,Y_gam_num, '-', label='numerical')
+	plt.plot(X[1:]-.5*dx,Y_gam[1:], '-', label='F_omori_inv_gam')
+	plt.plot(X[1:]-.5*dx, Y_gam[1:], '-', label='F_omori_inv_gam')
+	plt.legend(loc=0, numpoints=1)
+	ax2 = plt.gca().twinx()
+	ax2.plot(X, dY_gam, '--')
+
+	#
+	return X,Y1,Y2, dY
+#
+
 def F_omori_inv_gamma(x, x0=1.0, x1=None, chi=1.0, q=1.5, y_min=0.):
 	'''
-	#
+	# cumulative (integrated) distribution for the inverse_gamma modified omori rate.
 	'''
 	if x1==None: x1 = chi
 	#
 	alpha = q-1.0
 	
-	F = scipy.special.gamma(alpha, (1./chi)*x)/scipy.special.gamma(alpha)
+	F = scipy.special.gammainc(alpha, (1./chi)*x)/scipy.special.gamma(alpha)
 	#
 	# min_y correction(s):
 	min_y_correction = (x<x1)*.5*y_min*(x0**2. - (x0-x)**2.)
