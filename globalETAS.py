@@ -53,6 +53,9 @@ from geographiclib.geodesic import Geodesic as ggp
 #
 import ANSStools as atp
 #
+import rtree
+from rtree import index
+#
 days2secs = 60.*60.*24.
 year2secs = 60.*60.*24.*365.
 deg2km=111.12
@@ -87,6 +90,16 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	# spatial orientation, elliptical a,b, etc. This catalog will then be provided to other processes to calculate ETAS rates
 	'''
 	#
+	dmstar = 1.0
+	dm_tau = 0.0		# constant sort of like dm_star but for temporal component. we usually treat this as 0, but don't really know...
+	d_tau = 2.28
+	b1=1.0
+	b2=1.5
+	#
+	# some constants:
+	l_15_factor = (2./3.)*math.log10(1.5)	# pre-calculate some values...
+	km2lat = 1./111.1
+	#
 	# handle dates:
 	if date_range[1]==None: date_range[1] = dtm.datetime.now(pytz.timezone('UTC'))
 	#
@@ -102,8 +115,70 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	if incat==None or (hasattr(incat, '__len__') and len(incat)==0):
 		incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[start_date, end_date], Nmax=None, fout=None, rec_array=True)
 	#
+	# first, make a spatial index of the catalog:
+	anss_index = index.Index()
+	[anss_index.insert(j, (rw['lon'], rw['lat'], rw['lon'], rw['lat'])) for j,rw in enumerate(incat)]
+	
 	# now, calculate etas properties....
 	cols, formats = [list(x) for x in zip(*incat.dtype.descr)]
+	cols += ['L_r', 'r_0', 'chi', 'dt_r', 't_0', 'tau', 'strike_theta', 'strike_epsilon']			# add these parameters so we can switch them out (if we want)
+	formats += ['f8' for x in xrange(len(cols)-len(formats))]
+	output_catalog = []
+	#
+	for rw in incat:
+		#
+		# tentatively, let's just make a catalog of this and calculate the rupture length, etc.
+		# this way, we can specify (different) rupture length, etc. later.
+		mag = rw['mag']
+		L_r = 10.0**(.5*mag - d_lambda)
+		dt_r = 10.0**(.5*mag - d_tau)
+		lN_om = b*(mag - dmstar - mc)
+		N_om = 10.0**lN_om
+		#
+		# self-similar formulation from yoder et al. 2014/15:
+		# start with the (log of the) number of earthquakes/aftershocks in the rupture area:
+		lN_chi = (2.0/(2.0 + D))*math.log10(1.0 + D/2.) + D*(mag - dmstar - mc)/(2.+D)
+		N_chi = 10.**lN_chi
+		#
+		# mean linear density and spatial Omori parameters:
+		linear_density = 2.0*N_chi/L_r
+		r_0 = N_om*(q-1.)/N_chi
+		chi = (r_0**(1.-q))(N_om*(q-1.))
+		#
+		# temporal Omori parameters:
+		rate_max = l_15_factor + d_tau - mag/6. - (dm_tau + mc)/3.
+		t_0 = N_om*(p-1.)/rate_max		# note, however, that we can really use just about any value for t_0, so long as we are consistent with tau.
+		tau = (t_0**(1.-p))/(N_om*(p-1.))
+		#
+		# now, guess the earthquake's orientation based on local seismicity. use earthquakes within some distance based on magnitude.
+		# use a PCA type method or some sort of line-fit. there should be some good PCA libraries, otherwise it's easy to code.
+		area_lat_min = max(-90., rw['lat'] - fit_factor * L_r*km2lat)
+		area_lat_max = min(90., rw['lat'] + fit_factor * L_r*km2lat)
+		# note: i think we have to catch cases where we cross the dateline (aka, into phi<-180, phi>180) and use two index ranges.
+		area_lon_min = rw['lon'] - fit_factor * L_r*km2lat/math.cos(rw['lat'])
+		area_lon_max = rw['lon'] + fit_factor * L_r*km2lat/math.cos(rw['lat'])
+		#
+		included_indices = list(anss_index.intersection((area_lat_min, area_lon_min, area_lat_max, area_lon_max)))
+		if area_lon_min<-180.:
+			new_lon_min = area_lon_min%(180.)
+			included_indices += list(anss_index.intersection((area_lat_min, new_lon_min, area_lat_max, 180.)))
+		#
+		if area_lon_max>180.:
+			new_lon_max = area_lon_max%(-180.)
+			included_indices += list(anss_index.intersection((area_lat_min, -180, area_lat_max, new_lon_max)))
+		#
+		# now, get PCA (or some other method of fitting) for these events:
+		
+
+			
+		#
+		output_catalog += [x for x in rw] + [L_r, r_0, chi, dt_r, t_0, tau, strike_theta, strike_epsilon]
+		#
+		#lt0ssim = 7.0*mag/6.0 - (2.0*mc/3.0) - dtau - dmstar - (2./3.)*math.log10(1.5) + (dmtau/3.0) + math.log10(p-1.0)
+		#lr0ssim = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dm + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - 1.76 - math.log10(2.0)
+		#r0ssim = 10**lr0ssim
+		#t0ssim = 10.**lt0ssim
+		#taussim = (t0ssim**(1.0-p))/(Nom*(p-1.0))
 	
 	#
 	return incat
