@@ -191,16 +191,18 @@ def omori_demos(X=None, x1=1.0, x0=1.0, chi=1.0, q=1.5, y_min=None, **kwargs):
 	ax.set_xscale(kwargs['x_scale'])
 	ax.set_yscale(kwargs['y_scale'])
 	#
-	Y_omori = f_omori(X=X, x0=x0, chi=chi, q=q)
+	Y_omori = numpy.array(f_omori(X=X, x0=x0, chi=chi, q=q))
 	if y_min==None: y_min = min(Y_omori)
 	#y_min = 0.
 	#
-	plt.plot(X, Y_omori, '-', label='omori')
-	Y_exp = f_omori_exp(X=X, x0=x0, x1=x1, chi=chi, q=q, y_min=y_min)
-	plt.plot(X, Y_exp, '-', label='omori_exp')
-	plt.plot(X, f_omori_inv_gamma(X=X, x0=x0, x1=x1, chi=chi, q=q, y_min=y_min), '-', label='omori_gamma')
+	plt.plot(X, Y_omori, '-', label='omori', lw=2.5)
+	Y_exp = numpy.array(f_omori_exp(X=X, x0=x0, x1=x1, chi=chi, q=q, y_min=y_min))
+	
+	plt.plot(X, 1.*Y_exp, '-', label='omori_exp', lw=2.5)
+	plt.plot(X, 1.*numpy.array(f_omori_inv_gamma(X=X, x0=x0, x1=x1, chi=chi, q=q, y_min=y_min)), '-', label='omori_gamma', lw=2.5)
 	#
-	plt.plot([x0, x0], [min(Y_exp), 1.1], '--')
+	plt.plot([x0, x0], [min(Y_exp), 1.1], '--', lw=2.0)
+	if kwargs['y_scale']=='liner': plt.plot([min(X), max(X)], [0., 0.], 'k-', lw=2.)
 	
 	plt.legend(loc=0, numpoints=1)
 
