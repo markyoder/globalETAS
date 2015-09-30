@@ -70,7 +70,7 @@ tz_utc = pytz.timezone('UTC')
 class globalETAS_model(object):
 	# guts of ETAS. this will contain a catalog, lattice sites, etc. graphical tools, plotting, etc. will likely
 	# be kept elsewhere.
-	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), calc_etas=True):
+	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', calc_etas=True):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -89,6 +89,7 @@ class globalETAS_model(object):
 		self.etas_range_factor = etas_range_factor
 		self.t_0=t_0
 		self.t_now=t_now
+		self.transform_type='equal_area'
 		#		
 		self.lattice_sites = bindex.Bindex2D(dx=d_x, dy=d_y, x0=0., y0=0.)	# list of lattice site objects, and let's index it by... probably (i_x/lon, j_y/lat)
 							# we might alternativel store this as a simple list [] or a base index/list (that
@@ -114,6 +115,22 @@ class globalETAS_model(object):
 				x_min = self.get_bin_id(x-delta_x, dx=self.d_x, bin_0=0)
 				y_min = self.get_bin_id(y-delta_x, dx=self.d_y, bin_0=0)
 				#
+				# - choose an elliptical transform: equal-area, rotational, etc.
+				# - calculate initial rate-density
+				# - distribute over relevant sites:
+				#    - for each site, D' = D_spherical * R'/R_xy	of course this will be approximately equal to R'.
+				#
+				if self.transform_type=='equal_area':
+					#
+					#epsilon = quakes['e_vecs'][0]/quakes['e_vecs'][1]
+					intensity_factor = 1.0
+					#
+				#
+				elif self.transform_type='rotation':
+					# should be in order largest to smallest, but let's just be sure...
+					# since it's just a rotation, a=r, b=epsilon*r, the area is smaller and the intensity is higher.
+					intensity_factor = max(quake['e_vals'])/min(quake['e_vals'])
+				#
 				for x,y in [[j,k] for j,k in numpy.arange(x_min, x+delta_x, self.d_x) for k in numpy.arange(y_min, y+delta_x, self.d_y)]:
 					j_x = self.get_bin_id(x, dx=self.d_x, x0=self.bin_x0)
 					j_y = self.get_bin_id(y, dx=self.d_y, x0=self.bin_y0)
@@ -122,9 +139,8 @@ class globalETAS_model(object):
 					# the basic model for distances will be like: 1) measure distance using proper spherical transform, 2) get the ellipitical transform from PCA,
 					# renormalize
 			#
-			print "didn't really calculate anything, but spun the catalgo at least..."
-				
-		
+			print "didn't really calculate anything, but spun the catalgo at least..."		
+	#	
 	def get_bin_id(self, x, dx=1., x0=None, bin_0=0):
 		# return bin_id/index along a single axis.
 		x0 = (x0 or self.bin_x0)
@@ -245,10 +261,6 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 			eig_vals = [1.0, 1.0]
 			eig_vecs = [[1.0, 0.], [0., 1.0]]
 		#
-		# so now what? the linear algebra approach is fast and simple; trig. approach is more compact (6 variables, 2 variables), and
-		# we want to use a structured array.
-		#
-		#output_catalog += [x for x in rw] + [L_r, r_0, chi, dt_r, t_0, tau, strike_theta, strike_epsilon]
 		#
 		output_catalog += [ list(rw) + [L_r, r_0, chi, dt_r, t_0, tau] + [eig_vals] + [eig_vecs] ]
 		
