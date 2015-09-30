@@ -128,17 +128,6 @@ class globalETAS_model(object):
 				# - distribute over relevant sites:
 				#    - for each site, D' = D_spherical * R'/R_xy	of course this will be approximately equal to R'.
 				#
-				if self.transform_type=='equal_area':
-					#
-					#epsilon = quakes['e_vecs'][0]/quakes['e_vecs'][1]
-					intensity_factor = 1.0
-					#
-				#
-				elif self.transform_type=='rotation':
-					# should be in order largest to smallest, but let's just be sure...
-					# since it's just a rotation, a=r, b=epsilon*r, the area is smaller and the intensity is higher.
-					intensity_factor = max(quake['e_vals'])/min(quake['e_vals'])
-				#
 				for x_site,y_site in [[j,k] for j in numpy.arange(x_min, x_max, self.d_x) for k in numpy.arange(y_min, y_max, self.d_y)]:
 					# so we make a square (or maybe a circle later on) and calc. etas at each site. use Bindex() to correct for any misalignment.
 					#
@@ -154,6 +143,7 @@ class globalETAS_model(object):
 					# currently available distances are {'cartesian', 'spherical', 'geodedic'} (and there is some correction for synonmys). for most accurate
 					# distance calculations, use the geodetic option; spherical is a faster approximation; cartesian distances will be used for the elliptical transform.
 					#
+					eq_obj = Earthquake(quake, transform=self.transform_type)
 					distances = dist_to(lon_lat_from=[quake['lon'], quake['lat']], lon_lat_to=bin_lonlat, dist_types=['cart', 'geo'], Rearth = 6378.1)
 					#
 					self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
@@ -407,13 +397,42 @@ def spherical_dist(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], Rearth = 6378.1):
 	#
 	return R3
 
+def griddata_plot_xyz(xyz, n_x=None, n_y=None):
+	#
+	# eventually, we're going to need to put this stuff together to produce contours, etc. here's a test script that uses griddata() to, well... grid up the data.
+	# also see scipy.interpolate.griddata() -- which i'm guessing is called by matplotlib.mlab.griddata(), but who knows. the calling signature for the scipy library is
+	# a little bit different and allows method options ('nearest', 'linear', 'cubic') as opposed to ('nn', 'linear') for mlab version.
+	#
+	min_x, max_x = min(xyz['x']), max(xyz['x'])
+	min_y, max_y = min(xyz['y']), max(xyz['y'])
+	#
+	padding = .05
+	n_x = (n_x or int(math.sqrt(len(xyz))/10.))
+	n_y = (n_y or int(math.sqrt(len(xyz))/10.))
+	#
+	xi = numpy.linspace(min_x-abs(min_x)*padding, max_x + abs(max_x)*padding, n_x)
+	yi = numpy.linspace(min_y-abs(min_x)*padding, max_y + abs(max_x)*padding, n_y)
+	#
+	zi = matplotlib.mlab.griddata(xyz['x'], xyz['y'], numpy.log10(xyz['z']), xi, yi, interp='nn')
+	#
+	plt.figure(0)
+	plt.clf()
+	cs = plt.contourf(xi,yi,zi,15,cmap=plt.cm.rainbow,vmax=abs(zi).max(), vmin=-abs(zi).min())
+	plt.colorbar()
+
 class Earthquake(object):
 	# an Earthquake object for global ETAS. in parallel operations, treat this more like a bag of member functions than a data container.
 	# pass an earthquake catalog list to a process; use Earthquake() to handle each earthquake event row.
 	# include "local" ETAS calculation in this object; aka, each earthquake determines its ETAS range based on rupture length and other factors...
 	# maybe.
-	def __init__(self,lat=0., lon=0., mag=None, eig_vals=[1., 1.], eig_vecs=[[1.,0.], [0., 1.]], transform_type='equal_area'):
-		pass
+	#def __init__(self, event_date=None, lat=0., lon=0., mag=None, eig_vals=[1., 1.], eig_vecs=[[1.,0.], [0., 1.]], transform_type='equal_area'):
+	def __init__(self, dict_or_recarray, transform_type='equal_area'):
+		if isinstance(dict_or_recarray, dict): self.__dict__.update(dict_or_recarray)
+		if hasattr(dict_or_recarray, 'dtype'):
+			# recarray.
+			self.__dict__.update({key:dict_or_recarray[key] for key in dict_or_recarray.dtype.fields.keys()})
+			
+		
 	#
 	def spherical_dist(to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)

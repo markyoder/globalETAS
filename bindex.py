@@ -189,8 +189,10 @@ class Bindex2D(dict):
 		#
 		# numpy.core.records.fromarrays(zip(*best_fit_array), names = ['section_id', 'tau', 'beta', 'sigma_tau', 'sigma_beta', 'mean_chi_sqr'], formats = [type(x).__name__ for x in best_fit_array[0]])
 		if not hasattr(self.leaf_type, '__len__'):
-			z_type_name = type(leaf_type).__name__
-			return numpy.core.records.fromarrays(zip(*self.to_list()), names = ['x', 'y', 'z'], formats = ['f8', 'f8', type(leaf_type).__name__])
+			z_type_name = type(self.leaf_type()).__name__
+			print "exporting to array; leaf_type_name: ", z_type_name
+			#
+			return numpy.core.records.fromarrays(zip(*self.to_list()), names = ['x', 'y', 'z'], formats = ['f8', 'f8', z_type_name])
 		#
 		# otherwise, we've got string, list, tuple, etc. types. find the max length of all z entries.
 
