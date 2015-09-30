@@ -59,12 +59,18 @@ import bindex
 #
 days2secs = 60.*60.*24.
 year2secs = 60.*60.*24.*365.
-deg2km=111.12
+deg2km=111.31
 deg2rad = 2.0*math.pi/360.
 alpha_0 = 2.28
 #
 calipoly = [[-129.0, 42.75], [-121.5, 29.5], [-113.5, 29.5], [-114.0, 35.6], [-119.3, 39.4], [-119.5, 42.75], [-129.0, 42.75]]
 tz_utc = pytz.timezone('UTC')
+
+# a lookup dictionary for ditance types:
+dist_calc_types_dict={}
+dist_calc_types_dict.update({key:'spherical' for key in ['sph', 'spherical', 'sphere']})
+dist_calc_types_dict.update({key:'cartesian' for key in ['cartesian', 'cart', 'xy', 'rect']})
+dist_calc_types_dict.update({key:'geo' for key in ['geo', 'geodesic', 'geodesiclib', 'glib', 'g_lib']})
 #
 #
 class globalETAS_model(object):
@@ -112,8 +118,10 @@ class globalETAS_model(object):
 			for quake in catalog:
 				x,y = lon_lat_2xy(lon=quake['lon'], lat=quake['lat'])
 				delta_x = quake['L_r']*etas_range_factor
-				x_min = self.get_bin_id(x-delta_x, dx=self.d_x, bin_0=0)
-				y_min = self.get_bin_id(y-delta_x, dx=self.d_y, bin_0=0)
+				x_min, x_max = x-delta_x, x+delta_x
+				y_min, y_max = y-delta_x, y+delta_x
+				
+				
 				#
 				# - choose an elliptical transform: equal-area, rotational, etc.
 				# - calculate initial rate-density
@@ -126,21 +134,41 @@ class globalETAS_model(object):
 					intensity_factor = 1.0
 					#
 				#
-				elif self.transform_type='rotation':
+				elif self.transform_type=='rotation':
 					# should be in order largest to smallest, but let's just be sure...
 					# since it's just a rotation, a=r, b=epsilon*r, the area is smaller and the intensity is higher.
 					intensity_factor = max(quake['e_vals'])/min(quake['e_vals'])
 				#
-				for x,y in [[j,k] for j,k in numpy.arange(x_min, x+delta_x, self.d_x) for k in numpy.arange(y_min, y+delta_x, self.d_y)]:
-					j_x = self.get_bin_id(x, dx=self.d_x, x0=self.bin_x0)
-					j_y = self.get_bin_id(y, dx=self.d_y, x0=self.bin_y0)
+				for x_site,y_site in [[j,k] for j in numpy.arange(x_min, x_max, self.d_x) for k in numpy.arange(y_min, y_max, self.d_y)]:
+					# so we make a square (or maybe a circle later on) and calc. etas at each site. use Bindex() to correct for any misalignment.
+					#
+					x_bin = self.lattice_sites.get_xbin_center(x_site)	# returns a dict like {'index':j, 'center':x}
+					y_bin = self.lattice_sites.get_ybin_center(y_site)
+					#
+					bin_lonlat = xy2_lon_lat(x_bin['center'], y_bin['center'])
 					#
 					# now, get distance from earthquake and this bin, calc etas and update this site.
 					# the basic model for distances will be like: 1) measure distance using proper spherical transform, 2) get the ellipitical transform from PCA,
 					# renormalize
+					#
+					# currently available distances are {'cartesian', 'spherical', 'geodedic'} (and there is some correction for synonmys). for most accurate
+					# distance calculations, use the geodetic option; spherical is a faster approximation; cartesian distances will be used for the elliptical transform.
+					#
+					distances = dist_to(lon_lat_from=[quake['lon'], quake['lat']], lon_lat_to=bin_lonlat, dist_types=['cart', 'geo'], Rearth = 6378.1)
+					#
+					self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
+					
 			#
 			print "didn't really calculate anything, but spun the catalgo at least..."		
-	#	
+	#
+	'''
+	# i think these are all handled in the Bindex() object.
+	def get_bin_id_x(self, x):
+		return self.get_bin_id(x,dx=self.d_x, x0=self.bin_x0)
+	#
+	def get_bin_id_y(self, x):
+		return self.get_bin_id(y,dx=self.d_y, x0=self.bin_y0)
+	#
 	def get_bin_id(self, x, dx=1., x0=None, bin_0=0):
 		# return bin_id/index along a single axis.
 		x0 = (x0 or self.bin_x0)
@@ -150,6 +178,7 @@ class globalETAS_model(object):
 	def bin2x(bin_num, dx=1., x0=0., bin_0=0):
 		# return the position x of a bin along one axis.
 		return (bin_num - bin_0)*dx + x0x
+	'''
 
 def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, do_recarray=True):
 	'''
@@ -297,12 +326,12 @@ def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 
 def lon_lat_2xy(lon=0., lat=0.):
 	#
-	# super simple lat/lon -> xy mapper
+	# super simple lat/lon -> xy mapper. this is primarily for purposes of indexing, so don't allow any free parameters (like x0, y0, etc.).
 	#
 	return [(lon)*math.cos(lat*deg2rad)*deg2km, (lat)*deg2km]
 
 
-def xy2_lon_lat(self, x=0., y=0.):
+def xy2_lon_lat(x=0., y=0.):
 	#
 	# super simple xy -> lat/lon mapper
 	lat = y/deg2km
@@ -314,9 +343,78 @@ def xy2_lon_lat(self, x=0., y=0.):
 	#
 	return [lon, lat]
 
+def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'], Rearth = 6378.1):
+	# general purpose distance getter.
+	if dist_types in (None, [], 'all'): dist_types = dist_calc_types_dict.keys() 
+	types_dict = dist_calc_types_dict
+	#
+	# spherical, cartesian, geo
+	return_distances = {}
+	dist_types = [types_dict.get(key, key) for key in dist_types]
+	#
+	if 'spherical' in dist_types:
+		return_distances['spherical'] = spherical_dist(lon_lat_from, lon_lat_to)
+	if 'cartesian' in dist_types:
+		d_lon    = lon_lat_from[0]-lon_lat_to[0]
+		mean_lat = .5*(lon_lat_from[1]+lon_lat_to[1])
+		d_lat    = lon_lat_from[1]-lon_lat_to[1]
+		return_distances['cartesian'] = ( ((d_lon)*math.cos(mean_lat*deg2rad)*deg2km)**2. + (d_lat*deg2km)**2.)**.5
+	if 'geo' in dist_types:
+		# .Inverse(lat1, lon1, lat2, lon2)
+		g1=ggp.WGS84.Inverse(lon_lat_from[1], lon_lat_from[0], lon_lat_to[1],lon_lat_to[0])
+		return_distances['geo'] = g1['s12']/1000.0
+	#
+	if len(return_distances)==1: return_distances = return_distances.items()[0]
+	#
+	return return_distances
+	
+
+def spherical_dist(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], Rearth = 6378.1):
+	# Geometric spherical distance formula...
+	# displacement from inloc...
+	# inloc is a vector [lon, lat]
+	# return a vector [dLon, dLat] or [r, theta]
+	# return distances in km.
+	#
+	# also, we need to get the proper spherical angular displacement (from the parallel)
+	#
+	#Rearth = 6378.1	# km
+	deg2rad=2.0*math.pi/360.
+	#
+	# note: i usually use phi-> longitude, lambda -> latitude, but at some point i copied a source where this is
+	# reversed. oops. so just switch them here.
+	# phi: latitude
+	# lon: longitude
+	#
+	#phif  = inloc[0]*deg2rad
+	#lambf = inloc[1]*deg2rad
+	#phis  = self.loc[0]*deg2rad
+	#lambs = self.loc[1]*deg2rad
+	
+	phif  = lon_lat_to[1]*deg2rad
+	lambf = lon_lat_to[0]*deg2rad
+	phis  = lon_lat_from[1]*deg2rad
+	lambs = lon_lat_from[0]*deg2rad
+	#
+	#print 'phif: ', phif
+	#print 'lambf: ', lambf
+	#
+	dphi = (phif - phis)
+	dlambda = (lambf - lambs)
+	#this one is supposed to be bulletproof:
+	sighat3 = math.atan( math.sqrt((math.cos(phif)*math.sin(dlambda))**2.0 + (math.cos(phis)*math.sin(phif) - math.sin(phis)*math.cos(phif)*math.cos(dlambda))**2.0 ) / (math.sin(phis)*math.sin(phif) + math.cos(phis)*math.cos(phif)*math.cos(dlambda))  )
+	R3 = Rearth * sighat3
+	#
+	return R3
+
 class Earthquake(object):
 	# an Earthquake object for global ETAS. in parallel operations, treat this more like a bag of member functions than a data container.
 	# pass an earthquake catalog list to a process; use Earthquake() to handle each earthquake event row.
 	# include "local" ETAS calculation in this object; aka, each earthquake determines its ETAS range based on rupture length and other factors...
 	# maybe.
-	pass
+	def __init__(self,lat=0., lon=0., mag=None, eig_vals=[1., 1.], eig_vecs=[[1.,0.], [0., 1.]], transform_type='equal_area'):
+		pass
+	#
+	def spherical_dist(to_lon_lat=[]):
+		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
+		

@@ -68,6 +68,26 @@ class Bindex2D(dict):
 	#def __sizeof__(self):
 	#	return sum([len(rw) for rw in self.items.iteritems()])
 	#
+	def get_xbin_center(self, x, dx=None, x0=None, bin_0=0):
+		'''
+		# return a dict. with the bin index and center location closest to x.
+		'''
+		#
+		j = self.get_xbin(x, dx=dx, x0=x0, bin_0=bin_0)
+		xx = self.get_bin2x(j, dx=dx, x0=x0, bin_0=bin_0)
+		#
+		return {'index':j, 'center':xx}
+	
+	def get_ybin_center(self, y, dy=None, y0=None, bin_0=0):
+		'''
+		# return a dict. with the bin index and center location closest to x.
+		'''
+		#
+		j = self.get_ybin(y, dy=dy, y0=y0, bin_0=bin_0)
+		xx = self.get_bin2y(j, dy=dy, y0=y0, bin_0=bin_0)
+		#
+		return {'index':j, 'center':xx}
+		
 	def get_xbin(self, x, dx=None, x0=None, bin_0=0):
 		dx = (dx or self.dx)
 		x0 = (x0 or self.x0)
@@ -85,6 +105,12 @@ class Bindex2D(dict):
 		dy = (dy or self.dy)
 		y0 = (y0 or self.y0)
 		return get_bin(y, dx=dy, x0=y0, bin_0=bin_0)
+	#
+	def get_bin2y(self, bin_num, dy=None, y0=None, bin_0=0):
+		dy = (dy or self.dy)
+		y0 = (y0 or self.y0)
+		#
+		return bin2x(bin_num, dx=dy, x0=y0, bin_0=bin_0)
 	#
 	def get_xybins(self, x, y, dx=None, dy=None,  bin_x_0=0, bin_y_0=0, r_type='dict'):
 		dx = (dx or  self.dx)
