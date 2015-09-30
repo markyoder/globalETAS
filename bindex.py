@@ -87,8 +87,8 @@ class Bindex2D(dict):
 		return get_bin(y, dx=dy, x0=y0, bin_0=bin_0)
 	#
 	def get_xybins(self, x, y, dx=None, dy=None,  bin_x_0=0, bin_y_0=0, r_type='dict'):
-		dx = (self.dx or  dx)
-		dy = (self.dy or dy)
+		dx = (dx or  self.dx)
+		dy = (dy or self.dy)
 		#
 		x_bin = get_bin(x=x, dx=dx, x0=bin_x_0, bin_0=bin_x_0)
 		y_bin = get_bin(x=y, dx=dy, x0=bin_y_0, bin_0=bin_y_0)
@@ -117,6 +117,8 @@ class Bindex2D(dict):
 		return None
 	#
 	def add_to_bin(self, x=None, y=None, z=None):
+		# in other words, add z to the bin located at (x,y). (x,y) can be off-center; we'll find the appropriate bin.
+		#
 		# x,y: coordinates of item; z is the item.
 		if z==None: z=self.leaf_type()
 		#x0,y0 = self.get_xybins(x,y,r_type='tuple')
@@ -207,9 +209,11 @@ class Bindex(dict):
 	#
 #
 def get_bin(x, dx=1., x0=0., bin_0=0):
+	# return bin_id/index along a single axis.
 	return int(bin_0) + int(round((x-x0)/dx))
 
 def bin2x(bin_num, dx=1., x0=0., bin_0=0):
+	# return the position x of a bin along one axis.
 	return (bin_num - bin_0)*dx + x0
 
 	
