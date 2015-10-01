@@ -431,9 +431,91 @@ class Earthquake(object):
 		if hasattr(dict_or_recarray, 'dtype'):
 			# recarray.
 			self.__dict__.update({key:dict_or_recarray[key] for key in dict_or_recarray.dtype.fields.keys()})
+		#
+		self.transform_type=transform_type
+		# now, make some preliminary calculations, namely the peak spatial density and maybe some omori constants? anything we'll calculate
+		# again and again...
+		#
+		self.initial_intensity_factor=1.0		# corrects for local aftershock density in rotational type transforms.
+		self.set_transform()
 			
 		
 	#
+	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None):
+		'''
+		# define the elliptical transformation for calculating intensities.
+		'''
+		e_vals = (e_vals or self.e_vals)
+		e_vecs = (e_vecs or self.e_vecs)
+		transform_type = (transform_type or self.transform_type)
+		#
+		if transform_type=='equal_area':
+			epsilon = math.sqrt(max(e_vals)/min(e_vals))
+			self.e_vecs_prime = [[v*epsilon for v in e_vecs[0]], [v/epsilon for v in e_vecs[1]]]
+			self.e_vals_prime = [epsilon, 1./epsilon]
+			
+		#	
+		elif transform_type=='rotation':
+			# set the *small* eigen-value --> 1; scale the large one.
+			self.e_vals_prime = [x/min(self.e_vals) for x in self.e_vals]
+			self.e_vecs_prime = [self.e_vals_prime[j]*numpy.array(self.e_vecs[j]) for j,v in enumerate(self.e_vecs)]
+		else:
+			return self.get_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
+		#
+	#
 	def spherical_dist(to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
+
+class Ellipse(object):
+	def __init__(self, a=1.0, b=.5, ab_ratio=None, theta=0.):
+		if a==None and b==None: a,b = 1.0, .5
+		if not (a==None and b==None): ab_ratio=a/float(b)
+		#
+		if a==None: a=b*ab_ratio
+		if b==None: b=a/ab_ratio
+		#
+		self.a = a
+		self.b = b
+		#
+		if theta>1.1*math.pi*2.0: theta*=deg2rad
+		self.theta=theta
+		#
+		self.ab_ratio = ab_ratio
+		self.h = ((a-b)/(a+b))**2
+		#self.polygon=None
+	#
+	@property
+	def area(self):
+		return math.pi*self.a*self.b
+
+	@property
+	def circumference_exact(self):
+		
+		return math.pi*(self.a+self.b)*scipy.special.hyp2f1(-.5, -.5, 1.0, self.h)
+	
+	@property
+	def circumference_approx1(self):
+		# there are two good approximations from Ramanujan (see wikipedia); this is one of them...
+		#
+		return math.pi*(self.a+self.b)*(1. + 3.*self.h/(10 + math.sqrt(4. - 3.*self.h)))
+	#
+	def poly(self, n_points=100):
+		d_theta = 2.0*math.pi/n_points
+		poly = [[self.a*math.cos(theta), self.b*math.sin(theta)] for theta in numpy.arange(0., 2.0*math.pi+d_theta, d_theta)]
+		# there's probably a smarter way to do this...
+		print "theta: %f" % (self.theta)
+		if self.theta!=0.:
+			#poly = zip(*numpy.dot( [[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]], zip(*poly)))
+			poly = numpy.dot(poly, zip(*[[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]]))
+		#
+		return poly
+	#
+	def plot_poly(self, fignum=0, doclf=True, poly_len=100):
+		plt.figure(fignum)
+		plt.clf()
+		#
+		#if self.poly==None or len(self.poly==0):
+		#	self.poly(poly_len)
+		#
+		plt.plot(*zip(*self.poly()), color='b', marker='.', ls='-', lw='1.5')
 		
