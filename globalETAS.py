@@ -76,6 +76,7 @@ dist_calc_types_dict.update({key:'geo' for key in ['geo', 'geodesic', 'geodesicl
 dist_calc_types_dict.update({key:'dx_dy' for key in ['dxdy', 'dx_dy']})
 #
 #
+# Classes:
 class globalETAS_model(object):
 	# guts of ETAS. this will contain a catalog, lattice sites, etc. graphical tools, plotting, etc. will likely
 	# be kept elsewhere.
@@ -173,7 +174,151 @@ class globalETAS_model(object):
 		# return the position x of a bin along one axis.
 		return (bin_num - bin_0)*dx + x0x
 	'''
+#
+class Earthquake(object):
+	# an Earthquake object for global ETAS. in parallel operations, treat this more like a bag of member functions than a data container.
+	# pass an earthquake catalog list to a process; use Earthquake() to handle each earthquake event row.
+	# include "local" ETAS calculation in this object; aka, each earthquake determines its ETAS range based on rupture length and other factors...
+	# maybe.
+	#def __init__(self, event_date=None, lat=0., lon=0., mag=None, eig_vals=[1., 1.], eig_vecs=[[1.,0.], [0., 1.]], transform_type='equal_area'):
+	def __init__(self, dict_or_recarray, transform_type='equal_area', transform_ratio_max=5.):
+		#
+		# first, load all indexed elements from the input dict or recarray row as class members:
+		if isinstance(dict_or_recarray, dict): self.__dict__.update(dict_or_recarray)
+		if hasattr(dict_or_recarray, 'dtype'):
+			# recarray.
+			self.__dict__.update({key:dict_or_recarray[key] for key in dict_or_recarray.dtype.fields.keys()})
+		#
+		#
+		# elliptical transform bits:
+		self.transform_type = transform_type
+		self.transform_ratio_max = transform_ratio_max
+		#self.ab_ratio = min(transform_ratio_max, max(self.e_vals)/min(self.e_vals))
+		self.ab_ratio_raw = max(self.e_vals)/min(self.e_vals)
+		self.set_transform()
+		#
+		#####
+		# now, make some preliminary calculations, namely the peak spatial density and maybe some omori constants? anything we'll calculate
+		# again and again...
+		#
+		self.spatial_intensity_factor=1.0		# corrects for local aftershock density in rotational type transforms.
+	#	
+	@property
+	def lat_lon(self):
+		return [self.lat, self.lon]
+	@property
+	def lon_lat(self):
+		return [self.lon, self.lat]		
+	#
+	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None, transform_ratio_max=None):
+		'''
+		# note: it might be better to not allow custom-runs (aka not allow parameterized calls to this function; always use native member values).
+		#
+		# define the elliptical transformation for calculating intensities.
+		# transform_type: elliptical transformation type = { 'equal_area', 'rotation'}
+		# transform_ratio_max: maximum allowable eigenvalue (and transformed axes length) ratio.
+		'''
+		e_vals = (e_vals or self.e_vals)
+		e_vecs = (e_vecs or self.e_vecs)
+		transform_ratio_max = float(transform_ratio_max or self.transform_ratio_max)
+		transform_type = (transform_type or self.transform_type)
+		#
+		ab_ratio = (transform_ratio_max or max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))
+		self.ab_ratio=ab_ratio
+		#
+		if transform_type=='equal_area':
+			# so that pi*r^2 = pi*ab = pi*b*(ab_ratio)*b
+			self.e_vals_n = [math.sqrt(ab_ratio), 1./math.sqrt(ab_ratio)]
+			self.spatial_intensity_factor = 1.0
+			#
+		#	
+		elif transform_type=='rotation':
+			# set the *small* eigen-value --> 1; scale the large one.
+			self.e_vals_n = [x/min(e_vals) for x in e_vals]
+			self.spatial_intensity_factor = min(e_vals)/max(e_vals)		# area of "core" (rupture area) is reduced, so intensity increases.
+			#
+		else:
+			return self.get_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
+		#
+		E = self.e_vals_n
+		self.T = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs)
+	#
+	def elliptical_transform(self, lon=0., lat=0.):
+		'''
+		# return elliptical transform of position (lon, lat). submit the raw x,y values; we'll subtract this Earthquake's position here...
+		# ... and let's just return all the information: {'R':radial_dist (spherical or geo), 'R_prime':transformed distance, 'lon':lon,'lat':, 
+		# 'lon_prime':transf_lon, 'lat_prime':tranf_lat}
+		#
+		#use module function:
+		#def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'], Rearth = 6378.1):
+		'''
+		#
+		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
+		R = dists['geo']
+		dx,dy = dists['dx'], dists['dy']
+		#
+		dx_prime, dy_prime = numpy.dot([dx,dy],self.T)
+		R_prime = R*((dx_prime*dx_prime + dy_prime*dy_prime)/(dx*dx+dy*dy))**.5
+		#
+		return {'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime}
+	#
+	def spherical_dist(to_lon_lat=[]):
+		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
+#
+class Ellipse(object):
+	def __init__(self, a=1.0, b=.5, ab_ratio=None, theta=0.):
+		if a==None and b==None: a,b = 1.0, .5
+		if not (a==None and b==None): ab_ratio=a/float(b)
+		#
+		if a==None: a=b*ab_ratio
+		if b==None: b=a/ab_ratio
+		#
+		self.a = a
+		self.b = b
+		#
+		if theta>1.1*math.pi*2.0: theta*=deg2rad
+		self.theta=theta
+		#
+		self.ab_ratio = ab_ratio
+		self.h = ((a-b)/(a+b))**2
+		#self.polygon=None
+	#
+	@property
+	def area(self):
+		return math.pi*self.a*self.b
 
+	@property
+	def circumference_exact(self):
+		
+		return math.pi*(self.a+self.b)*scipy.special.hyp2f1(-.5, -.5, 1.0, self.h)
+	
+	@property
+	def circumference_approx1(self):
+		# there are two good approximations from Ramanujan (see wikipedia); this is one of them...
+		#
+		return math.pi*(self.a+self.b)*(1. + 3.*self.h/(10 + math.sqrt(4. - 3.*self.h)))
+	#
+	def poly(self, n_points=100):
+		d_theta = 2.0*math.pi/n_points
+		poly = [[self.a*math.cos(theta), self.b*math.sin(theta)] for theta in numpy.arange(0., 2.0*math.pi+d_theta, d_theta)]
+		# there's probably a smarter way to do this...
+		print "theta: %f" % (self.theta)
+		if self.theta!=0.:
+			#poly = zip(*numpy.dot( [[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]], zip(*poly)))
+			poly = numpy.dot(poly, zip(*[[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]]))
+		#
+		return poly
+	#
+	def plot_poly(self, fignum=0, doclf=True, poly_len=100):
+		plt.figure(fignum)
+		plt.clf()
+		#
+		#if self.poly==None or len(self.poly==0):
+		#	self.poly(poly_len)
+		#
+		plt.plot(*zip(*self.poly()), color='b', marker='.', ls='-', lw='1.5')
+#
+# Working scripts
 def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, do_recarray=True):
 	'''
 	# fetch (or receive) an earthquake catalog. for each event, calculate ETAS relevant constants including rupture_length,
@@ -293,7 +438,8 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	if do_recarray: output_catalog = numpy.core.records.fromarrays(zip(*output_catalog), dtype=my_dtype)
 	
 	return output_catalog
-
+#
+# helper scripts
 def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 	# get pca for the input catalog. if center_lat/lon=None, then subtrac these values as the 'mean' (standard PCA). otherwis,
 	# subtract the actual mean.
@@ -456,146 +602,27 @@ def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 	plt.clf()
 	cs = plt.contourf(xi,yi,zi,15,cmap=plt.cm.rainbow,vmax=abs(zi).max(), vmin=-abs(zi).min())
 	plt.colorbar()
-
-class Earthquake(object):
-	# an Earthquake object for global ETAS. in parallel operations, treat this more like a bag of member functions than a data container.
-	# pass an earthquake catalog list to a process; use Earthquake() to handle each earthquake event row.
-	# include "local" ETAS calculation in this object; aka, each earthquake determines its ETAS range based on rupture length and other factors...
-	# maybe.
-	#def __init__(self, event_date=None, lat=0., lon=0., mag=None, eig_vals=[1., 1.], eig_vecs=[[1.,0.], [0., 1.]], transform_type='equal_area'):
-	def __init__(self, dict_or_recarray, transform_type='equal_area', transform_ratio_max=5.):
-		#
-		# first, load all indexed elements from the input dict or recarray row as class members:
-		if isinstance(dict_or_recarray, dict): self.__dict__.update(dict_or_recarray)
-		if hasattr(dict_or_recarray, 'dtype'):
-			# recarray.
-			self.__dict__.update({key:dict_or_recarray[key] for key in dict_or_recarray.dtype.fields.keys()})
-		#
-		#
-		# elliptical transform bits:
-		self.transform_type = transform_type
-		self.transform_ratio_max = transform_ratio_max
-		#self.ab_ratio = min(transform_ratio_max, max(self.e_vals)/min(self.e_vals))
-		self.ab_ratio_raw = max(self.e_vals)/min(self.e_vals)
-		self.set_transform()
-		#
-		#####
-		# now, make some preliminary calculations, namely the peak spatial density and maybe some omori constants? anything we'll calculate
-		# again and again...
-		#
-		self.spatial_intensity_factor=1.0		# corrects for local aftershock density in rotational type transforms.
-	#	
-	@property
-	def lat_lon(self):
-		return [self.lat, self.lon]
-	@property
-	def lon_lat(self):
-		return [self.lon, self.lat]		
+#
+# testing and development scripts:
+#
+def test_earthquake_transform():
+	# let's do a test script in the Parkfield area...
+	# parkfield={'dt':dtm.datetime(2004,9,28,17,15,24, tzinfo=pytz.timezone('UTC')), 'lat':35.815, 'lon':-120.374, 'mag':5.96}
+	C = make_ETAS_catalog(incat=None, lats=[33.8, 37.8], lons=[-122.4, -118.4], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, do_recarray=True)
 	#
-	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None, transform_ratio_max=None):
-		'''
-		# note: it might be better to not allow custom-runs (aka not allow parameterized calls to this function; always use native member values).
+	# find parkfield (we might also look at san-sim and coalinga):
+	for j,rw in enumerate(C):
+		if rw['event_date']>dtm.datetime(2004,9,28,17) and rw['event_date']<dtm.datetime(2004,9,28,18,15,24) and rw['mag']>5.9 and rw['mag']<6.1:
+			# this should be enough...
+			j_pf = j
+			break
 		#
-		# define the elliptical transformation for calculating intensities.
-		# transform_type: elliptical transformation type = { 'equal_area', 'rotation'}
-		# transform_ratio_max: maximum allowable eigenvalue (and transformed axes length) ratio.
-		'''
-		e_vals = (e_vals or self.e_vals)
-		e_vecs = (e_vecs or self.e_vecs)
-		transform_ratio_max = (transform_ratio_max or self.transform_ratio_max)
-		transform_type = (transform_type or self.transform_type)
-		#
-		ab_ratio = (transform_ratio_max or max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))
-		#
-		if transform_type=='equal_area':
-			# so that pi*r^2 = pi*ab = pi*b*(ab_ratio)*b
-			self.e_vals_n = [math.sqrt(ab_ratio), 1./math.sqrt(ab_ratio)]
-			self.spatial_intensity_factor = 1.0
-			#
-		#	
-		elif transform_type=='rotation':
-			# set the *small* eigen-value --> 1; scale the large one.
-			self.e_vals_n = [x/min(e_vals) for x in e_vals]
-			self.spatial_intensity_factor = min(e_vals)/max(e_vals)		# area of "core" (rupture area) is reduced, so intensity increases.
-			#
-		else:
-			return self.get_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
-		#
-		E = self.e_vals_n
-		self.T = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs)
 	#
-	def elliptical_transform(self, lon=0., lat=0.):
-		'''
-		# return elliptical transform of position (lon, lat). submit the raw x,y values; we'll subtract this Earthquake's position here...
-		# ... and let's just return all the information: {'R':radial_dist (spherical or geo), 'R_prime':transformed distance, 'lon':lon,'lat':, 
-		# 'lon_prime':transf_lon, 'lat_prime':tranf_lat}
-		#
-		#use module function:
-		#def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'], Rearth = 6378.1):
-		'''
-		#
-		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
-		R = dists['geo']
-		dx,dy = dists['dx'], dists['dy']
-		#
-		dx_prime, dy_prime = numpy.dot([dx,dy],self.T)
-		R_prime = R*((dx_prime*dx_prime + dy_prime*dy_prime)/(dx*dx+dy*dy))**.5
-		#
-		return {'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime}
+	E_pf = Earthquake(C[j_pf])
 	#
-	def spherical_dist(to_lon_lat=[]):
-		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
-
-class Ellipse(object):
-	def __init__(self, a=1.0, b=.5, ab_ratio=None, theta=0.):
-		if a==None and b==None: a,b = 1.0, .5
-		if not (a==None and b==None): ab_ratio=a/float(b)
-		#
-		if a==None: a=b*ab_ratio
-		if b==None: b=a/ab_ratio
-		#
-		self.a = a
-		self.b = b
-		#
-		if theta>1.1*math.pi*2.0: theta*=deg2rad
-		self.theta=theta
-		#
-		self.ab_ratio = ab_ratio
-		self.h = ((a-b)/(a+b))**2
-		#self.polygon=None
+	# now, make a circle around the earthuqake and do some elliptical transforms...
 	#
-	@property
-	def area(self):
-		return math.pi*self.a*self.b
-
-	@property
-	def circumference_exact(self):
-		
-		return math.pi*(self.a+self.b)*scipy.special.hyp2f1(-.5, -.5, 1.0, self.h)
+	#return C[j_pf]
+	return E_pf
 	
-	@property
-	def circumference_approx1(self):
-		# there are two good approximations from Ramanujan (see wikipedia); this is one of them...
-		#
-		return math.pi*(self.a+self.b)*(1. + 3.*self.h/(10 + math.sqrt(4. - 3.*self.h)))
-	#
-	def poly(self, n_points=100):
-		d_theta = 2.0*math.pi/n_points
-		poly = [[self.a*math.cos(theta), self.b*math.sin(theta)] for theta in numpy.arange(0., 2.0*math.pi+d_theta, d_theta)]
-		# there's probably a smarter way to do this...
-		print "theta: %f" % (self.theta)
-		if self.theta!=0.:
-			#poly = zip(*numpy.dot( [[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]], zip(*poly)))
-			poly = numpy.dot(poly, zip(*[[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]]))
-		#
-		return poly
-	#
-	def plot_poly(self, fignum=0, doclf=True, poly_len=100):
-		plt.figure(fignum)
-		plt.clf()
-		#
-		#if self.poly==None or len(self.poly==0):
-		#	self.poly(poly_len)
-		#
-		plt.plot(*zip(*self.poly()), color='b', marker='.', ls='-', lw='1.5')
 		
