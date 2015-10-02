@@ -70,13 +70,16 @@ tz_utc = pytz.timezone('UTC')
 dist_calc_types_dict={}
 dist_calc_types_dict.update({key:'spherical' for key in ['sph', 'spherical', 'sphere']})
 dist_calc_types_dict.update({key:'cartesian' for key in ['cartesian', 'cart', 'xy', 'rect']})
+#dist_calc_types_dict.update({key:'cartesian2' for key in ['cartesian2']})
 dist_calc_types_dict.update({key:'geo' for key in ['geo', 'geodesic', 'geodesiclib', 'glib', 'g_lib']})
+# and this one to return the x,y components for cartesian measurements:
+dist_calc_types_dict.update({key:'dx_dy' for key in ['dxdy', 'dx_dy']})
 #
 #
 class globalETAS_model(object):
 	# guts of ETAS. this will contain a catalog, lattice sites, etc. graphical tools, plotting, etc. will likely
 	# be kept elsewhere.
-	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', calc_etas=True):
+	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -95,7 +98,8 @@ class globalETAS_model(object):
 		self.etas_range_factor = etas_range_factor
 		self.t_0=t_0
 		self.t_now=t_now
-		self.transform_type='equal_area'
+		self.transform_type=transform_type
+		self.transform_ratio_max=transform_ratio_max
 		#		
 		self.lattice_sites = bindex.Bindex2D(dx=d_x, dy=d_y, x0=0., y0=0.)	# list of lattice site objects, and let's index it by... probably (i_x/lon, j_y/lat)
 							# we might alternativel store this as a simple list [] or a base index/list (that
@@ -143,7 +147,7 @@ class globalETAS_model(object):
 					# currently available distances are {'cartesian', 'spherical', 'geodedic'} (and there is some correction for synonmys). for most accurate
 					# distance calculations, use the geodetic option; spherical is a faster approximation; cartesian distances will be used for the elliptical transform.
 					#
-					eq_obj = Earthquake(quake, transform=self.transform_type)
+					eq_obj = Earthquake(quake, transform=self.transform_type, transform_ratio_max=self.transform_ratio_max)
 					distances = dist_to(lon_lat_from=[quake['lon'], quake['lat']], lon_lat_to=bin_lonlat, dist_types=['cart', 'geo'], Rearth = 6378.1)
 					#
 					self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
@@ -187,7 +191,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	#
 	# some constants:
 	l_15_factor = (2./3.)*math.log10(1.5)	# pre-calculate some values...
-	km2lat = 1./111.1
+	km2lat = 1./deg2km		# deg3km defined globally
 	#
 	# handle dates:
 	if date_range[1]==None: date_range[1] = dtm.datetime.now(pytz.timezone('UTC'))
@@ -220,7 +224,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	my_dtype = [(cols[j], formats[j]) for j in xrange(len(cols))]
 	#cols += ['e_vals', 'e_vecs']
 	#formats += ['object', 'object']
-	my_dtype += [('e_vals', '>f8', 2), ('e_vecs', '>f8', (2,2))]
+	my_dtype += [('e_vals', '>f8', 2), ('e_vecs', '>f8', (2,2)), ('N_eig_cat','>f8')]
 	
 	#print "dtype:",  my_dtype
 	output_catalog = []
@@ -274,14 +278,14 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# at some point, we'll want to allow multiple options for fitting and transforms. for now, start by getting PCA eigen-vals/vectors.
 		# note: if center_lat/lon=None (default), we subtract mean value to get PCA. if we specify center_lat/lon, we subtract those values.
 		# note: if there aren't any data, don't bother fitting (though we could just leave this to the PCA code)
-		if len(included_indices)>10:
+		if len(included_indices)>10 and False:
 			eig_vals, eig_vecs = get_pca(cat=[[incat['lon'][j], incat['lat'][j]] for j in included_indices], center_lat=rw['lat'], center_lon=rw['lon'], xy_transform=True)
 		else:
 			eig_vals = [1.0, 1.0]
 			eig_vecs = [[1.0, 0.], [0., 1.0]]
 		#
 		#
-		output_catalog += [ list(rw) + [L_r, r_0, chi, dt_r, t_0, tau] + [eig_vals] + [eig_vecs] ]
+		output_catalog += [ list(rw) + [L_r, r_0, chi, dt_r, t_0, tau] + [eig_vals, eig_vecs, len(included_indices)] ]
 		
 		# (and strike_theta (or at least something like it -- setting aside conventions) = atan(eig_vecs[0][1]/eig_vecs[0][1])
 		#
@@ -317,6 +321,10 @@ def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 def lon_lat_2xy(lon=0., lat=0.):
 	#
 	# super simple lat/lon -> xy mapper. this is primarily for purposes of indexing, so don't allow any free parameters (like x0, y0, etc.).
+	# note: this formulation is good for basically indexing lat and lon bins, but we can't accurately calculate cartesian distances directly
+	# from this mapping. but i think we can still use the mapping to get equal-spaced lattice sites.
+	#
+	if hasattr(lon, '__len__'): lon,lat = lon
 	#
 	return [(lon)*math.cos(lat*deg2rad)*deg2km, (lat)*deg2km]
 
@@ -324,6 +332,8 @@ def lon_lat_2xy(lon=0., lat=0.):
 def xy2_lon_lat(x=0., y=0.):
 	#
 	# super simple xy -> lat/lon mapper
+	#
+	if hasattr(x,'__len__'): x,y=x	# accidentally passed an xy=[x,y] list...
 	lat = y/deg2km
 	#
 	if abs(lat)==90.:
@@ -344,11 +354,31 @@ def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'],
 	#
 	if 'spherical' in dist_types:
 		return_distances['spherical'] = spherical_dist(lon_lat_from, lon_lat_to)
-	if 'cartesian' in dist_types:
+	#
+	'''
+	if 'cartesian2' in dist_types or 'dx_dy' in dist_types:
+		# note: we can't calculate xy distances directly from the lat_lot2xy mapping, so be careful...
+		xy_from = lon_lat_2xy(*lon_lat_from)
+		xy_to   = lon_lat_2xy(*lon_lat_to)
+		#
+		dx = xy_to[0]-xy_from[0]
+		dy = xy_to[1]-xy_from[1]
+		#
+		return_distances['cartesian2']=(dx*dx+dy*dy)**.5
+		#
+	'''
+	#
+	if 'cartesian' in dist_types or 'dx_dy' in dist_types:
 		d_lon    = lon_lat_from[0]-lon_lat_to[0]
 		mean_lat = .5*(lon_lat_from[1]+lon_lat_to[1])
 		d_lat    = lon_lat_from[1]-lon_lat_to[1]
-		return_distances['cartesian'] = ( ((d_lon)*math.cos(mean_lat*deg2rad)*deg2km)**2. + (d_lat*deg2km)**2.)**.5
+		dx = ((d_lon)*math.cos(mean_lat*deg2rad)*deg2km)
+		dy = (d_lat*deg2km)
+		if 'cartesian' in dist_types:
+			return_distances['cartesian'] = ( dx**2. + dy**2.)**.5
+		if 'dx_dy' in dist_types:
+			return_distances.update({'dx':dx, 'dy':dy})
+		#
 	if 'geo' in dist_types:
 		# .Inverse(lat1, lon1, lat2, lon2)
 		g1=ggp.WGS84.Inverse(lon_lat_from[1], lon_lat_from[0], lon_lat_to[1],lon_lat_to[0])
@@ -397,6 +427,13 @@ def spherical_dist(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], Rearth = 6378.1):
 	#
 	return R3
 
+def ab_ratio_distribution(e_vals, **kwargs):
+	x = [max(x[0]/x[1], x[1]/x[0]) for x in e_vals]
+	#
+	plt.figure(0)
+	plt.clf()
+	plt.hist(x, bins=min(250, len(x)/10), histtype='step', **kwargs)
+
 def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 	#
 	# eventually, we're going to need to put this stuff together to produce contours, etc. here's a test script that uses griddata() to, well... grid up the data.
@@ -426,42 +463,85 @@ class Earthquake(object):
 	# include "local" ETAS calculation in this object; aka, each earthquake determines its ETAS range based on rupture length and other factors...
 	# maybe.
 	#def __init__(self, event_date=None, lat=0., lon=0., mag=None, eig_vals=[1., 1.], eig_vecs=[[1.,0.], [0., 1.]], transform_type='equal_area'):
-	def __init__(self, dict_or_recarray, transform_type='equal_area'):
+	def __init__(self, dict_or_recarray, transform_type='equal_area', transform_ratio_max=5.):
+		#
+		# first, load all indexed elements from the input dict or recarray row as class members:
 		if isinstance(dict_or_recarray, dict): self.__dict__.update(dict_or_recarray)
 		if hasattr(dict_or_recarray, 'dtype'):
 			# recarray.
 			self.__dict__.update({key:dict_or_recarray[key] for key in dict_or_recarray.dtype.fields.keys()})
 		#
-		self.transform_type=transform_type
+		#
+		# elliptical transform bits:
+		self.transform_type = transform_type
+		self.transform_ratio_max = transform_ratio_max
+		#self.ab_ratio = min(transform_ratio_max, max(self.e_vals)/min(self.e_vals))
+		self.ab_ratio_raw = max(self.e_vals)/min(self.e_vals)
+		self.set_transform()
+		#
+		#####
 		# now, make some preliminary calculations, namely the peak spatial density and maybe some omori constants? anything we'll calculate
 		# again and again...
 		#
-		self.initial_intensity_factor=1.0		# corrects for local aftershock density in rotational type transforms.
-		self.set_transform()
-			
-		
+		self.spatial_intensity_factor=1.0		# corrects for local aftershock density in rotational type transforms.
+	#	
+	@property
+	def lat_lon(self):
+		return [self.lat, self.lon]
+	@property
+	def lon_lat(self):
+		return [self.lon, self.lat]		
 	#
-	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None):
+	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None, transform_ratio_max=None):
 		'''
+		# note: it might be better to not allow custom-runs (aka not allow parameterized calls to this function; always use native member values).
+		#
 		# define the elliptical transformation for calculating intensities.
+		# transform_type: elliptical transformation type = { 'equal_area', 'rotation'}
+		# transform_ratio_max: maximum allowable eigenvalue (and transformed axes length) ratio.
 		'''
 		e_vals = (e_vals or self.e_vals)
 		e_vecs = (e_vecs or self.e_vecs)
+		transform_ratio_max = (transform_ratio_max or self.transform_ratio_max)
 		transform_type = (transform_type or self.transform_type)
 		#
+		ab_ratio = (transform_ratio_max or max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))
+		#
 		if transform_type=='equal_area':
-			epsilon = math.sqrt(max(e_vals)/min(e_vals))
-			self.e_vecs_prime = [[v*epsilon for v in e_vecs[0]], [v/epsilon for v in e_vecs[1]]]
-			self.e_vals_prime = [epsilon, 1./epsilon]
-			
+			# so that pi*r^2 = pi*ab = pi*b*(ab_ratio)*b
+			self.e_vals_n = [math.sqrt(ab_ratio), 1./math.sqrt(ab_ratio)]
+			self.spatial_intensity_factor = 1.0
+			#
 		#	
 		elif transform_type=='rotation':
 			# set the *small* eigen-value --> 1; scale the large one.
-			self.e_vals_prime = [x/min(self.e_vals) for x in self.e_vals]
-			self.e_vecs_prime = [self.e_vals_prime[j]*numpy.array(self.e_vecs[j]) for j,v in enumerate(self.e_vecs)]
+			self.e_vals_n = [x/min(e_vals) for x in e_vals]
+			self.spatial_intensity_factor = min(e_vals)/max(e_vals)		# area of "core" (rupture area) is reduced, so intensity increases.
+			#
 		else:
 			return self.get_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
 		#
+		E = self.e_vals_n
+		self.T = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs)
+	#
+	def elliptical_transform(self, lon=0., lat=0.):
+		'''
+		# return elliptical transform of position (lon, lat). submit the raw x,y values; we'll subtract this Earthquake's position here...
+		# ... and let's just return all the information: {'R':radial_dist (spherical or geo), 'R_prime':transformed distance, 'lon':lon,'lat':, 
+		# 'lon_prime':transf_lon, 'lat_prime':tranf_lat}
+		#
+		#use module function:
+		#def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'], Rearth = 6378.1):
+		'''
+		#
+		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
+		R = dists['geo']
+		dx,dy = dists['dx'], dists['dy']
+		#
+		dx_prime, dy_prime = numpy.dot([dx,dy],self.T)
+		R_prime = R*((dx_prime*dx_prime + dy_prime*dy_prime)/(dx*dx+dy*dy))**.5
+		#
+		return {'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime}
 	#
 	def spherical_dist(to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
