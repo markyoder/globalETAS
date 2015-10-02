@@ -189,7 +189,6 @@ class Earthquake(object):
 			# recarray.
 			self.__dict__.update({key:dict_or_recarray[key] for key in dict_or_recarray.dtype.fields.keys()})
 		#
-		#
 		# elliptical transform bits:
 		self.transform_type = transform_type
 		self.transform_ratio_max = transform_ratio_max
@@ -223,7 +222,7 @@ class Earthquake(object):
 		transform_ratio_max = float(transform_ratio_max or self.transform_ratio_max)
 		transform_type = (transform_type or self.transform_type)
 		#
-		ab_ratio = (transform_ratio_max or max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))
+		ab_ratio = min(transform_ratio_max, max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))
 		self.ab_ratio=ab_ratio
 		#
 		if transform_type=='equal_area':
@@ -234,8 +233,8 @@ class Earthquake(object):
 		#	
 		elif transform_type=='rotation':
 			# set the *small* eigen-value --> 1; scale the large one.
-			self.e_vals_n = [x/min(e_vals) for x in e_vals]
-			self.spatial_intensity_factor = min(e_vals)/max(e_vals)		# area of "core" (rupture area) is reduced, so intensity increases.
+			self.e_vals_n = [min(transform_ratio_max, x/min(e_vals)) for x in e_vals]
+			self.spatial_intensity_factor = min(self.e_vals_n)/max(self.e_vals_n)		# area of "core" (rupture area) is reduced, so intensity increases.
 			#
 		else:
 			return self.get_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
@@ -265,7 +264,56 @@ class Earthquake(object):
 	def spherical_dist(to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
 #
-class Ellipse(object):
+class Shape(object):
+	# helper base class for shapes...
+	def __init__(self):
+		# anything to do for general case?
+		pass
+	#
+	def plot_poly(self, fignum=0, do_clf=True, poly_len=100, ax=None, **kwargs):
+		#
+		# some default plotting bits:
+		defaults = {'color':'b', 'marker':'.', 'ls':'-', 'lw':1.5}
+		for key,val in defaults.iteritems():
+			if not kwargs.has_key(key): kwargs[key]=val
+		#
+		plt.figure(fignum)
+		if do_clf: plt.clf()
+		if ax==None: ax=plt.gca()
+		#
+		#if self.poly==None or len(self.poly==0):
+		#	self.poly(poly_len)
+		#
+		ax.plot(*zip(*self.poly()), **kwargs)
+#
+class Circle(Shape):
+	# could be derived from Ellipse,and we could derive from Shape() (which does not exist), but we're just going to code them...
+	def __init__(self, R=1.0, x=0., y=0.):
+		#
+		self.R=R
+		self.x=x
+		self.y=y
+		#
+	#
+	@property
+	def area(self):
+		return math.pi*self.R**2.
+
+	@property
+	def circumference(self):
+		
+		return 2.0*math.pi*self.R
+	#
+	def poly(self, n_points=100):
+		d_theta = 2.0*math.pi/n_points
+		poly = [[self.x+self.R*math.cos(theta), self.y + self.R*math.sin(theta)] for theta in numpy.arange(0., 2.0*math.pi+d_theta, d_theta)]
+		# there's probably a smarter way to do this...
+		#print "theta: %f" % (self.theta)
+		#
+		return poly
+	#
+#
+class Ellipse(Shape):
 	def __init__(self, a=1.0, b=.5, ab_ratio=None, theta=0.):
 		if a==None and b==None: a,b = 1.0, .5
 		if not (a==None and b==None): ab_ratio=a/float(b)
@@ -309,14 +357,15 @@ class Ellipse(object):
 		#
 		return poly
 	#
-	def plot_poly(self, fignum=0, doclf=True, poly_len=100):
+	def plot_poly(self, fignum=0, do_clf=True, poly_len=100):
 		plt.figure(fignum)
-		plt.clf()
+		if do_clf: plt.clf()
 		#
 		#if self.poly==None or len(self.poly==0):
 		#	self.poly(poly_len)
 		#
 		plt.plot(*zip(*self.poly()), color='b', marker='.', ls='-', lw='1.5')
+	#	
 #
 # Working scripts
 def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, do_recarray=True):
@@ -423,7 +472,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# at some point, we'll want to allow multiple options for fitting and transforms. for now, start by getting PCA eigen-vals/vectors.
 		# note: if center_lat/lon=None (default), we subtract mean value to get PCA. if we specify center_lat/lon, we subtract those values.
 		# note: if there aren't any data, don't bother fitting (though we could just leave this to the PCA code)
-		if len(included_indices)>10 and False:
+		if len(included_indices)>10 or True:
 			eig_vals, eig_vecs = get_pca(cat=[[incat['lon'][j], incat['lat'][j]] for j in included_indices], center_lat=rw['lat'], center_lon=rw['lon'], xy_transform=True)
 		else:
 			eig_vals = [1.0, 1.0]
@@ -462,7 +511,11 @@ def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 	#
 	# for now, we can't assume hermitian or symmetric matrices, so use eig(), not eigh()
 	#eig_vals, eig_vecs = numpy.linalg.eig(cov)
-	return  numpy.linalg.eig(cov)
+	#print 'cov: ', cov
+	try:
+		return  numpy.linalg.eig(cov)
+	except:
+		return numpy.array([1.,1.]), numpy.identity(2)
 
 def lon_lat_2xy(lon=0., lat=0.):
 	#
@@ -605,8 +658,16 @@ def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 #
 # testing and development scripts:
 #
-def test_earthquake_transform():
+def test_earthquake_transforms(fignums=(0,1)):
+	x1=test_earthquake_transform(fignum=fignums[0], transform_type='equal_area')
+	x2=test_earthquake_transform(fignum=fignums[1], transform_type='rotation')
+	
+	
+def test_earthquake_transform(fignum=0,transform_type='equal_area'):
 	# let's do a test script in the Parkfield area...
+	# this script will find the parkfield earthquake in the selected catalog, fit local data (via PCA) and apply a transform.
+	# we then plot the earthquakes (.), parkfield(*), a curcle, and the elliptical transform (R -> R') of that circle.
+	#
 	# parkfield={'dt':dtm.datetime(2004,9,28,17,15,24, tzinfo=pytz.timezone('UTC')), 'lat':35.815, 'lon':-120.374, 'mag':5.96}
 	C = make_ETAS_catalog(incat=None, lats=[33.8, 37.8], lons=[-122.4, -118.4], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, do_recarray=True)
 	#
@@ -618,11 +679,39 @@ def test_earthquake_transform():
 			break
 		#
 	#
-	E_pf = Earthquake(C[j_pf])
+	E_pf = Earthquake(C[j_pf], transform_type=transform_type)
 	#
 	# now, make a circle around the earthuqake and do some elliptical transforms...
+	circ = Circle(R=E_pf.L_r*2.0/deg2km, x=E_pf.lon, y=E_pf.lat)
+	xy_prime = []
+	for rw in circ.poly():
+		et = E_pf.elliptical_transform(*rw)
+		xy_prime += [[E_pf.lon + et['dx_prime']/(math.cos(E_pf.lat*deg2rad)*deg2km), E_pf.lat+et['dy_prime']/deg2km]]
+	
+	plt.figure(fignum)
+	plt.clf()
+	plt.plot(C['lon'], C['lat'], color='b', ls='', marker='.')
+	plt.plot(E_pf.lon, E_pf.lat, color='r', ls='', marker='*', ms=18)
+	#
+	circ.plot_poly(fignum=fignum, do_clf=False, marker='', color='m')
+	plt.plot(*zip(*xy_prime), ls='--', color='r', marker='.')
+	d_lon1, d_lat1 = E_pf.L_r*E_pf.T[0][0]/(deg2km*math.cos(E_pf.lat*deg2rad)), E_pf.L_r*E_pf.T[0][1]/deg2km
+	d_lon2, d_lat2 = E_pf.L_r*E_pf.T[1][0]/(deg2km*math.cos(E_pf.lat*deg2rad)), E_pf.L_r*E_pf.T[1][1]/deg2km
+	
+	plt.plot([E_pf.lon, E_pf.lon+d_lon1], [E_pf.lat, E_pf.lat+d_lat1], '^-', color='c')
+	plt.plot([E_pf.lon, E_pf.lon+d_lon2], [E_pf.lat, E_pf.lat+d_lat2], 'o-', color='m')
+	#
+	for j,rw in enumerate(circ.poly()):
+		# this  makes a cool figure. the transformation is not exactly as simple as it looks; we're not really just rotating and stretching our points; ww're also flipping them.
+		# (mirroring across the minor axis) but this won't matter for R -> R' transformations.
+		plt.plot(*zip(rw,xy_prime[j]), color='r', ls='--', marker='')
+		#plt.plot([rw[0], xy_prime[j][0]], [rw[1], xy_prime[j][1]], color='r', ls='--', marker='')
+	
+	#
 	#
 	#return C[j_pf]
-	return E_pf
+	return E_pf, C[j_pf]
+
+
 	
 		
