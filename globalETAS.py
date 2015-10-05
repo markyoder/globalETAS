@@ -181,7 +181,7 @@ class Earthquake(object):
 	# include "local" ETAS calculation in this object; aka, each earthquake determines its ETAS range based on rupture length and other factors...
 	# maybe.
 	#def __init__(self, event_date=None, lat=0., lon=0., mag=None, eig_vals=[1., 1.], eig_vecs=[[1.,0.], [0., 1.]], transform_type='equal_area'):
-	def __init__(self, dict_or_recarray, transform_type='equal_area', transform_ratio_max=5.):
+	def __init__(self, dict_or_recarray, transform_type='equal_area', transform_ratio_max=5., ab_rato_expon=.5):
 		#
 		# first, load all indexed elements from the input dict or recarray row as class members:
 		if isinstance(dict_or_recarray, dict): self.__dict__.update(dict_or_recarray)
@@ -192,6 +192,9 @@ class Earthquake(object):
 		# elliptical transform bits:
 		self.transform_type = transform_type
 		self.transform_ratio_max = transform_ratio_max
+		self.ab_rato_expon = ab_rato_expon
+		
+		#
 		#self.ab_ratio = min(transform_ratio_max, max(self.e_vals)/min(self.e_vals))
 		self.ab_ratio_raw = max(self.e_vals)/min(self.e_vals)
 		self.set_transform()
@@ -209,7 +212,7 @@ class Earthquake(object):
 	def lon_lat(self):
 		return [self.lon, self.lat]		
 	#
-	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None, transform_ratio_max=None):
+	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None, transform_ratio_max=None, ab_rato_expon=None):
 		'''
 		# note: it might be better to not allow custom-runs (aka not allow parameterized calls to this function; always use native member values).
 		#
@@ -221,8 +224,12 @@ class Earthquake(object):
 		e_vecs = (e_vecs or self.e_vecs)
 		transform_ratio_max = float(transform_ratio_max or self.transform_ratio_max)
 		transform_type = (transform_type or self.transform_type)
+		ab_rato_expon = (ab_rato_expon or self.ab_rato_expon)
 		#
-		ab_ratio = min(transform_ratio_max, max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))
+		ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_rato_expon)	# note: this **.5 on the e0/e1 value is quasi-arbitrary.
+		#																								# ok, so what specifically is e0/e1 supposed to be? stdev, var?
+		#																								# in any case, it seems to be pretty huge almost all the time, so
+		#																								# let's put a fractional power on it...
 		self.ab_ratio=ab_ratio
 		#
 		if transform_type=='equal_area':
@@ -233,7 +240,8 @@ class Earthquake(object):
 		#	
 		elif transform_type=='rotation':
 			# set the *small* eigen-value --> 1; scale the large one.
-			self.e_vals_n = [min(transform_ratio_max, x/min(e_vals)) for x in e_vals]
+			#self.e_vals_n = [min(transform_ratio_max, x/min(e_vals)) for x in e_vals]
+			self.e_vals_n  = [ab_ratio, 1.]
 			self.spatial_intensity_factor = min(self.e_vals_n)/max(self.e_vals_n)		# area of "core" (rupture area) is reduced, so intensity increases.
 			#
 		else:
@@ -241,25 +249,56 @@ class Earthquake(object):
 		#
 		E = self.e_vals_n
 		self.T = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs)
+		self.T_inverse = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs.transpose())
 	#
-	def elliptical_transform(self, lon=0., lat=0.):
+	def elliptical_transform_inverse(self, lon=0., lat=0.):
+		return self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse, invert=False)
+	#
+	def elliptical_transform_inverse_prime(self, lon=0., lat=0.):
+		return self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse, invert=True)
+	#
+		#
+	def elliptical_transform_prime(self, lon=0., lat=0.):
+		'''
+		#wrapper around elliptical_transform()
+		'''
+		return self.elliptical_transform(lon=lon, lat=lat, T=None, invert=True)
+	#
+	def elliptical_transform(self, lon=0., lat=0., T=None, invert=False):
 		'''
 		# return elliptical transform of position (lon, lat). submit the raw x,y values; we'll subtract this Earthquake's position here...
 		# ... and let's just return all the information: {'R':radial_dist (spherical or geo), 'R_prime':transformed distance, 'lon':lon,'lat':, 
 		# 'lon_prime':transf_lon, 'lat_prime':tranf_lat}
 		#
+		# "invert" invert the transformation, specifically False: x' = T dot x
+		#                                                  True:  x' = x dot T
+		#  basically, to we rotate the frame or the data... i think. in practice, when you do a 1/R field (so the distance R at some point is transformed to R', use False.
+		#   if you want to draw a transformed ellipse (aka, relocate points from a circle to their corresponding locations on an ellipse), ust True.
+		#
 		#use module function:
 		#def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'], Rearth = 6378.1):
 		'''
 		#
+		if T==None: T=self.T
+		#
+		# first, get the actual distance (and related data) to the point:
 		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
-		R = dists['geo']
-		dx,dy = dists['dx'], dists['dy']
+		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method.
 		#
-		dx_prime, dy_prime = numpy.dot([dx,dy],self.T)
-		R_prime = R*((dx_prime*dx_prime + dy_prime*dy_prime)/(dx*dx+dy*dy))**.5
+		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in general FoR.
 		#
-		return {'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime}
+		if invert:
+			dx_prime, dy_prime = numpy.dot([dx,dy],T)
+		else:
+			dx_prime, dy_prime = numpy.dot(T, [dx,dy])	# rotated and dilated into the elliptical FoR...
+		#R_prime = R*((dx_prime*dx_prime + dy_prime*dy_prime)/(dx*dx+dy*dy))**.5	# use this to mitigate artifacts of the spherical transform: R_prime = R_geo*(R_prime_xy/R_xy)
+		
+		R_prime = R*numpy.linalg.norm([dx_prime, dy_prime])/numpy.linalg.norm([dx,dy])
+		
+		#
+		dists.update({'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime})
+		#return {'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime}
+		return dists
 	#
 	def spherical_dist(to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
@@ -568,9 +607,13 @@ def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'],
 	'''
 	#
 	if 'cartesian' in dist_types or 'dx_dy' in dist_types:
-		d_lon    = lon_lat_from[0]-lon_lat_to[0]
+		d_lon    = lon_lat_to[0]-lon_lat_from[0]
 		mean_lat = .5*(lon_lat_from[1]+lon_lat_to[1])
-		d_lat    = lon_lat_from[1]-lon_lat_to[1]
+		d_lat    = lon_lat_to[1]-lon_lat_from[1]
+		#
+		# we might use a geodesic.Direct method to get these distances (and sort of a dumb way to get the parity):
+		#dx = (-1. if d_lon<0. else 1.)*ggp.WGS84.Inverse(lon_lat_from[1], lon_lat_from[0], lon_lat_from[1], lon_lat_from[0] + d_lon)['s12']/1000
+		#dy = (-1. if d_lat<0. else 1.)*ggp.WGS84.Inverse(lon_lat_from[1], lon_lat_from[0], lon_lat_from[1] + d_lat, lon_lat_from[0])['s12']/1000.
 		dx = ((d_lon)*math.cos(mean_lat*deg2rad)*deg2km)
 		dy = (d_lat*deg2km)
 		if 'cartesian' in dist_types:
@@ -581,7 +624,8 @@ def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'],
 	if 'geo' in dist_types:
 		# .Inverse(lat1, lon1, lat2, lon2)
 		g1=ggp.WGS84.Inverse(lon_lat_from[1], lon_lat_from[0], lon_lat_to[1],lon_lat_to[0])
-		return_distances['geo'] = g1['s12']/1000.0
+		#return_distances['geo'] = g1['s12']/1000.0
+		return_distances.update({'geo':g1['s12']/1000., 'azi1':g1['azi1'], 'azi2':g1['azi2']})
 	#
 	if len(return_distances)==1: return_distances = return_distances.items()[0]
 	#
@@ -663,13 +707,13 @@ def test_earthquake_transforms(fignums=(0,1)):
 	x2=test_earthquake_transform(fignum=fignums[1], transform_type='rotation')
 	
 	
-def test_earthquake_transform(fignum=0,transform_type='equal_area'):
+def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 37.8], lons=[-122.4, -118.4], etas_mc=4.0):
 	# let's do a test script in the Parkfield area...
 	# this script will find the parkfield earthquake in the selected catalog, fit local data (via PCA) and apply a transform.
 	# we then plot the earthquakes (.), parkfield(*), a curcle, and the elliptical transform (R -> R') of that circle.
 	#
 	# parkfield={'dt':dtm.datetime(2004,9,28,17,15,24, tzinfo=pytz.timezone('UTC')), 'lat':35.815, 'lon':-120.374, 'mag':5.96}
-	C = make_ETAS_catalog(incat=None, lats=[33.8, 37.8], lons=[-122.4, -118.4], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, do_recarray=True)
+	C = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, do_recarray=True)
 	#
 	# find parkfield (we might also look at san-sim and coalinga):
 	for j,rw in enumerate(C):
@@ -685,7 +729,7 @@ def test_earthquake_transform(fignum=0,transform_type='equal_area'):
 	circ = Circle(R=E_pf.L_r*2.0/deg2km, x=E_pf.lon, y=E_pf.lat)
 	xy_prime = []
 	for rw in circ.poly():
-		et = E_pf.elliptical_transform(*rw)
+		et = E_pf.elliptical_transform_prime(*rw)		# aka, use x' = x dot T, not T dot x
 		xy_prime += [[E_pf.lon + et['dx_prime']/(math.cos(E_pf.lat*deg2rad)*deg2km), E_pf.lat+et['dy_prime']/deg2km]]
 	
 	plt.figure(fignum)
@@ -708,9 +752,55 @@ def test_earthquake_transform(fignum=0,transform_type='equal_area'):
 		#plt.plot([rw[0], xy_prime[j][0]], [rw[1], xy_prime[j][1]], color='r', ls='--', marker='')
 	
 	#
+	# now, let's try a (different?) 1/r field:
+	# note: we forgot to push some changes, so we'll have conflicts here. maybe we keep both examples...
+	plt.figure(2)
+	plt.clf()
+	d_lat=.05
+	d_lon=.05
+	field_vals = []
+	#theta_y = math.atan(E_pf.e_vecs[0]/E_pf.e_vecs[1])
+	# (and we should use itertools instead of this nested loop...)
+	#for lat,lon in itertools.product(numpy.arange(lats[0], lats[1], d_lat), numpy.arange(lons[0], lons[1], d_lon)):
+		#S = ggp.WGS84.Inverse(E_pf.lat, E_pf.lon, lat,lon)		# returns something like:{'a12': ??m12? reduced length of geodesic?, 'azi1': axzimuth at pt.1 (to pt. 2),  'azi2':azimuth at pt.2 (continuing along arc), 'lat1': 35.9, 'lat2': 36.0, 'lon1': -120.4, 'lon2': -120.2, 's12': arclength(distance) in m}
+	#my_R = [[.707, .707], [-.707, .707]]
+	#my_R = numpy.dot([[2.,0.],[0.,.5]], my_R)
+	#print "my_R: ", my_R
+	#
+	field_vals = [numpy.zeros(len(numpy.arange(lons[0], lons[1], d_lon))) for rw in numpy.arange(lats[0], lats[1], d_lat)]
+	#
+	for eq in C:
+		#eq = E_pf
+		if eq['mag']<etas_mc:continue
+		#if eq!=C[j_pf]: continue
+		eq=Earthquake(eq)
+		for j,lat in enumerate(numpy.arange(lats[0], lats[1], d_lat)):
+			#field_vals += [[]]	
+			for k, lon in enumerate(numpy.arange(lons[0], lons[1], d_lon)):
+				#X = eq.elliptical_transform(lon, lat)
+						
+				##x,y = numpy.dot(my_R, [lon-eq.lon, lat-eq.lat])
+				r = numpy.linalg.norm(numpy.dot(eq.T, [lon-eq.lon, lat-eq.lat]))
+			
+				##r = math.sqrt((2.*x)**2. + (.5*y)**2.)
+				#r = math.sqrt((1.*x)**2. + (1.*y)**2.)
+			
+				#field_vals[-1]+= [1./r]
+				field_vals[j][k] += 1./r
+
+	plt.contourf(numpy.arange(lons[0], lons[1], d_lon), numpy.arange(lats[0], lats[1], d_lat), numpy.log10(field_vals), 25)
+	plt.plot(*zip(*circ.poly()), color='k', ls='-')
 	#
 	#return C[j_pf]
 	return E_pf, C[j_pf]
+
+
+if __name__=='__main__':
+	# do main stuff...
+	pass
+else:
+	plt.ion()
+	
 
 
 	
