@@ -148,8 +148,11 @@ class globalETAS_model(object):
 					# currently available distances are {'cartesian', 'spherical', 'geodedic'} (and there is some correction for synonmys). for most accurate
 					# distance calculations, use the geodetic option; spherical is a faster approximation; cartesian distances will be used for the elliptical transform.
 					#
-					eq_obj = Earthquake(quake, transform=self.transform_type, transform_ratio_max=self.transform_ratio_max)
+					eq_obj = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
 					distances = dist_to(lon_lat_from=[quake['lon'], quake['lat']], lon_lat_to=bin_lonlat, dist_types=['cart', 'geo'], Rearth = 6378.1)
+					delta_t = (mpd.date2num(dtm.datetime.now())-mpd.date2num(eq_obj.event_date.tolist()))*days2secs
+					omori_rate = (1.0/eq_obj.tau)*(eq_obj.t_0 + delta_t)**(-1.1)
+					#spatial_dist = (1./chi)*(eq_obj.r_0 + R_prime)**(-q)
 					#
 					self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
 					
@@ -407,6 +410,7 @@ class Ellipse(Shape):
 	#	
 #
 # Working scripts
+# make a class out of this; derive from recarray; keep universal valuess like p,q,dmstar, etc. as member variables.
 def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, do_recarray=True):
 	'''
 	# fetch (or receive) an earthquake catalog. for each event, calculate ETAS relevant constants including rupture_length,
@@ -707,13 +711,13 @@ def test_earthquake_transforms(fignums=(0,1)):
 	x2=test_earthquake_transform(fignum=fignums[1], transform_type='rotation')
 	
 	
-def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 37.8], lons=[-122.4, -118.4], etas_mc=4.0):
+def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 37.8], lons=[-122.4, -118.4], fit_factor=1.5, etas_mc=4.0):
 	# let's do a test script in the Parkfield area...
 	# this script will find the parkfield earthquake in the selected catalog, fit local data (via PCA) and apply a transform.
 	# we then plot the earthquakes (.), parkfield(*), a curcle, and the elliptical transform (R -> R') of that circle.
 	#
 	# parkfield={'dt':dtm.datetime(2004,9,28,17,15,24, tzinfo=pytz.timezone('UTC')), 'lat':35.815, 'lon':-120.374, 'mag':5.96}
-	C = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, do_recarray=True)
+	C = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=fit_factor, do_recarray=True)
 	#
 	# find parkfield (we might also look at san-sim and coalinga):
 	for j,rw in enumerate(C):
@@ -786,7 +790,7 @@ def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 
 				#r = math.sqrt((1.*x)**2. + (1.*y)**2.)
 			
 				#field_vals[-1]+= [1./r]
-				field_vals[j][k] += 1./r
+				field_vals[j][k] += 1./(r + 10.**(.5*eq.mag-2.2))**1.5
 
 	plt.contourf(numpy.arange(lons[0], lons[1], d_lon), numpy.arange(lats[0], lats[1], d_lat), numpy.log10(field_vals), 25)
 	plt.plot(*zip(*circ.poly()), color='k', ls='-')
