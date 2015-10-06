@@ -36,6 +36,7 @@ import math
 import random
 import numpy
 import scipy
+import itertools
 #import scipy.optimize as spo
 #import os
 #from PIL import Image as ipp
@@ -51,11 +52,13 @@ from mpl_toolkits.basemap import Basemap as Basemap
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from geographiclib.geodesic import Geodesic as ggp
 #
+#
 import ANSStools as atp
+import bindex
 #
 import rtree
 from rtree import index
-import bindex
+
 #
 days2secs = 60.*60.*24.
 year2secs = 60.*60.*24.*365.
@@ -80,7 +83,14 @@ dist_calc_types_dict.update({key:'dx_dy' for key in ['dxdy', 'dx_dy']})
 class globalETAS_model(object):
 	# guts of ETAS. this will contain a catalog, lattice sites, etc. graphical tools, plotting, etc. will likely
 	# be kept elsewhere.
-	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
+	# questions: use equal distance or equal angel bin spacing? we can nominally do a spherical->cartesian transformation like: x = lon*cos(lat)*deg2km
+	#  but it behaves sort of funny when we try to calculate disanctes between points... which we don't necessaryily do; we map (x,y) -> (lon, lat) and then
+	#  do proper geodetic transformations, but 1) it becomes easy to make mistakes, and 2) the only gain is that we have fewer points in the higher latitudes.
+	#  as long as 1) we have sufficient spatial resolution in the lower latitudes and 2) the problem remains computational tractable (equal spacing can reduce
+	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
+	#
+	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
+	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -89,6 +99,10 @@ class globalETAS_model(object):
 		# so we'll need to translate. we'll also want lat/lon as well as x/y positions for the lattice sites, so we can get even spacing and accurate distances
 		'''
 		# dx=1., dy=1., x0=0., y0=0., leaf_type=float)
+		# load all the input parameters into class variables (note i believe locals() is all currently defined variables in the function scope,
+		# so this syntax must be executed at the very begining of the function to work properly):
+		self.__dict__.update(locals())
+		'''
 		self.lats=lats
 		self.lons=lons
 		self.mc=mc
@@ -101,8 +115,9 @@ class globalETAS_model(object):
 		self.t_now=t_now
 		self.transform_type=transform_type
 		self.transform_ratio_max=transform_ratio_max
+		'''
 		#		
-		self.lattice_sites = bindex.Bindex2D(dx=d_x, dy=d_y, x0=0., y0=0.)	# list of lattice site objects, and let's index it by... probably (i_x/lon, j_y/lat)
+		self.lattice_sites = bindex.Bindex2D(dx=d_lon, dy=d_lat, x0=0., y0=0.)	# list of lattice site objects, and let's index it by... probably (i_x/lon, j_y/lat)
 							# we might alternativel store this as a simple list [] or a base index/list (that
 							# is re-sorting tolerant)) {i:[row]}, and then write indices:
 							# index_lat_lon = {(lat, lon):lattice_sites_index}, {(x,y):lattice_sites_index}, etc.
@@ -121,26 +136,39 @@ class globalETAS_model(object):
 			#
 			print "calc etas..."
 			for quake in catalog:
-				x,y = lon_lat_2xy(lon=quake['lon'], lat=quake['lat'])
-				delta_x = quake['L_r']*etas_range_factor
-				x_min, x_max = x-delta_x, x+delta_x
-				y_min, y_max = y-delta_x, y+delta_x
-				
-				
+				eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
+				# calculate the bins within range of this earthquake:
+				# nominally, the proper thing to do now (or at lest one proper approach) is to compute a proper geodesic north and east to get the lat/lon bounds
+				# near the poles, however, this will create a problem, that is a bit difficult to track, where the geodesic reaches over the pole and to lat<90
+				# on the other side. if we just use a recta-linear approximation, we can use [max(-90, lat-d_lat), min(90, lat+d_lat)]
+				#x,y = lon_lat_2xy(lon=quake['lon'], lat=quake['lat'])
+				#
+				# range of influence:
+				delta_lat = eq.L_r*etas_range_factor/deg2km
+				if abs(eq.lat)==90.:
+					delta_lon=180.
+				else:
+					delta_lon = delta_lat/math.cos(eq.lat*deg2rad)
+				#
+				lon_min, lon_max = eq.lon - delta_lon, eq.lon + delta_lon
+				lat_min, lat_max = eq.lat - delta_lat, eq.lat + delta_lat
 				#
 				# - choose an elliptical transform: equal-area, rotational, etc.
 				# - calculate initial rate-density
 				# - distribute over relevant sites:
 				#    - for each site, D' = D_spherical * R'/R_xy	of course this will be approximately equal to R'.
 				#
-				for x_site,y_site in [[j,k] for j in numpy.arange(x_min, x_max, self.d_x) for k in numpy.arange(y_min, y_max, self.d_y)]:
+				for lon_site,lat_site in [[j,k] for j in numpy.arange(lon_min, lon_max, d_lon) for k in numpy.arange(lat_min, lat_max, d_lat)]:
 					# so we make a square (or maybe a circle later on) and calc. etas at each site. use Bindex() to correct for any misalignment.
 					#
-					x_bin = self.lattice_sites.get_xbin_center(x_site)	# returns a dict like {'index':j, 'center':x}
-					y_bin = self.lattice_sites.get_ybin_center(y_site)
+					lon_bin = self.lattice_sites.get_xbin_center(lon_site)	# returns a dict like {'index':j, 'center':x}
+					lat_bin = self.lattice_sites.get_ybin_center(lat_site)
 					#
-					bin_lonlat = xy2_lon_lat(x_bin['center'], y_bin['center'])
+					#bin_lonlat = xy2_lon_lat(x_bin['center'], y_bin['center'])
+					bin_lonlat=[lon_bin, lat_bin]
 					#
+					# now, calculate local ETAS intensity from this eq at this site...
+					
 					# now, get distance from earthquake and this bin, calc etas and update this site.
 					# the basic model for distances will be like: 1) measure distance using proper spherical transform, 2) get the ellipitical transform from PCA,
 					# renormalize
@@ -149,9 +177,9 @@ class globalETAS_model(object):
 					# distance calculations, use the geodetic option; spherical is a faster approximation; cartesian distances will be used for the elliptical transform.
 					#
 					eq_obj = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
-					distances = dist_to(lon_lat_from=[quake['lon'], quake['lat']], lon_lat_to=bin_lonlat, dist_types=['cart', 'geo'], Rearth = 6378.1)
-					delta_t = (mpd.date2num(dtm.datetime.now())-mpd.date2num(eq_obj.event_date.tolist()))*days2secs
-					omori_rate = (1.0/eq_obj.tau)*(eq_obj.t_0 + delta_t)**(-1.1)
+					#distances = dist_to(lon_lat_from=[quake['lon'], quake['lat']], lon_lat_to=bin_lonlat, dist_types=['cart', 'geo'], Rearth = 6378.1)
+					#delta_t = (mpd.date2num(dtm.datetime.now())-mpd.date2num(eq_obj.event_date.tolist()))*days2secs
+					#omori_rate = (1.0/eq_obj.tau)*(eq_obj.t_0 + delta_t)**(-1.1)
 					#spatial_dist = (1./chi)*(eq_obj.r_0 + R_prime)**(-q)
 					#
 					self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
@@ -409,22 +437,33 @@ class Ellipse(Shape):
 		plt.plot(*zip(*self.poly()), color='b', marker='.', ls='-', lw='1.5')
 	#	
 #
+
 # Working scripts
 # make a class out of this; derive from recarray; keep universal valuess like p,q,dmstar, etc. as member variables.
-def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, do_recarray=True):
+def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True):
 	'''
 	# fetch (or receive) an earthquake catalog. for each event, calculate ETAS relevant constants including rupture_length,
 	# spatial orientation, elliptical a,b, etc. This catalog will then be provided to other processes to calculate ETAS rates
 	'''
 	#
-	dmstar = 1.0
+	# save a copy of the input parameters to ammend to the output array as metadata. we can do this in lieu of creating a derived class -- sort of a (sloppy?) shortcut...
+	if incat==None:
+		# use all the local inputs:
+		meta_parameters = locals().copy()
+	else:
+		meta_parameters = {}
+		if hasattr('meta_parameters', incat): incat.meta_parameters.copy()
+		meta_parameters.update({'D_fract':D_fract, 'd_lambda':d_lambda, 'd_tau':d_tau, 'fit_factor':fit_factor, 'p':p, 'q':q, 'dmstar':dmstar, 'b1':b1, 'b2':b2})
+		
+	#
+	#dmstar = 1.0
 	dm_tau = 0.0		# constant sort of like dm_star but for temporal component. we usually treat this as 0, but don't really know...
 	#d_tau = 2.28
-	b1=1.0
-	b2=1.5
+	#b1=1.0
+	#b2=1.5
 	b=b1
-	q=1.5
-	p=1.1
+	#q=1.5
+	#p=1.1
 	#
 	# some constants:
 	l_15_factor = (2./3.)*math.log10(1.5)	# pre-calculate some values...
@@ -527,7 +566,9 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# (and strike_theta (or at least something like it -- setting aside conventions) = atan(eig_vecs[0][1]/eig_vecs[0][1])
 		#
 			
-	if do_recarray: output_catalog = numpy.core.records.fromarrays(zip(*output_catalog), dtype=my_dtype)
+	if do_recarray:
+		output_catalog = numpy.core.records.fromarrays(zip(*output_catalog), dtype=my_dtype)
+		output_catalog.meta_parameters = meta_parameters
 	
 	return output_catalog
 #
@@ -711,13 +752,15 @@ def test_earthquake_transforms(fignums=(0,1)):
 	x2=test_earthquake_transform(fignum=fignums[1], transform_type='rotation')
 	
 	
-def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 37.8], lons=[-122.4, -118.4], fit_factor=1.5, etas_mc=4.0):
+def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 37.8], lons=[-122.4, -118.4], fit_factor=1.5, etas_mc=4.0, catalog=None):
 	# let's do a test script in the Parkfield area...
 	# this script will find the parkfield earthquake in the selected catalog, fit local data (via PCA) and apply a transform.
 	# we then plot the earthquakes (.), parkfield(*), a curcle, and the elliptical transform (R -> R') of that circle.
 	#
 	# parkfield={'dt':dtm.datetime(2004,9,28,17,15,24, tzinfo=pytz.timezone('UTC')), 'lat':35.815, 'lon':-120.374, 'mag':5.96}
-	C = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=fit_factor, do_recarray=True)
+	if catalog==None:
+		catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=fit_factor, do_recarray=True)
+	C = catalog
 	#
 	# find parkfield (we might also look at san-sim and coalinga):
 	for j,rw in enumerate(C):
@@ -763,31 +806,32 @@ def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 
 	d_lat=.05
 	d_lon=.05
 	field_vals = []
-	#theta_y = math.atan(E_pf.e_vecs[0]/E_pf.e_vecs[1])
-	# (and we should use itertools instead of this nested loop...)
-	#for lat,lon in itertools.product(numpy.arange(lats[0], lats[1], d_lat), numpy.arange(lons[0], lons[1], d_lon)):
-		#S = ggp.WGS84.Inverse(E_pf.lat, E_pf.lon, lat,lon)		# returns something like:{'a12': ??m12? reduced length of geodesic?, 'azi1': axzimuth at pt.1 (to pt. 2),  'azi2':azimuth at pt.2 (continuing along arc), 'lat1': 35.9, 'lat2': 36.0, 'lon1': -120.4, 'lon2': -120.2, 's12': arclength(distance) in m}
-	#my_R = [[.707, .707], [-.707, .707]]
-	#my_R = numpy.dot([[2.,0.],[0.,.5]], my_R)
-	#print "my_R: ", my_R
 	#
 	field_vals = [numpy.zeros(len(numpy.arange(lons[0], lons[1], d_lon))) for rw in numpy.arange(lats[0], lats[1], d_lat)]
+	#
+	# we could do this in one big itertools.product():
+	#for eq, j_lat, k_lon in itertools.product(C, enumerate(numpy.arange(lats[0], lats[1], d_lat)), enumerate(numpy.arange(lons[0], lons[1], d_lon)))
+	# however, since we're using the Earthquake class, aka eq=Earthquake(eq), this will probably create a bunch of overhead, so we'll just nest this loop.
+	# nominally this might be a case where avoiding the instantiation of a class facilitates a more efficient method (itertools.product() rather than nested loop).
 	#
 	for eq in C:
 		#eq = E_pf
 		if eq['mag']<etas_mc:continue
 		#if eq!=C[j_pf]: continue
 		eq=Earthquake(eq)
-		for j,lat in enumerate(numpy.arange(lats[0], lats[1], d_lat)):
+		for j_lat, k_lon in itertools.product(enumerate(numpy.arange(lats[0], lats[1], d_lat)), enumerate(numpy.arange(lons[0], lons[1], d_lon))):
+		#for j,lat in enumerate(numpy.arange(lats[0], lats[1], d_lat)):
 			#field_vals += [[]]	
-			for k, lon in enumerate(numpy.arange(lons[0], lons[1], d_lon)):
-				#X = eq.elliptical_transform(lon, lat)
-						
-				##x,y = numpy.dot(my_R, [lon-eq.lon, lat-eq.lat])
-				r = numpy.linalg.norm(numpy.dot(eq.T, [lon-eq.lon, lat-eq.lat]))
-			
-				##r = math.sqrt((2.*x)**2. + (.5*y)**2.)
-				#r = math.sqrt((1.*x)**2. + (1.*y)**2.)
+			#for k, lon in enumerate(numpy.arange(lons[0], lons[1], d_lon)):
+			j, lat = j_lat
+			k, lon = k_lon
+			if True:
+				# (maintaining -- for the time being, our indentation structure...)
+								
+				#r = numpy.linalg.norm(numpy.dot(eq.T, [lon-eq.lon, lat-eq.lat]))
+				
+				r = eq.elliptical_transform(lon, lat)['R_prime']
+				
 			
 				#field_vals[-1]+= [1./r]
 				field_vals[j][k] += 1./(r + 10.**(.5*eq.mag-2.2))**1.5
@@ -795,7 +839,13 @@ def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 
 	plt.contourf(numpy.arange(lons[0], lons[1], d_lon), numpy.arange(lats[0], lats[1], d_lat), numpy.log10(field_vals), 25)
 	plt.plot(*zip(*circ.poly()), color='k', ls='-')
 	#
-	#return C[j_pf]
+	#
+	# now, let's do a quick diagnostic plot of earthquak fit angle...
+	thetas = [math.acos(V[0][0]/numpy.linalg.norm(V[0])) for V in C['e_vecs']]
+	plt.figure(3)
+	plt.clf()
+	z=plt.hist(thetas, min(150,len(thetas)/25))
+	#
 	return E_pf, C[j_pf]
 
 
