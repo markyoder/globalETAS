@@ -168,6 +168,8 @@ class globalETAS_model(object):
 					bin_lonlat=[lon_bin, lat_bin]
 					#
 					# now, calculate local ETAS intensity from this eq at this site...
+					# (this should be defined in the Earthquake() object:
+					local_intensity = eq.local_intensity(t=t_now, lon=eq.lon, lat=eq.lat) # anything else?
 					
 					# now, get distance from earthquake and this bin, calc etas and update this site.
 					# the basic model for distances will be like: 1) measure distance using proper spherical transform, 2) get the ellipitical transform from PCA,
@@ -331,8 +333,12 @@ class Earthquake(object):
 		#return {'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime}
 		return dists
 	#
-	def spherical_dist(to_lon_lat=[]):
+	def spherical_dist(self, to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
+	#
+	def local_intensity(self, t=None, to_lon=None, to_lat=None):
+		# calculate ETAS intensity.
+		return None
 #
 class Shape(object):
 	# helper base class for shapes...
