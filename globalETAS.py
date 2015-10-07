@@ -80,6 +80,7 @@ dist_calc_types_dict.update({key:'dx_dy' for key in ['dxdy', 'dx_dy']})
 #
 #
 # Classes:
+
 class globalETAS_model(object):
 	# guts of ETAS. this will contain a catalog, lattice sites, etc. graphical tools, plotting, etc. will likely
 	# be kept elsewhere.
@@ -90,7 +91,7 @@ class globalETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
+	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -105,11 +106,14 @@ class globalETAS_model(object):
 		#
 		# and handle some specific cases...
 		if isinstance(t_now, float):
-			t_forecast = t_now
+			self.t_forecast = t_now
 		elif isinstance(t_now, numpy.datetime64):
-			t_forecast = mpd.date2num(t_now.tolist())
+			self.t_forecast = mpd.date2num(t_now.tolist())
 		else:
-			t_forecast = mpd.date2num(t_now)
+			self.t_forecast = mpd.date2num(t_now)
+		#
+		mc_etas = (mc_etas or mc)	# mc_eats: minimum mag. for etas calculations -- aka, mc for the catalog, but only do etas for m>mc_eatas.
+		self.ETAS_array = numpy.array([])
 		'''
 		self.lats=lats
 		self.lons=lons
@@ -124,8 +128,9 @@ class globalETAS_model(object):
 		self.transform_type=transform_type
 		self.transform_ratio_max=transform_ratio_max
 		'''
-		#		
-		self.lattice_sites = bindex.Bindex2D(dx=d_lon, dy=d_lat, x0=bin_lon0, y0=bin_lat0)	# list of lattice site objects, and let's index it by... probably (i_x/lon, j_y/lat)
+		#
+		# this should probably be moved into the specific etas type parts...		
+		#self.lattice_sites = bindex.Bindex2D(dx=d_lon, dy=d_lat, x0=bin_lon0, y0=bin_lat0)	# list of lattice site objects, and let's index it by... probably (i_x/lon, j_y/lat)
 							# we might alternativel store this as a simple list [] or a base index/list (that
 							# is re-sorting tolerant)) {i:[row]}, and then write indices:
 							# index_lat_lon = {(lat, lon):lattice_sites_index}, {(x,y):lattice_sites_index}, etc.
@@ -139,11 +144,66 @@ class globalETAS_model(object):
 			catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
 		self.catalog = catalog
 		#
-		if calc_etas:
+		# ... and here is really where we do derived classes for different ETAS forcast objects. so for ETAS_bindex(ETAS), we do:
+		self.make_etas = self.make_etas_bindex
+		# ... and for ETAS_brute(ETAS), we'd do:
+		# self.make_etas = self.make_etas_all
+		#
+		#if calc_etas: self.make_etas()
+		print "has make_etas?", hasattr(self, 'make_etas')
+	#
+	def make_etas_rtree(self):
+		# use the same basic framework as etas_all (aka, instantiate a lattice), but map an rtree index to the lattice, then use a delta_lat, delta_lon
+		# approach (like etas_bindex) bit loop only over the rtree.intersection() of the delta_lat/lon window.
+		pass
+	
+	def make_etas_all(self):
+		# loop-loop over the whole lattice space...
+		# first, make an empty rates-lattice:
+		index_x = lambda(x): int((x-self.lons[0])/self.d_lon)
+		index_y = lambda(y): int((y-self.lats[0])/self.d_lat)
+		latses = numpy.arange(self.lats[0], self.lats[1]+self.d_lat, self.d_lat)
+		lonses = numpy.arange(self.lons[0], self.lons[1]+self.d_lon, self.d_lon)
+		#
+		self.lattice_sites = numpy.array([[0. for x in latses] for y in lonses])
+		#
+		for quake in self.catalog:
+				if quake['mag']<self.mc_etas: continue
+				#
+				eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
+				for lat,lon in itertools.product(latses, lonses):
+				#for lat in latses:
+				#	for lon in lonses:
+				
+					local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon, lat=lat)
+					
+					#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
+					self.lattice_sites[index_x(lon)][index_y(lat)] += local_intensity
+					#
+				#
+			#
+		#
+		self.ETAS_array = []
+		# now, turn this into [[x,y,z]...]:
+		for j,lon in enumerate(lonses):
+			for k,lat in enumerate(latses):
+				# and note, if we want to be more robust, we can (maybe) use index_x(), index_y().
+				self.ETAS_array += [[lon, lat, lattice_sites[j][k]]]
+			#
+		#
+		self.ETAS_array = numpy.core.records.fromarrays(self.ETAS_array, dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
+		
+	def make_etas_bindex(self):
 			# do the ETAS calculation. for each earthquake, figure out what bins it contributes to and calc. etas for each bin.
 			#
+			self.lattice_sites = bindex.Bindex2D(dx=self.d_lon, dy=self.d_lat, x0=self.bin_lon0, y0=self.bin_lat0)	# list of lattice site objects, and let's index it by...
+																								# probably (i_x/lon, j_y/lat)
+			# copy class level variables:
+			#
 			print "calc etas..."
-			for quake in catalog:
+			for quake in self.catalog:
+				if quake['mag']<self.mc_etas: continue
+				#
 				eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
 				# calculate the bins within range of this earthquake:
 				# nominally, the proper thing to do now (or at lest one proper approach) is to compute a proper geodesic north and east to get the lat/lon bounds
@@ -152,17 +212,17 @@ class globalETAS_model(object):
 				#x,y = lon_lat_2xy(lon=quake['lon'], lat=quake['lat'])
 				#
 				# range of influence:
-				delta_lat = etas_range_padding+eq.L_r*etas_range_factor/deg2km
+				delta_lat = self.etas_range_padding + eq.L_r*self.etas_range_factor/deg2km
 				if abs(eq.lat)==90.:
 					delta_lon=180.
 				else:
 					delta_lon = delta_lat/math.cos(eq.lat*deg2rad)
 				#
 				# and let's also assume we want to limit our ETAS map to the input lat/lon:
-				lon_min, lon_max = max(eq.lon - delta_lon, lons[0]), min(eq.lon + delta_lon, lons[1])
-				lat_min, lat_max = max(eq.lat - delta_lat, lats[0]), min(eq.lat + delta_lat, lats[1])
+				lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
+				lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
 				#
-				#print "lon, lat range: (%f, %f), (%f, %f):: m=%f, L_r=%f, dx=%f/%f" % (lon_min, lon_max, lat_min, lat_max, eq.mag, eq.L_r, eq.L_r*etas_range_factor, eq.L_r*etas_range_factor/deg2km)
+				#print "lon, lat range: (%f, %f), (%f, %f):: m=%f, L_r=%f, dx=%f/%f" % (lon_min, lon_max, lat_min, lat_max, eq.mag, eq.L_r, eq.L_r*self.etas_range_factor, eq.L_r*self.etas_range_factor/deg2km)
 				#
 				# - choose an elliptical transform: equal-area, rotational, etc.
 				# - calculate initial rate-density
@@ -170,7 +230,7 @@ class globalETAS_model(object):
 				#    - for each site, D' = D_spherical * R'/R_xy	of course this will be approximately equal to R'.
 				#
 				#for lon_site,lat_site in [[j,k] for j in numpy.arange(lon_min, lon_max, d_lon) for k in numpy.arange(lat_min, lat_max, d_lat)]:
-				for lon_site, lat_site in itertools.product(numpy.arange(lon_min+bin_lon0, lon_max+bin_lon0, d_lon), numpy.arange(lat_min+bin_lat0, lat_max+bin_lat0, d_lat)):
+				for lon_site, lat_site in itertools.product(numpy.arange(lon_min+self.bin_lon0, lon_max+self.bin_lon0, self.d_lon), numpy.arange(lat_min+self.bin_lat0, lat_max+self.bin_lat0, self.d_lat)):
 					# so we make a square (or maybe a circle later on) and calc. etas at each site. use Bindex() to correct for any misalignment.
 					#
 					lon_bin = self.lattice_sites.get_xbin_center(lon_site)	# returns a dict like {'index':j, 'center':x}
@@ -186,7 +246,7 @@ class globalETAS_model(object):
 					# note: at this time, we have only the self-similar type local intensity. eventually, we need to split this up. nominally,
 					# this can occur at the Earthquake level, so -- if we so desire, different earthquakes can have differend spatial distributions.
 					#
-					local_intensity = eq.local_intensity(t=t_forecast, lon=lon_bin['center'], lat=lat_bin['center']) # anything else?
+					local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon_bin['center'], lat=lat_bin['center']) # anything else?
 					#
 					#self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
 					#
@@ -195,6 +255,7 @@ class globalETAS_model(object):
 					
 					
 			#
+			self.ETAS_array = self.lattice_sites.to_array()
 			print("finished calculating ETAS")	
 	#
 	'''
@@ -215,6 +276,15 @@ class globalETAS_model(object):
 		# return the position x of a bin along one axis.
 		return (bin_num - bin_0)*dx + x0x
 	'''
+#
+class ETAS_brute(globalETAS_model):
+	def __init__(self, *args, **kwargs):
+		self.make_etas = self.make_etas_all
+		super(ETAS_brute, self).__init__(*args, **kwargs)
+		#
+		
+	#
+#
 #
 class Earthquake(object):
 	# an Earthquake object for global ETAS. in parallel operations, treat this more like a bag of member functions than a data container.
@@ -790,15 +860,20 @@ def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 	# also see scipy.interpolate.griddata() -- which i'm guessing is called by matplotlib.mlab.griddata(), but who knows. the calling signature for the scipy library is
 	# a little bit different and allows method options ('nearest', 'linear', 'cubic') as opposed to ('nn', 'linear') for mlab version.
 	#
+	if not hasattr(xyz, 'dtype'):
+		# we got a list (or something), not a recarray.
+		xyz = numpy.core.records.fromarrays(zip(*xyz)[0:3], dtype=[('x','>f8'), ('y', '>f8'), ('z', '>f8')])
+	#
 	min_x, max_x = min(xyz['x']), max(xyz['x'])
 	min_y, max_y = min(xyz['y']), max(xyz['y'])
 	#
-	dx = min([x-xyz['x'][j] for j,x in enumerate(xyz['x'][1:]) if x-xyz['x'][j]!=0.])
-	dy = min([y-xyz['y'][j] for j,y in enumerate(xyz['y'][1:]) if x-xyz['y'][j]!=0.])
-	#
 	padding = .05
-	n_x = (n_x or int((max_x-min_x)/dx))
-	n_y = (n_y or int((max_y-min_y)/dy))
+	if n_x==None:
+		dx = min([abs(x-xyz['x'][j]) for j,x in enumerate(xyz['x'][1:]) if x-xyz['x'][j]!=0.])
+		n_x = (n_x or int((max_x-min_x)/dx))
+	if n_y==None:
+		dy = min([abs(y-xyz['y'][j]) for j,y in enumerate(xyz['y'][1:]) if x-xyz['y'][j]!=0.])
+		n_y = (n_y or int((max_y-min_y)/dy))
 	#
 	xi = numpy.linspace(min_x-abs(min_x)*padding, max_x + abs(max_x)*padding, n_x)
 	yi = numpy.linspace(min_y-abs(min_x)*padding, max_y + abs(max_x)*padding, n_y)
@@ -809,6 +884,42 @@ def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 	plt.clf()
 	cs = plt.contourf(xi,yi,zi,15,cmap=plt.cm.rainbow,vmax=abs(zi).max(), vmin=-abs(zi).min())
 	plt.colorbar()
+#
+def griddata_brute_plot(xyz, xrange=None, yrange=None, dx=None, dy=None):
+	# do a brute force grid-n-contour of an xyz input.
+	#
+	#
+	if not hasattr(xyz, 'dtype'):
+		# we got a list (or something), not a recarray.
+		xyz = numpy.core.records.fromarrays(zip(*xyz)[0:3], dtype=[('x','>f8'), ('y', '>f8'), ('z', '>f8')])
+	#
+	min_x, max_x = min(xyz['x']), max(xyz['x'])
+	min_y, max_y = min(xyz['y']), max(xyz['y'])
+	#
+	#
+	padding = .05
+	if dx==None:
+		dx = min([abs(x-xyz['x'][j]) for j,x in enumerate(xyz['x'][1:]) if x-xyz['x'][j]!=0.])
+		#n_x = (n_x or int((max_x-min_x)/dx))
+	if dy==None:
+		dy = min([abs(y-xyz['y'][j]) for j,y in enumerate(xyz['y'][1:]) if x-xyz['y'][j]!=0.])
+		#n_y = (n_y or int((max_y-min_y)/dy))
+	#
+	print("gridding on: (%f, %f, %f [%d]), (%f, %f, %f [%d])" % (min_x, max_x, dx, int((max_x-min_x)/dx), min_y, max_y, dy, int((max_y-min_y)/dy)))
+	#
+	index_x = lambda(x): int((x-min_x)/dx)
+	index_y = lambda(y): int((y-min_y)/dy)
+	# now, make a big (empty) 2D array for the data.
+	xy = numpy.array([[None for j in numpy.arange(min_x, max_x+dx, dx)] for k in numpy.arange(min_y, max_y+dy, dy)])
+	#xy=xy.transpose()
+	for rw in xyz:
+		#print("indexing: ", rw['x'], index_x(rw['x']), rw['y'], index_y(rw['y']))
+		xy[index_y(rw['y'])][index_x(rw['x'])]=math.log10(rw['z'])
+	#
+	plt.figure(0)
+	plt.clf()
+	plt.contourf(xy, 15)
+	
 #
 # testing and development scripts:
 #
