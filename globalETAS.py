@@ -90,7 +90,7 @@ class globalETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=5.0, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
+	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -125,7 +125,7 @@ class globalETAS_model(object):
 		self.transform_ratio_max=transform_ratio_max
 		'''
 		#		
-		self.lattice_sites = bindex.Bindex2D(dx=d_lon, dy=d_lat, x0=0., y0=0.)	# list of lattice site objects, and let's index it by... probably (i_x/lon, j_y/lat)
+		self.lattice_sites = bindex.Bindex2D(dx=d_lon, dy=d_lat, x0=bin_lon0, y0=bin_lat0)	# list of lattice site objects, and let's index it by... probably (i_x/lon, j_y/lat)
 							# we might alternativel store this as a simple list [] or a base index/list (that
 							# is re-sorting tolerant)) {i:[row]}, and then write indices:
 							# index_lat_lon = {(lat, lon):lattice_sites_index}, {(x,y):lattice_sites_index}, etc.
@@ -152,14 +152,17 @@ class globalETAS_model(object):
 				#x,y = lon_lat_2xy(lon=quake['lon'], lat=quake['lat'])
 				#
 				# range of influence:
-				delta_lat = eq.L_r*etas_range_factor/deg2km
+				delta_lat = etas_range_padding+eq.L_r*etas_range_factor/deg2km
 				if abs(eq.lat)==90.:
 					delta_lon=180.
 				else:
 					delta_lon = delta_lat/math.cos(eq.lat*deg2rad)
 				#
-				lon_min, lon_max = eq.lon - delta_lon, eq.lon + delta_lon
-				lat_min, lat_max = eq.lat - delta_lat, eq.lat + delta_lat
+				# and let's also assume we want to limit our ETAS map to the input lat/lon:
+				lon_min, lon_max = max(eq.lon - delta_lon, lons[0]), min(eq.lon + delta_lon, lons[1])
+				lat_min, lat_max = max(eq.lat - delta_lat, lats[0]), min(eq.lat + delta_lat, lons[1])
+				#
+				#print "lon, lat range: (%f, %f), (%f, %f):: m=%f, L_r=%f, dx=%f/%f" % (lon_min, lon_max, lat_min, lat_max, eq.mag, eq.L_r, eq.L_r*etas_range_factor, eq.L_r*etas_range_factor/deg2km)
 				#
 				# - choose an elliptical transform: equal-area, rotational, etc.
 				# - calculate initial rate-density
@@ -167,7 +170,7 @@ class globalETAS_model(object):
 				#    - for each site, D' = D_spherical * R'/R_xy	of course this will be approximately equal to R'.
 				#
 				#for lon_site,lat_site in [[j,k] for j in numpy.arange(lon_min, lon_max, d_lon) for k in numpy.arange(lat_min, lat_max, d_lat)]:
-				for lon_site, lat_site in itertools.product(numpy.arange(lon_min, lon_max, d_lon), numpy.arange(lat_min, lat_max, d_lat)):
+				for lon_site, lat_site in itertools.product(numpy.arange(lon_min+bin_lon0, lon_max+bin_lon0, d_lon), numpy.arange(lat_min+bin_lat0, lat_max+bin_lat0, d_lat)):
 					# so we make a square (or maybe a circle later on) and calc. etas at each site. use Bindex() to correct for any misalignment.
 					#
 					lon_bin = self.lattice_sites.get_xbin_center(lon_site)	# returns a dict like {'index':j, 'center':x}
@@ -374,12 +377,14 @@ class Earthquake(object):
 		# note major,semi-major axes are R*e_1, R*e_2 (doesn't matter which is which)
 		
 		#circumf = ellipse_circumference_exact(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]**et['R'])
-		circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
-		#
-		spatialdensity = radial_density/circumf
-		#
 		
-		return spatialdensity
+		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
+		circumf = math.pi*et['R']**2.
+		#
+		spatialdensity = self.spatial_intensity_factor*radial_density/circumf
+		#
+		#return spatialdensity
+		return (self.r_0 + et['R_prime'])**(-q)
 #
 class Shape(object):
 	# helper base class for shapes...
