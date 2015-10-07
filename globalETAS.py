@@ -160,7 +160,7 @@ class globalETAS_model(object):
 				#
 				# and let's also assume we want to limit our ETAS map to the input lat/lon:
 				lon_min, lon_max = max(eq.lon - delta_lon, lons[0]), min(eq.lon + delta_lon, lons[1])
-				lat_min, lat_max = max(eq.lat - delta_lat, lats[0]), min(eq.lat + delta_lat, lons[1])
+				lat_min, lat_max = max(eq.lat - delta_lat, lats[0]), min(eq.lat + delta_lat, lats[1])
 				#
 				#print "lon, lat range: (%f, %f), (%f, %f):: m=%f, L_r=%f, dx=%f/%f" % (lon_min, lon_max, lat_min, lat_max, eq.mag, eq.L_r, eq.L_r*etas_range_factor, eq.L_r*etas_range_factor/deg2km)
 				#
