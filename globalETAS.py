@@ -383,8 +383,8 @@ class Earthquake(object):
 		#
 		spatialdensity = self.spatial_intensity_factor*radial_density/circumf
 		#
-		#return spatialdensity
-		return (self.r_0 + et['R_prime'])**(-q)
+		return spatialdensity
+		#return (self.r_0 + et['R_prime'])**(-q)
 #
 class Shape(object):
 	# helper base class for shapes...
