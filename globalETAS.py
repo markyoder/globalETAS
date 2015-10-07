@@ -90,7 +90,7 @@ class globalETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
+	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=5.0, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -102,6 +102,14 @@ class globalETAS_model(object):
 		# load all the input parameters into class variables (note i believe locals() is all currently defined variables in the function scope,
 		# so this syntax must be executed at the very begining of the function to work properly):
 		self.__dict__.update(locals())
+		#
+		# and handle some specific cases...
+		if isinstance(t_now, float):
+			t_forecast = t_now
+		elif isinstance(t_now, numpy.datetime64):
+			t_forecast = mpd.date2num(t_now.tolist())
+		else:
+			t_forecast = mpd.date2num(t_now)
 		'''
 		self.lats=lats
 		self.lons=lons
@@ -128,7 +136,7 @@ class globalETAS_model(object):
 								# that said, let's take the next step and return dict. type earthquake entries.
 		#
 		if catalog==None:
-			catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now])	# and note there are other variables to consider...
+			catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
 		self.catalog = catalog
 		#
 		if calc_etas:
@@ -158,36 +166,33 @@ class globalETAS_model(object):
 				# - distribute over relevant sites:
 				#    - for each site, D' = D_spherical * R'/R_xy	of course this will be approximately equal to R'.
 				#
-				for lon_site,lat_site in [[j,k] for j in numpy.arange(lon_min, lon_max, d_lon) for k in numpy.arange(lat_min, lat_max, d_lat)]:
+				#for lon_site,lat_site in [[j,k] for j in numpy.arange(lon_min, lon_max, d_lon) for k in numpy.arange(lat_min, lat_max, d_lat)]:
+				for lon_site, lat_site in itertools.product(numpy.arange(lon_min, lon_max, d_lon), numpy.arange(lat_min, lat_max, d_lat)):
 					# so we make a square (or maybe a circle later on) and calc. etas at each site. use Bindex() to correct for any misalignment.
 					#
 					lon_bin = self.lattice_sites.get_xbin_center(lon_site)	# returns a dict like {'index':j, 'center':x}
 					lat_bin = self.lattice_sites.get_ybin_center(lat_site)
 					#
+					#print "lon-lat bins: ", lon_bin, lat_bin
+					#
 					#bin_lonlat = xy2_lon_lat(x_bin['center'], y_bin['center'])
-					bin_lonlat=[lon_bin, lat_bin]
+					#bin_lonlat=[lon_bin, lat_bin]
 					#
 					# now, calculate local ETAS intensity from this eq at this site...
 					# (this should be defined in the Earthquake() object:
-					local_intensity = eq.local_intensity(t=t_now, lon=eq.lon, lat=eq.lat) # anything else?
+					# note: at this time, we have only the self-similar type local intensity. eventually, we need to split this up. nominally,
+					# this can occur at the Earthquake level, so -- if we so desire, different earthquakes can have differend spatial distributions.
+					#
+					local_intensity = eq.local_intensity(t=t_forecast, lon=lon_bin['center'], lat=lat_bin['center']) # anything else?
+					#
+					#self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
+					#
+					#self.lattice_sites.add_to_bin(x=lon_bin['center'], y=lat_bin['center'], z=local_intensity)	# note: if we give x,y instead of the bin index, bindex
+					self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
 					
-					# now, get distance from earthquake and this bin, calc etas and update this site.
-					# the basic model for distances will be like: 1) measure distance using proper spherical transform, 2) get the ellipitical transform from PCA,
-					# renormalize
-					#
-					# currently available distances are {'cartesian', 'spherical', 'geodedic'} (and there is some correction for synonmys). for most accurate
-					# distance calculations, use the geodetic option; spherical is a faster approximation; cartesian distances will be used for the elliptical transform.
-					#
-					eq_obj = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
-					#distances = dist_to(lon_lat_from=[quake['lon'], quake['lat']], lon_lat_to=bin_lonlat, dist_types=['cart', 'geo'], Rearth = 6378.1)
-					#delta_t = (mpd.date2num(dtm.datetime.now())-mpd.date2num(eq_obj.event_date.tolist()))*days2secs
-					#omori_rate = (1.0/eq_obj.tau)*(eq_obj.t_0 + delta_t)**(-1.1)
-					#spatial_dist = (1./chi)*(eq_obj.r_0 + R_prime)**(-q)
-					#
-					self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
 					
 			#
-			print "didn't really calculate anything, but spun the catalgo at least..."		
+			print("finished calculating ETAS")	
 	#
 	'''
 	# i think these are all handled in the Bindex() object.
@@ -226,7 +231,10 @@ class Earthquake(object):
 		self.transform_type = transform_type
 		self.transform_ratio_max = transform_ratio_max
 		self.ab_rato_expon = ab_rato_expon
-		
+		#
+		# check for float datetime...
+		if not hasattr(self, 'event_date_float'): self.event_date_float = mpd.date2num(self.event_date.tolist())
+		#self.event_date_float_secs = self.event_date_float*days2secs
 		#
 		#self.ab_ratio = min(transform_ratio_max, max(self.e_vals)/min(self.e_vals))
 		self.ab_ratio_raw = max(self.e_vals)/min(self.e_vals)
@@ -316,7 +324,7 @@ class Earthquake(object):
 		#
 		# first, get the actual distance (and related data) to the point:
 		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
-		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method.
+		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, and convert to km...
 		#
 		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in general FoR.
 		#
@@ -336,9 +344,42 @@ class Earthquake(object):
 	def spherical_dist(self, to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
 	#
-	def local_intensity(self, t=None, to_lon=None, to_lat=None):
+	def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None):
+		'''
+		# calculate local ETAS density-rate (aka, earthquakes per (km^2 sec)
+		# take time in days.
+		'''
+		#print "inputs: ", t, lon, lat, p, q
+		p = (p or self.p)
+		q = (q or self.q)
 		# calculate ETAS intensity.
-		return None
+		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
+		# but then make a map using soemthing else. for example, we might use p=0 (or at least p<p_0) to effectivly modify (eliminate) the time dependence.
+		#
+		delta_t = (t - self.event_date_float)*days2secs
+		if delta_t<0.:
+			return 0.
+		#
+		et = self.elliptical_transform(lon=lon, lat=lat)
+		#
+		orate = 1.0/(self.tau * (self.t_0 + delta_t)**self.p)
+		#
+		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
+		# radial density (dN/dr), and as i recall this is normalized so that int(dN/dr)_0^inf --> 1.0
+		radial_density = (q-1.0)*(self.r_0**(q-1.0))*(self.r_0 + et['R_prime'])**(-q)
+		#
+		# ... and this is distributed along an elliptical contour. we could approximate with a circle, but what we really want is to distribute along the ellipse
+		# that is orthogonal to our R-R' transformation. fortunately, they have the same radius. calculating the radius of an ellipse is hard. we an exact solution
+		# (that uses a "special" function) and an approximation (that should be faster).
+		# note major,semi-major axes are R*e_1, R*e_2 (doesn't matter which is which)
+		
+		#circumf = ellipse_circumference_exact(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]**et['R'])
+		circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
+		#
+		spatialdensity = radial_density/circumf
+		#
+		
+		return spatialdensity
 #
 class Shape(object):
 	# helper base class for shapes...
@@ -500,7 +541,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	cols, formats = [list(x) for x in zip(*incat.dtype.descr)]
 	#cols += ['L_r', 'r_0', 'chi', 'dt_r', 't_0', 'tau', 'strike_theta', 'strike_epsilon']			# add these parameters so we can switch them out (if we want)
 	#cols += ['L_r', 'r_0', 'chi', 'dt_r', 't_0', 'tau', 'e0', 'e1', 'v00', 'v01', 'v10', 'v11']
-	cols += ['L_r', 'r_0', 'chi', 'dt_r', 't_0', 'tau']
+	cols += ['L_r', 'r_0', 'chi', 'dt_r', 't_0', 'tau', 'dmstar', 'p', 'q']
 	formats += ['f8' for x in xrange(len(cols)-len(formats))]
 	#
 	my_dtype = [(cols[j], formats[j]) for j in xrange(len(cols))]
@@ -567,7 +608,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 			eig_vecs = [[1.0, 0.], [0., 1.0]]
 		#
 		#
-		output_catalog += [ list(rw) + [L_r, r_0, chi, dt_r, t_0, tau] + [eig_vals, eig_vecs, len(included_indices)] ]
+		output_catalog += [ list(rw) + [L_r, r_0, chi, dt_r, t_0, tau, dmstar, p, q] + [eig_vals, eig_vecs, len(included_indices)] ]
 		
 		# (and strike_theta (or at least something like it -- setting aside conventions) = atan(eig_vecs[0][1]/eig_vecs[0][1])
 		#
@@ -721,6 +762,16 @@ def spherical_dist(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], Rearth = 6378.1):
 	#
 	return R3
 
+def ellipse_circumference_exact(a=None, b=None):
+	h = ((a-b)/(a+b))**2.
+	return math.pi*(a+b)*scipy.special.hyp2f1(-.5, -.5, 1.0, h)
+	
+def ellipse_circumference_approx1(a=None, b=None):
+	# there are two good approximations from Ramanujan (see wikipedia); this is one of them...
+	#
+	h = ((a-b)/(a+b))**2.
+	return math.pi*(a + b)*(1. + 3.*h/(10 + math.sqrt(4. - 3.*h)))
+
 def ab_ratio_distribution(e_vals, **kwargs):
 	x = [max(x[0]/x[1], x[1]/x[0]) for x in e_vals]
 	#
@@ -737,9 +788,12 @@ def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 	min_x, max_x = min(xyz['x']), max(xyz['x'])
 	min_y, max_y = min(xyz['y']), max(xyz['y'])
 	#
+	dx = min([x-xyz['x'][j] for j,x in enumerate(xyz['x'][1:]) if x-xyz['x'][j]!=0.])
+	dy = min([y-xyz['y'][j] for j,y in enumerate(xyz['y'][1:]) if x-xyz['y'][j]!=0.])
+	#
 	padding = .05
-	n_x = (n_x or int(math.sqrt(len(xyz))/10.))
-	n_y = (n_y or int(math.sqrt(len(xyz))/10.))
+	n_x = (n_x or int((max_x-min_x)/dx))
+	n_y = (n_y or int((max_y-min_y)/dy))
 	#
 	xi = numpy.linspace(min_x-abs(min_x)*padding, max_x + abs(max_x)*padding, n_x)
 	yi = numpy.linspace(min_y-abs(min_x)*padding, max_y + abs(max_x)*padding, n_y)

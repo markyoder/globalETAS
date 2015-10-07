@@ -142,31 +142,26 @@ class Bindex2D(dict):
 		#
 		return None
 	#
-	def add_to_bin(self, x=None, y=None, z=None):
+	def get_value_at(self, x=None, y=None, bin_x=None, bin_y=None):
+		bin_x = (bin_x or get_bin(x, dx=self.dx, x0=self.x0, bin_0=0))
+		bin_y = (bin_y or get_bin(y, dx=self.dy, x0=self.y0, bin_0=0))
+		#
+		return self[bin_x][bin_y]
+	#
+	def add_to_bin(self, x=None, y=None, z=None, bin_x=None, bin_y=None):
 		# in other words, add z to the bin located at (x,y). (x,y) can be off-center; we'll find the appropriate bin.
 		#
 		# x,y: coordinates of item; z is the item.
 		if z==None: z=self.leaf_type()
 		#x0,y0 = self.get_xybins(x,y,r_type='tuple')
-		x0 = get_bin(x, dx=self.dx, x0=self.x0, bin_0=0)
-		y0 = get_bin(y, dx=self.dy, x0=self.y0, bin_0=0)
+		bin_x = (bin_x or get_bin(x, dx=self.dx, x0=self.x0, bin_0=0))
+		bin_y = (bin_y or get_bin(y, dx=self.dy, x0=self.y0, bin_0=0))
+		#		
+		if not self.has_key(bin_x): self[bin_x]={}
+		if not self[bin_x].has_key(bin_y):
+			self[bin_x][bin_y]=self.leaf_type()
 		#
-		#if not self.items.has_key(x0): self.items[x0]={}
-		#if not self.items[x0].has_key(y0):
-		#	self.items[x0][y0]=self.leaf_type()
-		
-		if not self.has_key(x0): self[x0]={}
-		if not self[x0].has_key(y0):
-			self[x0][y0]=self.leaf_type()
-			
-		#
-		#if unpack_z==True and hasattr(z, '__len__'):
-		#	self.items[x0][y0]+=z
-		#else:
-		#	self.items[x0][y0]+=[z]
-		
-		#self.items[x0][y0]+=z
-		self[x0][y0]+=z
+		self[bin_x][bin_y]+=z
 		#
 		return None
 	#
