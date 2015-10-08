@@ -165,6 +165,8 @@ class globalETAS_model(object):
 		#
 		self.lattice_sites = numpy.array([[0. for x in latses] for y in lonses])
 		lattice_index = index.Index()		# we could index the lattice, but it's pretty easy to index functionally...
+		# instead of calculating the indices using index_x/y(), explicitly enumerate them like [j_lat, lat = enumerate(arange(...))]
+		# calculated indices seem to be having round up/down problems.
 		lattice_dict = {j:{'lat':lat, 'lon':lon, 'j_lon':index_x(lon), 'j_lat':index_y(lat)} for j, (lon,lat) in enumerate(itertools.product(lonses,latses))}
 		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lon,lat) in enumerate(itertools.product(lonses,latses))]
 		# so the idea here will be to:
