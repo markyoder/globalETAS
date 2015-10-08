@@ -149,8 +149,8 @@ class globalETAS_model(object):
 		# ... and for ETAS_brute(ETAS), we'd do:
 		# self.make_etas = self.make_etas_all
 		#
-		#if calc_etas: self.make_etas()
-		print "has make_etas?", hasattr(self, 'make_etas')
+		if calc_etas: self.make_etas()
+		#print "has make_etas?", hasattr(self, 'make_etas')
 	#
 	def make_etas_rtree(self):
 		# use the same basic framework as etas_all (aka, instantiate a lattice), but map an rtree index to the lattice, then use a delta_lat, delta_lon
@@ -158,8 +158,8 @@ class globalETAS_model(object):
 		#
 		# loop-loop over the whole lattice space...
 		# first, make an empty rates-lattice:
-		index_x = lambda(x): int((x-self.lons[0])/self.d_lon)
-		index_y = lambda(y): int((y-self.lats[0])/self.d_lat)
+		index_x = lambda(x): int(round((x-self.lons[0])/self.d_lon))
+		index_y = lambda(y): int(round((y-self.lats[0])/self.d_lat))
 		latses = numpy.arange(self.lats[0], self.lats[1]+self.d_lat, self.d_lat)
 		lonses = numpy.arange(self.lons[0], self.lons[1]+self.d_lon, self.d_lon)
 		#
@@ -227,8 +227,8 @@ class globalETAS_model(object):
 	def make_etas_all(self):
 		# loop-loop over the whole lattice space...
 		# first, make an empty rates-lattice:
-		index_x = lambda(x): int((x-self.lons[0])/self.d_lon)
-		index_y = lambda(y): int((y-self.lats[0])/self.d_lat)
+		index_x = lambda(x): int(round((x-self.lons[0])/self.d_lon))
+		index_y = lambda(y): int(round((y-self.lats[0])/self.d_lat))
 		latses = numpy.arange(self.lats[0], self.lats[1]+self.d_lat, self.d_lat)
 		lonses = numpy.arange(self.lons[0], self.lons[1]+self.d_lon, self.d_lon)
 		#
@@ -334,12 +334,18 @@ class globalETAS_model(object):
 		# return bin_id/index along a single axis.
 		x0 = (x0 or self.bin_x0)
 		#
-		return int(bin_0) + int(round((x-x0)/dx))
+		return int(round(bin_0) + int(round(round((x-x0)/dx))
 
 	def bin2x(bin_num, dx=1., x0=0., bin_0=0):
 		# return the position x of a bin along one axis.
 		return (bin_num - bin_0)*dx + x0x
 	'''
+#
+class ETAS_bindex(globalETAS_model):
+	# default case...
+	def __init__(self, *args, **kwargs):
+		self.make_etas=self.make_etas_bindex
+		super(ETAS_bindex,self).__init__(*args, **kwargs)
 #
 class ETAS_brute(globalETAS_model):
 	def __init__(self, *args, **kwargs):
@@ -509,7 +515,7 @@ class Earthquake(object):
 		orate = 1.0/(self.tau * (self.t_0 + delta_t)**self.p)
 		#
 		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
-		# radial density (dN/dr), and as i recall this is normalized so that int(dN/dr)_0^inf --> 1.0
+		# radial density (dN/dr), and as i recall this is normalized so that int(round(dN/dr)_0^inf --> 1.0
 		radial_density = (q-1.0)*(self.r_0**(q-1.0))*(self.r_0 + et['R_prime'])**(-q)
 		#
 		# ... and this is distributed along an elliptical contour. we could approximate with a circle, but what we really want is to distribute along the ellipse
@@ -941,10 +947,10 @@ def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 	padding = .05
 	if n_x==None:
 		dx = min([abs(x-xyz['x'][j]) for j,x in enumerate(xyz['x'][1:]) if x-xyz['x'][j]!=0.])
-		n_x = (n_x or int((max_x-min_x)/dx))
+		n_x = (n_x or int(round((max_x-min_x)/dx)))
 	if n_y==None:
 		dy = min([abs(y-xyz['y'][j]) for j,y in enumerate(xyz['y'][1:]) if x-xyz['y'][j]!=0.])
-		n_y = (n_y or int((max_y-min_y)/dy))
+		n_y = (n_y or int(round((max_y-min_y)/dy)))
 	#
 	xi = numpy.linspace(min_x-abs(min_x)*padding, max_x + abs(max_x)*padding, n_x)
 	yi = numpy.linspace(min_y-abs(min_x)*padding, max_y + abs(max_x)*padding, n_y)
@@ -971,20 +977,20 @@ def griddata_brute_plot(xyz, xrange=None, yrange=None, dx=None, dy=None):
 	padding = .05
 	if dx==None:
 		dx = min([abs(x-xyz['x'][j]) for j,x in enumerate(xyz['x'][1:]) if x-xyz['x'][j]!=0.])
-		#n_x = (n_x or int((max_x-min_x)/dx))
+		#n_x = (n_x or int(round((max_x-min_x)/dx))
 	if dy==None:
 		dy = min([abs(y-xyz['y'][j]) for j,y in enumerate(xyz['y'][1:]) if x-xyz['y'][j]!=0.])
-		#n_y = (n_y or int((max_y-min_y)/dy))
+		#n_y = (n_y or int(round((max_y-min_y)/dy))
 	#
-	print("gridding on: (%f, %f, %f [%d]), (%f, %f, %f [%d])" % (min_x, max_x, dx, int((max_x-min_x)/dx), min_y, max_y, dy, int((max_y-min_y)/dy)))
+	#print "gridding on: (%f, %f, %f [%d]), (%f, %f, %f [%d])" % (min_x, max_x, dx, int(round((max_x-min_x)/dx)), min_y, max_y, dy, int(round((max_y-min_y)/dy)) )
 	#
-	index_x = lambda(x): int((x-min_x)/dx)
-	index_y = lambda(y): int((y-min_y)/dy)
+	index_x = lambda(x): int(round((x-min_x)/dx))
+	index_y = lambda(y): int(round((y-min_y)/dy))
 	# now, make a big (empty) 2D array for the data.
 	xy = numpy.array([[None for j in numpy.arange(min_x, max_x+dx, dx)] for k in numpy.arange(min_y, max_y+dy, dy)])
 	#xy=xy.transpose()
 	for rw in xyz:
-		#print("indexing: ", rw['x'], index_x(rw['x']), rw['y'], index_y(rw['y']))
+		#print(round("indexing: ", rw['x'], index_x(rw['x']), rw['y'], index_y(rw['y']))
 		xy[index_y(rw['y'])][index_x(rw['x'])]=math.log10(rw['z'])
 	#
 	plt.figure(0)
