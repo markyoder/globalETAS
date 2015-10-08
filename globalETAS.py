@@ -155,7 +155,74 @@ class globalETAS_model(object):
 	def make_etas_rtree(self):
 		# use the same basic framework as etas_all (aka, instantiate a lattice), but map an rtree index to the lattice, then use a delta_lat, delta_lon
 		# approach (like etas_bindex) bit loop only over the rtree.intersection() of the delta_lat/lon window.
-		pass
+		#
+		# loop-loop over the whole lattice space...
+		# first, make an empty rates-lattice:
+		index_x = lambda(x): int((x-self.lons[0])/self.d_lon)
+		index_y = lambda(y): int((y-self.lats[0])/self.d_lat)
+		latses = numpy.arange(self.lats[0], self.lats[1]+self.d_lat, self.d_lat)
+		lonses = numpy.arange(self.lons[0], self.lons[1]+self.d_lon, self.d_lon)
+		#
+		self.lattice_sites = numpy.array([[0. for x in latses] for y in lonses])
+		lattice_index = index.Index()		# we could index the lattice, but it's pretty easy to index functionally...
+		lattice_dict = {j:{'lat':lat, 'lon':lon, 'j_lon':index_x(lon), 'j_lat':index_y(lat)} for j, (lon,lat) in enumerate(itertools.product(lonses,latses))}
+		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lon,lat) in enumerate(itertools.product(lonses,latses))]
+		# so the idea here will be to:
+		# 1) determine the lat/lon range for an earthquake
+		# 2) use rtree to find indices inside those bounds
+		# 3) use lattice_dict to map those x,y indices
+		#
+		# nominally we could arrange to keep this from the catalog calculation.
+		#quakes_index  = index.Index()
+		#[quakes_index.insert(j, (rw['lon'], rw['lat'], rw['lon'], rw['lat'])) for j,rw in enumerate(self.catalog)]
+		#
+		for quake in self.catalog:
+			if quake['mag']<self.mc_etas: continue
+			#
+			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
+			#
+			# get lat/lon range:
+			delta_lat = self.etas_range_padding + eq.L_r*self.etas_range_factor/deg2km
+			if abs(eq.lat)==90.:
+				delta_lon=180.
+			else:
+				delta_lon = delta_lat/math.cos(eq.lat*deg2rad)
+			#
+			# and let's also assume we want to limit our ETAS map to the input lat/lon:
+			lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
+			lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
+			#
+			site_indices = lattice_index.intersection((lon_min, lat_min, lon_max, lat_max))
+			# ... and if we wrap around the other side of the world...
+			if lon_min<-180.:
+				new_lon_min = lon_min%(180.)
+				site_indices += list(lattice_index.intersection((new_lon_min, lat_min, 180., lat_max)))
+			if lon_max>180.:
+				new_lon_max = lon_max%(-180.)
+				site_indices += list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max)))
+			#
+			for site_index in site_indices:
+				X = lattice_index[site_index]
+				lon = X['lon']
+				lat = X['lat']
+				j_lon=X['j_lon']
+				j_lat=X['j_lat']
+				#
+				local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon, lat=lat)
+				#
+				#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
+				self.lattice_sites[j_lon][j_lat] += local_intensity
+				#
+		#
+		self.ETAS_array = []
+		# now, turn this into [[x,y,z]...]:
+		for j,lon in enumerate(lonses):
+			for k,lat in enumerate(latses):
+				# and note, if we want to be more robust, we can (maybe) use index_x(), index_y().
+				self.ETAS_array += [[lon, lat, lattice_sites[j][k]]]
+			#
+		#
+		self.ETAS_array = numpy.core.records.fromarrays(self.ETAS_array, dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 	
 	def make_etas_all(self):
 		# loop-loop over the whole lattice space...
@@ -168,20 +235,17 @@ class globalETAS_model(object):
 		self.lattice_sites = numpy.array([[0. for x in latses] for y in lonses])
 		#
 		for quake in self.catalog:
-				if quake['mag']<self.mc_etas: continue
+			if quake['mag']<self.mc_etas: continue
+			#
+			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
+			for lat,lon in itertools.product(latses, lonses):
+				local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon, lat=lat)
 				#
-				eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
-				for lat,lon in itertools.product(latses, lonses):
-				#for lat in latses:
-				#	for lon in lonses:
-				
-					local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon, lat=lat)
-					
-					#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
-					self.lattice_sites[index_x(lon)][index_y(lat)] += local_intensity
-					#
+				#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
+				self.lattice_sites[index_x(lon)][index_y(lat)] += local_intensity
 				#
 			#
+		#
 		#
 		self.ETAS_array = []
 		# now, turn this into [[x,y,z]...]:
@@ -283,6 +347,13 @@ class ETAS_brute(globalETAS_model):
 		super(ETAS_brute, self).__init__(*args, **kwargs)
 		#
 		
+	#
+#
+class ETAS_rtree(globalETAS_model):
+	def __init__(self, *args, **kwargs):
+		self.make_etas = self.make_etas_rtree
+		super(ETAS_rtree, self).__init__(*args, **kwargs)
+		#
 	#
 #
 #
