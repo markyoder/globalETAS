@@ -145,7 +145,9 @@ class globalETAS_model(object):
 		self.catalog = catalog
 		#
 		# ... and here is really where we do derived classes for different ETAS forcast objects. so for ETAS_bindex(ETAS), we do:
-		self.make_etas = self.make_etas_bindex
+		if not hasattr(self, 'make_etas'):
+			# instantiating directly from this parent class script, or for some other reason we don't get a make_etas() method defined.
+			self.make_etas = self.make_etas_bindex
 		# ... and for ETAS_brute(ETAS), we'd do:
 		# self.make_etas = self.make_etas_all
 		#
@@ -204,7 +206,7 @@ class globalETAS_model(object):
 				site_indices += list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max)))
 			#
 			for site_index in site_indices:
-				X = lattice_index[site_index]
+				X = lattice_dict[site_index]
 				lon = X['lon']
 				lat = X['lat']
 				j_lon=X['j_lon']
@@ -221,10 +223,10 @@ class globalETAS_model(object):
 		for j,lon in enumerate(lonses):
 			for k,lat in enumerate(latses):
 				# and note, if we want to be more robust, we can (maybe) use index_x(), index_y().
-				self.ETAS_array += [[lon, lat, lattice_sites[j][k]]]
+				self.ETAS_array += [[lon, lat, self.lattice_sites[j][k]]]
 			#
 		#
-		self.ETAS_array = numpy.core.records.fromarrays(self.ETAS_array, dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
+		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 	
 	def make_etas_all(self):
 		# loop-loop over the whole lattice space...
@@ -257,7 +259,7 @@ class globalETAS_model(object):
 				self.ETAS_array += [[lon, lat, lattice_sites[j][k]]]
 			#
 		#
-		self.ETAS_array = numpy.core.records.fromarrays(self.ETAS_array, dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
+		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		
 	def make_etas_bindex(self):
 			# do the ETAS calculation. for each earthquake, figure out what bins it contributes to and calc. etas for each bin.
@@ -279,8 +281,8 @@ class globalETAS_model(object):
 				#
 				# range of influence:
 				delta_lat = self.etas_range_padding + eq.L_r*self.etas_range_factor/deg2km
-				if abs(eq.lat)==90.:
-					delta_lon=180.
+				if abs(eq.lat) == 90.:
+					delta_lon  = 180.
 				else:
 					delta_lon = delta_lat/math.cos(eq.lat*deg2rad)
 				#
@@ -354,7 +356,6 @@ class ETAS_brute(globalETAS_model):
 		self.make_etas = self.make_etas_all
 		super(ETAS_brute, self).__init__(*args, **kwargs)
 		#
-		
 	#
 #
 class ETAS_rtree(globalETAS_model):
@@ -404,6 +405,13 @@ class Earthquake(object):
 	@property
 	def lon_lat(self):
 		return [self.lon, self.lat]		
+	#
+	def dist_to(self, lon=None, lat=None, dist_types=['spherical'], Rearth = 6378.1, *args, **kwargs):
+		if hasattr(lon, '__len__'):
+			lon = lon[0]
+			lat = lat[1]
+		#
+		return dist_to(lon_lat_from=self.lon_lat, lon_lat_to=[lon, lat], dist_types=dist_types, Rearth=Rearth, *args, **kwargs)
 	#
 	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None, transform_ratio_max=None, ab_rato_expon=None):
 		'''
@@ -496,8 +504,10 @@ class Earthquake(object):
 	def spherical_dist(self, to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
 	#
-	def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None):
+	def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 		'''
+		# t0_prime: use this to re-scale the temporal component. we'll transform the initial rate (and effectively minimum delta_t)
+		# to avoid near-field artifacts (where a recent earthquake dominates the ETAS).
 		# calculate local ETAS density-rate (aka, earthquakes per (km^2 sec)
 		# take time in days.
 		'''
@@ -514,7 +524,14 @@ class Earthquake(object):
 		#
 		et = self.elliptical_transform(lon=lon, lat=lat)
 		#
-		orate = 1.0/(self.tau * (self.t_0 + delta_t)**self.p)
+		# let's adjust t0 so maybe we dont' get nearfield artifacts...
+		if t0_prime!=None:
+			t_0_prime = 60.*10.	# ten minutes...
+			tau_prime = (self.tau*self.t_0**self.p)/(t_0_prime)
+			#
+			orate = 1.0/(tau_prime * (t_0_prime + delta_t)**self.p)
+		else:
+			orate = 1.0/(self.tau * (self.t_0 + delta_t)**self.p)
 		#
 		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
 		# radial density (dN/dr), and as i recall this is normalized so that int(round(dN/dr)_0^inf --> 1.0
@@ -527,12 +544,14 @@ class Earthquake(object):
 		
 		#circumf = ellipse_circumference_exact(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]**et['R'])
 		
-		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
-		circumf = math.pi*et['R']**2.
+		circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
+		#circumf = math.pi*et['R']**2.
 		#
 		spatialdensity = self.spatial_intensity_factor*radial_density/circumf
 		#
-		return spatialdensity
+		#print "diag: ", orate, circumf, self.spatial_intensity_factor*radial_density, spatialdensity
+		#
+		return spatialdensity*orate
 		#return (self.r_0 + et['R_prime'])**(-q)
 #
 class Shape(object):
