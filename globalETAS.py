@@ -78,6 +78,15 @@ dist_calc_types_dict.update({key:'geo' for key in ['geo', 'geodesic', 'geodesicl
 # and this one to return the x,y components for cartesian measurements:
 dist_calc_types_dict.update({key:'dx_dy' for key in ['dxdy', 'dx_dy']})
 #
+# Developer notes and status:
+# as of 9 oct 2015: globalETAS_model and the various subclasses (which use differend indexing) run (apprently) successfully, but the figures they turn out look a bit
+# odd, so i'm working on diagnostic scripts (maybe i just need to run a bigger model... or maybe just one more directly comparable to some standard runs like nor/so CA.
+# see also etas_testing.py. it looks like the Earthquake() object products the correct local_intensity(), as compared to the former BASScast/ETASmf model.
+# so maybe the rates are not aggregating correctly, or maybe the indexing is screwing up something.
+# the Bindex() indexing approach appears to be having some float-integer indexing problems (basically, error in floating point accuracy causing some bins to go the wrong
+# way. probably, we need a more explicit approach that maps out the bins by counting (aka, instead of 35.5 --> 35.0/.1 --> j=350, we just need to line up the values we've got
+# and count off the bins. note, skipping Bindex and just using the rtree approach... or use Bindex, but pre-calc the domain. maybe also look into using
+# numpy.digitize(x,bins) or there are some intesting examples of using hist() to make bins.
 #
 # Classes:
 
