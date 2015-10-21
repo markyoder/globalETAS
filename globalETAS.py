@@ -178,8 +178,12 @@ class globalETAS_model(object):
 		lattice_index = index.Index()		# we could index the lattice, but it's pretty easy to index functionally...
 		# instead of calculating the indices using index_x/y(), explicitly enumerate them like [j_lat, lat = enumerate(arange(...))]
 		# calculated indices seem to be having round up/down problems.
-		lattice_dict = {j:{'lat':lat, 'lon':lon, 'j_lon':index_x(lon), 'j_lat':index_y(lat)} for j, (lon,lat) in enumerate(itertools.product(lonses,latses))}
+		#lattice_dict = {j:{'lat':lat, 'lon':lon, 'j_lon':index_x(lon), 'j_lat':index_y(lat)} for j, (lon,lat) in enumerate(itertools.product(lonses,latses))}
+		l_lon = [(j,lon) for j,lon in enumerate(lonses)]
+		l_lat = [(k,lat) for k,lat in enumerate(latses)]
+		lattice_dict = {i:{'lat':lat_tpl[1], 'lon':lon_tpl[1], 'j_lon':lon_tpl[0], 'j_lat':lat_tpl[0]} for i,(lon_tpl, lat_tpl) in enumerate(itertools.product(l_lon, l_lat))}
 		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lon,lat) in enumerate(itertools.product(lonses,latses))]
+		#		
 		# so the idea here will be to:
 		# 1) determine the lat/lon range for an earthquake
 		# 2) use rtree to find indices inside those bounds
@@ -265,7 +269,7 @@ class globalETAS_model(object):
 		for j,lon in enumerate(lonses):
 			for k,lat in enumerate(latses):
 				# and note, if we want to be more robust, we can (maybe) use index_x(), index_y().
-				self.ETAS_array += [[lon, lat, lattice_sites[j][k]]]
+				self.ETAS_array += [[lon, lat, self.lattice_sites[j][k]]]
 			#
 		#
 		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
@@ -1084,7 +1088,7 @@ def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 
 	#
 	# now, let's try a (different?) 1/r field:
 	# note: we forgot to push some changes, so we'll have conflicts here. maybe we keep both examples...
-	plt.figure(2)
+	plt.figure(fignum+2)
 	plt.clf()
 	d_lat=.05
 	d_lon=.05
@@ -1119,6 +1123,7 @@ def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 
 				#field_vals[-1]+= [1./r]
 				field_vals[j][k] += 1./(r + 10.**(.5*eq.mag-2.2))**1.5
 
+	
 	plt.contourf(numpy.arange(lons[0], lons[1], d_lon), numpy.arange(lats[0], lats[1], d_lat), numpy.log10(field_vals), 25)
 	plt.plot(*zip(*circ.poly()), color='k', ls='-')
 	#
