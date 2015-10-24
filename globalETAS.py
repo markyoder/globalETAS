@@ -125,7 +125,9 @@ class globalETAS_model(object):
 		# we might just want the last N days, as a consistent standard. note we might, later on, make this a bit more sophisticated
 		# by processing the full t0 -> t_now catalog, but only doing ETAS for the most recent cat_len days. BUT, to do this, we have
 		# to enforce in all the do_ETAS() functions
-		if cat_len != None: t0=t_now - dtm.timedelta(days=cat_len)
+		if cat_len != None:
+			t0=t_now - dtm.timedelta(days=cat_len)
+			print("Overriding t0 for ETAS calculations. using t0 = t_now - catlen = %s" % t0)
 		#
 		mc_etas = (mc_etas or mc)	# mc_eats: minimum mag. for etas calculations -- aka, mc for the catalog, but only do etas for m>mc_eatas.
 		#
