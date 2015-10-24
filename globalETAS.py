@@ -100,7 +100,7 @@ class globalETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
+	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=5.*365., calc_etas=True):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -108,6 +108,7 @@ class globalETAS_model(object):
 		# note: we want to do this properly in an x-y projection, not lat-lon. our earthquakes will come back to us with lat/lon coordinates
 		# so we'll need to translate. we'll also want lat/lon as well as x/y positions for the lattice sites, so we can get even spacing and accurate distances
 		'''
+		print("begin globalETAS.__init()__")
 		# dx=1., dy=1., x0=0., y0=0., leaf_type=float)
 		# load all the input parameters into class variables (note i believe locals() is all currently defined variables in the function scope,
 		# so this syntax must be executed at the very begining of the function to work properly):
@@ -121,7 +122,18 @@ class globalETAS_model(object):
 		else:
 			self.t_forecast = mpd.date2num(t_now)
 		#
+		# we might just want the last N days, as a consistent standard. note we might, later on, make this a bit more sophisticated
+		# by processing the full t0 -> t_now catalog, but only doing ETAS for the most recent cat_len days. BUT, to do this, we have
+		# to enforce in all the do_ETAS() functions
+		if cat_len != None: t0=t_now - dtm.timedelta(days=cat_len)
+		#
 		mc_etas = (mc_etas or mc)	# mc_eats: minimum mag. for etas calculations -- aka, mc for the catalog, but only do etas for m>mc_eatas.
+		#
+		self.latses = numpy.arange(lats[0], lats[1], d_lat)		# note: if we want lats[1], lons[1] inclusive, we need to add +d_lat, +d_lon
+		self.lonses = numpy.arange(lons[0], lons[1], d_lon)		# to the range().
+		self.n_lat = len(self.latses)
+		self.n_lon = len(self.lonses)
+		
 		self.ETAS_array = numpy.array([])
 		'''
 		self.lats=lats
@@ -150,7 +162,9 @@ class globalETAS_model(object):
 								# that said, let's take the next step and return dict. type earthquake entries.
 		#
 		if catalog==None:
+			print("fetch and process catalog.")
 			catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
+			print("catalog fetched and processed.")
 		self.catalog = catalog
 		#
 		# ... and here is really where we do derived classes for different ETAS forcast objects. so for ETAS_bindex(ETAS), we do:
@@ -160,38 +174,37 @@ class globalETAS_model(object):
 		# ... and for ETAS_brute(ETAS), we'd do:
 		# self.make_etas = self.make_etas_all
 		#
-		if calc_etas: self.make_etas()
+		if calc_etas: 
+			print("make_etas():")
+			self.make_etas()
+			print("ETAS complete.")
 		#print "has make_etas?", hasattr(self, 'make_etas')
 	#
 	def make_etas_rtree(self):
 		# use the same basic framework as etas_all (aka, instantiate a lattice), but map an rtree index to the lattice, then use a delta_lat, delta_lon
 		# approach (like etas_bindex) bit loop only over the rtree.intersection() of the delta_lat/lon window.
 		#
-		# loop-loop over the whole lattice space...
-		# first, make an empty rates-lattice:
-		index_x = lambda(x): int(round((x-self.lons[0])/self.d_lon))
-		index_y = lambda(y): int(round((y-self.lats[0])/self.d_lat))
-		latses = numpy.arange(self.lats[0], self.lats[1]+self.d_lat, self.d_lat)
-		lonses = numpy.arange(self.lons[0], self.lons[1]+self.d_lon, self.d_lon)
+		print("begin make_etas_rtree()")
 		#
-		self.lattice_sites = numpy.array([[0. for x in latses] for y in lonses])
-		lattice_index = index.Index()		# we could index the lattice, but it's pretty easy to index functionally...
-		# instead of calculating the indices using index_x/y(), explicitly enumerate them like [j_lat, lat = enumerate(arange(...))]
-		# calculated indices seem to be having round up/down problems.
-		#lattice_dict = {j:{'lat':lat, 'lon':lon, 'j_lon':index_x(lon), 'j_lat':index_y(lat)} for j, (lon,lat) in enumerate(itertools.product(lonses,latses))}
-		l_lon = [(j,lon) for j,lon in enumerate(lonses)]
-		l_lat = [(k,lat) for k,lat in enumerate(latses)]
-		lattice_dict = {i:{'lat':lat_tpl[1], 'lon':lon_tpl[1], 'j_lon':lon_tpl[0], 'j_lat':lat_tpl[0]} for i,(lon_tpl, lat_tpl) in enumerate(itertools.product(l_lon, l_lat))}
-		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lon,lat) in enumerate(itertools.product(lonses,latses))]
-		#		
-		# so the idea here will be to:
-		# 1) determine the lat/lon range for an earthquake
-		# 2) use rtree to find indices inside those bounds
-		# 3) use lattice_dict to map those x,y indices
+		latses=self.latses
+		lonses=self.lonses
+		n_lat=self.n_lat
+		n_lon=self.n_lon
 		#
-		# nominally we could arrange to keep this from the catalog calculation.
-		#quakes_index  = index.Index()
-		#[quakes_index.insert(j, (rw['lon'], rw['lat'], rw['lon'], rw['lat'])) for j,rw in enumerate(self.catalog)]
+		# note: it's important to do the (latses, lonses) in the same sequence so we have consistency in the indices.
+		#     this would make a reasonable case to use a conventional for-loop instead of multiple list comprehensions.
+		print("initialize ETAS array and indices.")
+		self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
+		#
+		# make a dict of lattice sites and their x,y coordinates.
+		lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lat,lon) in enumerate(itertools.product(latses, lonses))}
+		self.lattice_dict=lattice_dict
+		#
+		# make an rtree index:
+		lattice_index = index.Index()
+		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lat,lon) in enumerate(itertools.product(latses,lonses))]
+		#
+		print("Indices initiated. begin ETAS.")
 		#
 		for quake in self.catalog:
 			if quake['mag']<self.mc_etas: continue
@@ -208,8 +221,10 @@ class globalETAS_model(object):
 			# and let's also assume we want to limit our ETAS map to the input lat/lon:
 			lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
 			lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
+			#print("LLRange: ", lon_min, lat_min, lon_max, lat_max)
 			#
 			site_indices = lattice_index.intersection((lon_min, lat_min, lon_max, lat_max))
+			#print("site_indices: ", [x for x in site_indices])
 			# ... and if we wrap around the other side of the world...
 			if lon_min<-180.:
 				new_lon_min = lon_min%(180.)
@@ -220,57 +235,52 @@ class globalETAS_model(object):
 			#
 			for site_index in site_indices:
 				X = lattice_dict[site_index]
-				lon = X['lon']
-				lat = X['lat']
-				j_lon=X['j_lon']
-				j_lat=X['j_lat']
 				#
-				local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon, lat=lat)
+				local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'])
 				#
 				#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
-				self.lattice_sites[j_lon][j_lat] += local_intensity
+				#self.lattice_sites[j_lon][j_lat] += local_intensity
+				self.ETAS_array[site_index][2] += local_intensity
 				#
 		#
-		self.ETAS_array = []
-		# now, turn this into [[x,y,z]...]:
-		for j,lon in enumerate(lonses):
-			for k,lat in enumerate(latses):
-				# and note, if we want to be more robust, we can (maybe) use index_x(), index_y().
-				self.ETAS_array += [[lon, lat, self.lattice_sites[j][k]]]
-			#
+		# this conversion to the 2d array should probably be moved to a function or @property in the main class scope.
+		self.lattice_sites = numpy.array([rw[2] for rw in self.ETAS_array])
+		self.lattice_sites.shape=(len(latses), len(lonses))
+		#self.lattice_sites.shape=(len(lonses), len(latses))
 		#
 		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 	
 	def make_etas_all(self):
 		# loop-loop over the whole lattice space...
 		# first, make an empty rates-lattice:
-		index_x = lambda(x): int(round((x-self.lons[0])/self.d_lon))
-		index_y = lambda(y): int(round((y-self.lats[0])/self.d_lat))
-		latses = numpy.arange(self.lats[0], self.lats[1]+self.d_lat, self.d_lat)
-		lonses = numpy.arange(self.lons[0], self.lons[1]+self.d_lon, self.d_lon)
 		#
-		self.lattice_sites = numpy.array([[0. for x in latses] for y in lonses])
+		#latses = numpy.arange(self.lats[0], self.lats[1]+self.d_lat, self.d_lat)
+		#lonses = numpy.arange(self.lons[0], self.lons[1]+self.d_lon, self.d_lon)
+		latses=self.latses
+		lonses=self.lonses
+		#
+		#self.lattice_sites = numpy.array([[0. for x in latses] for y in lonses])
+		#self.lattice_sites = numpy.zeros(len(latses)*len(lonses))
+		self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
 		#
 		for quake in self.catalog:
 			if quake['mag']<self.mc_etas: continue
 			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
-			for lat,lon in itertools.product(latses, lonses):
-				local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon, lat=lat)
-				#
-				#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
-				self.lattice_sites[index_x(lon)][index_y(lat)] += local_intensity
-				#
+			for j, lat_lon in enumerate(itertools.product(latses, lonses)):
+				self.ETAS_array[j][2] += eq.local_intensity(t=self.t_forecast, lon=lat_lon[1], lat=lat_lon[0])
+			#for lat_tpl,lon_tpl in itertools.product(enumerate(latses), enumerate(lonses)):
+			#	local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon_tpl[1], lat=lat_tpl[1])
+			#	#
+			#	#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
+			#	self.lattice_sites[lon_tpl[0]][lat_tpl[0]] += local_intensity
+			#	#
 			#
 		#
+		self.lattice_sites = numpy.array([rw[2] for rw in self.ETAS_array])
+		self.lattice_sites.shape=(len(latses), len(lonses))
 		#
-		self.ETAS_array = []
-		# now, turn this into [[x,y,z]...]:
-		for j,lon in enumerate(lonses):
-			for k,lat in enumerate(latses):
-				# and note, if we want to be more robust, we can (maybe) use index_x(), index_y().
-				self.ETAS_array += [[lon, lat, self.lattice_sites[j][k]]]
-			#
+		#self.ETAS_array = []
 		#
 		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		
