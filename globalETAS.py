@@ -114,6 +114,13 @@ class globalETAS_model(object):
 		# so this syntax must be executed at the very begining of the function to work properly):
 		self.__dict__.update(locals())
 		#
+		# we might just want the last N days, as a consistent standard. note we might, later on, make this a bit more sophisticated
+		# by processing the full t0 -> t_now catalog, but only doing ETAS for the most recent cat_len days. BUT, to do this, we have
+		# to enforce in all the do_ETAS() functions
+		if cat_len != None:
+			t0=t_now - dtm.timedelta(days=cat_len)
+			print("Overriding t0 for ETAS calculations. using t0 = t_now - catlen = %s" % t0)
+		#
 		# and handle some specific cases...
 		if isinstance(t_now, float):
 			self.t_forecast = t_now
@@ -121,13 +128,6 @@ class globalETAS_model(object):
 			self.t_forecast = mpd.date2num(t_now.tolist())
 		else:
 			self.t_forecast = mpd.date2num(t_now)
-		#
-		# we might just want the last N days, as a consistent standard. note we might, later on, make this a bit more sophisticated
-		# by processing the full t0 -> t_now catalog, but only doing ETAS for the most recent cat_len days. BUT, to do this, we have
-		# to enforce in all the do_ETAS() functions
-		if cat_len != None:
-			t0=t_now - dtm.timedelta(days=cat_len)
-			print("Overriding t0 for ETAS calculations. using t0 = t_now - catlen = %s" % t0)
 		#
 		mc_etas = (mc_etas or mc)	# mc_eats: minimum mag. for etas calculations -- aka, mc for the catalog, but only do etas for m>mc_eatas.
 		#
@@ -223,22 +223,30 @@ class globalETAS_model(object):
 			# and let's also assume we want to limit our ETAS map to the input lat/lon:
 			lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
 			lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
-			#print("LLRange: ", lon_min, lat_min, lon_max, lat_max)
 			#
 			site_indices = lattice_index.intersection((lon_min, lat_min, lon_max, lat_max))
-			#print("site_indices: ", [x for x in site_indices])
 			# ... and if we wrap around the other side of the world...
+			# there's probably a smarter way to do this...
 			if lon_min<-180.:
-				new_lon_min = lon_min%(180.)
+				#new_lon_min = lon_min%(180.)
+				#new_lon_min = 180.+(lon_min+180.)
+				new_lon_min = 360. + lon_min
 				site_indices += list(lattice_index.intersection((new_lon_min, lat_min, 180., lat_max)))
 			if lon_max>180.:
-				new_lon_max = lon_max%(-180.)
+				#new_lon_max = lon_max%(-180.)
+				#new_lon_max = -180. + lon_max-180.
+				new_lon_max = -360. + lon_max
 				site_indices += list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max)))
 			#
+			#print("LLRange: ", lon_min, lat_min, lon_max, lat_max, len(list(site_indices)))
+			
 			for site_index in site_indices:
 				X = lattice_dict[site_index]
 				#
 				local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'])
+				if numpy.isnan(local_intensity):
+					#print("NAN encountered: ", site_index, self.t_forecast, X['lon'], X['lat'], eq.lon, eq.lat, eq.__dict__)
+					continue
 				#
 				#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
 				#self.lattice_sites[j_lon][j_lat] += local_intensity
@@ -776,7 +784,9 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# temporal Omori parameters:
 		rate_max = l_15_factor + d_tau - mag/6. - (dm_tau + mc)/3.
 		t_0 = N_om*(p-1.)/rate_max		# note, however, that we can really use just about any value for t_0, so long as we are consistent with tau.
+		# something is wrong with this tau calc; we're getting t_0<0. needs fixin...
 		tau = (t_0**(1.-p))/(N_om*(p-1.))
+		if numpy.isnan(tau): print("nan tau: ", t_0, p, N_om, p)
 		#
 		# now, guess the earthquake's orientation based on local seismicity. use earthquakes within some distance based on magnitude.
 		# use a PCA type method or some sort of line-fit. there should be some good PCA libraries, otherwise it's easy to code.
