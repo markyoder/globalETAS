@@ -199,7 +199,7 @@ class globalETAS_model(object):
 		X.shape=(len(self.latses), (self.lonses))
 		return X
 	#
-	def calc_etas_contours(self, fignum=0, contour_fig_file=None, contour_kml_file=None):
+	def calc_etas_contours(self, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5):
 		# wrapper for one-stop-shopping ETAS calculations.
 		self.make_etas()
 		#
@@ -210,6 +210,12 @@ class globalETAS_model(object):
 		if contour_kml_file!=None:
 			# make kml and write to file like:
 			# kml_str = kml_from_contours(cset=contours, colorbarname='napa_colorbar.png', open_file=True, close_file=True, contour_labels=None, top=top, bottom=bottom, fname_out=fname_out, alpha_kml=alpha_kml)
+			# ... and this is maybe not the best coding framework, but this function will automatically output to a file if we
+			# give it fname_out!=None. BUT, since it's sort of a crappy way to write code, and we'll likely 'fix' it later, 
+			# let's just return a string and write our own file. we'll even dump the KML to the class dict. maybe... or maybe we should
+			# use the built in file-writer, since i think we need/want to also include the colorbar...
+			#
+			self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha=alpha_kml, fname_out=contour_kml_file)
 			pass
 		
 		
@@ -334,7 +340,7 @@ class globalETAS_model(object):
 																							# probably (i_x/lon, j_y/lat)
 		# copy class level variables:
 		#
-		print "calc etas..."
+		print( "calc etas...")
 		for quake in self.catalog:
 			if quake['mag']<self.mc_etas: continue
 			#
@@ -356,7 +362,7 @@ class globalETAS_model(object):
 			lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
 			lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
 			#
-			#print "lon, lat range: (%f, %f), (%f, %f):: m=%f, L_r=%f, dx=%f/%f" % (lon_min, lon_max, lat_min, lat_max, eq.mag, eq.L_r, eq.L_r*self.etas_range_factor, eq.L_r*self.etas_range_factor/deg2km)
+			#print ("lon, lat range: (%f, %f), (%f, %f):: m=%f, L_r=%f, dx=%f/%f" % (lon_min, lon_max, lat_min, lat_max, eq.mag, eq.L_r, eq.L_r*self.etas_range_factor, eq.L_r*self.etas_range_factor/deg2km))
 			#
 			# - choose an elliptical transform: equal-area, rotational, etc.
 			# - calculate initial rate-density
@@ -370,7 +376,7 @@ class globalETAS_model(object):
 				lon_bin = self.lattice_sites.get_xbin_center(lon_site)	# returns a dict like {'index':j, 'center':x}
 				lat_bin = self.lattice_sites.get_ybin_center(lat_site)
 				#
-				#print "lon-lat bins: ", lon_bin, lat_bin
+				#print("lon-lat bins: ", lon_bin, lat_bin)
 				#
 				#bin_lonlat = xy2_lon_lat(x_bin['center'], y_bin['center'])
 				#bin_lonlat=[lon_bin, lat_bin]
@@ -577,7 +583,7 @@ class Earthquake(object):
 		# calculate local ETAS density-rate (aka, earthquakes per (km^2 sec)
 		# take time in days.
 		'''
-		#print "inputs: ", t, lon, lat, p, q
+		#print("inputs: ", t, lon, lat, p, q)
 		p = (p or self.p)
 		q = (q or self.q)
 		# calculate ETAS intensity.
@@ -706,7 +712,7 @@ class Ellipse(Shape):
 		d_theta = 2.0*math.pi/n_points
 		poly = [[self.a*math.cos(theta), self.b*math.sin(theta)] for theta in numpy.arange(0., 2.0*math.pi+d_theta, d_theta)]
 		# there's probably a smarter way to do this...
-		print "theta: %f" % (self.theta)
+		print( "theta: %f" % (self.theta))
 		if self.theta!=0.:
 			#poly = zip(*numpy.dot( [[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]], zip(*poly)))
 			poly = numpy.dot(poly, zip(*[[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]]))
@@ -787,8 +793,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	#cols += ['e_vals', 'e_vecs']
 	#formats += ['object', 'object']
 	my_dtype += [('e_vals', '>f8', 2), ('e_vecs', '>f8', (2,2)), ('N_eig_cat','>f8')]
-	
-	#print "dtype:",  my_dtype
+	#
 	output_catalog = []
 	#
 	for k_cat, rw in enumerate(incat):
@@ -1073,7 +1078,6 @@ def griddata_brute_plot(xyz, xrange=None, yrange=None, dx=None, dy=None):
 		dy = min([abs(y-xyz['y'][j]) for j,y in enumerate(xyz['y'][1:]) if x-xyz['y'][j]!=0.])
 		#n_y = (n_y or int(round((max_y-min_y)/dy))
 	#
-	#print "gridding on: (%f, %f, %f [%d]), (%f, %f, %f [%d])" % (min_x, max_x, dx, int(round((max_x-min_x)/dx)), min_y, max_y, dy, int(round((max_y-min_y)/dy)) )
 	#
 	index_x = lambda(x): int(round((x-min_x)/dx))
 	index_y = lambda(y): int(round((y-min_y)/dy))
