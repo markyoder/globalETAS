@@ -55,6 +55,7 @@ from geographiclib.geodesic import Geodesic as ggp
 #
 import ANSStools as atp
 import bindex
+import contours2kml
 #
 import rtree
 from rtree import index
@@ -100,7 +101,7 @@ class globalETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=5.*365., calc_etas=True):
+	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=5.*365., calc_etas=True, n_contours=15):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -111,8 +112,10 @@ class globalETAS_model(object):
 		print("begin globalETAS.__init()__")
 		# dx=1., dy=1., x0=0., y0=0., leaf_type=float)
 		# load all the input parameters into class variables (note i believe locals() is all currently defined variables in the function scope,
-		# so this syntax must be executed at the very begining of the function to work properly):
-		self.__dict__.update(locals())
+		# so this behaves differently if we execute now or down-stream. if we really only want to record the input values, then
+		# execute now. if we want to record corrected inputs, then execute after corrections; if we execute at the end, every declared
+		# variable becomes a class member.
+		#self.__dict__.update(locals())
 		#
 		# we might just want the last N days, as a consistent standard. note we might, later on, make this a bit more sophisticated
 		# by processing the full t0 -> t_now catalog, but only doing ETAS for the most recent cat_len days. BUT, to do this, we have
@@ -120,6 +123,11 @@ class globalETAS_model(object):
 		if cat_len != None:
 			t0=t_now - dtm.timedelta(days=cat_len)
 			print("Overriding t0 for ETAS calculations. using t0 = t_now - catlen = %s" % t0)
+		#
+		#lats = (lats or [-89.9, 89.9])
+		#lons = (lons or [-180., 180.])
+		if lats == None: lats = [-89.9, 89.9]
+		if lons == None: lons = [-180., 180.]
 		#
 		# and handle some specific cases...
 		if isinstance(t_now, float):
@@ -130,6 +138,9 @@ class globalETAS_model(object):
 			self.t_forecast = mpd.date2num(t_now)
 		#
 		mc_etas = (mc_etas or mc)	# mc_eats: minimum mag. for etas calculations -- aka, mc for the catalog, but only do etas for m>mc_eatas.
+		#
+		# inputs massaged; now update class dictionary.
+		self.__dict__.update(locals())
 		#
 		self.latses = numpy.arange(lats[0], lats[1], d_lat)		# note: if we want lats[1], lons[1] inclusive, we need to add +d_lat, +d_lon
 		self.lonses = numpy.arange(lons[0], lons[1], d_lon)		# to the range().
@@ -182,6 +193,26 @@ class globalETAS_model(object):
 			print("ETAS complete.")
 		#print "has make_etas?", hasattr(self, 'make_etas')
 	#
+	@property
+	def lattice_sites(self):
+		X = self.ETAS_array['z']
+		X.shape=(len(self.latses), (self.lonses))
+		return X
+	#
+	def calc_etas_contours(self, fignum=0, contour_fig_file=None, contour_kml_file=None):
+		# wrapper for one-stop-shopping ETAS calculations.
+		self.make_etas()
+		#
+		plt.clf()
+		self.etas_contours = plt.contourf(self.lonses, self.latses, self.lattice_sites, self.n_contours)
+		#
+		if contour_fig_file!=None: plt.savefig(contour_fig_file)
+		if contour_kml_file!=None:
+			# make kml and write to file like:
+			# kml_str = kml_from_contours(cset=contours, colorbarname='napa_colorbar.png', open_file=True, close_file=True, contour_labels=None, top=top, bottom=bottom, fname_out=fname_out, alpha_kml=alpha_kml)
+			pass
+		
+		
 	def make_etas_rtree(self):
 		# use the same basic framework as etas_all (aka, instantiate a lattice), but map an rtree index to the lattice, then use a delta_lat, delta_lon
 		# approach (like etas_bindex) bit loop only over the rtree.intersection() of the delta_lat/lon window.
@@ -255,11 +286,11 @@ class globalETAS_model(object):
 		#
 		# this conversion to the 2d array should probably be moved to a function or @property in the main class scope.
 		self.lattice_sites = numpy.array([rw[2] for rw in self.ETAS_array])
-		self.lattice_sites.shape=(len(latses), len(lonses))
-		#self.lattice_sites.shape=(len(lonses), len(latses))
+		#
+		#self.lattice_sites.shape=(len(latses), len(lonses))
 		#
 		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
-	
+	#		
 	def make_etas_all(self):
 		# loop-loop over the whole lattice space...
 		# first, make an empty rates-lattice:
@@ -287,77 +318,79 @@ class globalETAS_model(object):
 			#	#
 			#
 		#
-		self.lattice_sites = numpy.array([rw[2] for rw in self.ETAS_array])
-		self.lattice_sites.shape=(len(latses), len(lonses))
+		#self.lattice_sites = numpy.array([rw[2] for rw in self.ETAS_array])
+		#self.lattice_sites.shape=(len(latses), len(lonses))
 		#
 		#self.ETAS_array = []
 		#
 		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		
 	def make_etas_bindex(self):
-			# do the ETAS calculation. for each earthquake, figure out what bins it contributes to and calc. etas for each bin.
+		# rewrite this version; minimize the use of functional indexing; aka, get initial position from functional index; then just count.
+		#
+		# do the ETAS calculation. for each earthquake, figure out what bins it contributes to and calc. etas for each bin.
+		#
+		self.lattice_sites = bindex.Bindex2D(dx=self.d_lon, dy=self.d_lat, x0=self.bin_lon0, y0=self.bin_lat0)	# list of lattice site objects, and let's index it by...
+																							# probably (i_x/lon, j_y/lat)
+		# copy class level variables:
+		#
+		print "calc etas..."
+		for quake in self.catalog:
+			if quake['mag']<self.mc_etas: continue
 			#
-			self.lattice_sites = bindex.Bindex2D(dx=self.d_lon, dy=self.d_lat, x0=self.bin_lon0, y0=self.bin_lat0)	# list of lattice site objects, and let's index it by...
-																								# probably (i_x/lon, j_y/lat)
-			# copy class level variables:
-			#
-			print "calc etas..."
-			for quake in self.catalog:
-				if quake['mag']<self.mc_etas: continue
-				#
-				eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
-				# calculate the bins within range of this earthquake:
-				# nominally, the proper thing to do now (or at lest one proper approach) is to compute a proper geodesic north and east to get the lat/lon bounds
+			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
+			# calculate the bins within range of this earthquake:
+			# nominally, the proper thing to do now (or at lest one proper approach) is to compute a proper geodesic north and east to get the lat/lon bounds
 				# near the poles, however, this will create a problem, that is a bit difficult to track, where the geodesic reaches over the pole and to lat<90
-				# on the other side. if we just use a recta-linear approximation, we can use [max(-90, lat-d_lat), min(90, lat+d_lat)]
-				#x,y = lon_lat_2xy(lon=quake['lon'], lat=quake['lat'])
+			# on the other side. if we just use a recta-linear approximation, we can use [max(-90, lat-d_lat), min(90, lat+d_lat)]
+			#x,y = lon_lat_2xy(lon=quake['lon'], lat=quake['lat'])
+			#
+			# range of influence:
+			delta_lat = self.etas_range_padding + eq.L_r*self.etas_range_factor/deg2km
+			if abs(eq.lat) == 90.:
+				delta_lon  = 180.
+			else:
+				delta_lon = delta_lat/math.cos(eq.lat*deg2rad)
+			#
+			# and let's also assume we want to limit our ETAS map to the input lat/lon:
+			lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
+			lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
+			#
+			#print "lon, lat range: (%f, %f), (%f, %f):: m=%f, L_r=%f, dx=%f/%f" % (lon_min, lon_max, lat_min, lat_max, eq.mag, eq.L_r, eq.L_r*self.etas_range_factor, eq.L_r*self.etas_range_factor/deg2km)
+			#
+			# - choose an elliptical transform: equal-area, rotational, etc.
+			# - calculate initial rate-density
+			# - distribute over relevant sites:
+			#    - for each site, D' = D_spherical * R'/R_xy	of course this will be approximately equal to R'.
+			#
+			#for lon_site,lat_site in [[j,k] for j in numpy.arange(lon_min, lon_max, d_lon) for k in numpy.arange(lat_min, lat_max, d_lat)]:
+			for lon_site, lat_site in itertools.product(numpy.arange(lon_min+self.bin_lon0, lon_max+self.bin_lon0, self.d_lon), numpy.arange(lat_min+self.bin_lat0, lat_max+self.bin_lat0, self.d_lat)):
+				# so we make a square (or maybe a circle later on) and calc. etas at each site. use Bindex() to correct for any misalignment.
 				#
-				# range of influence:
-				delta_lat = self.etas_range_padding + eq.L_r*self.etas_range_factor/deg2km
-				if abs(eq.lat) == 90.:
-					delta_lon  = 180.
-				else:
-					delta_lon = delta_lat/math.cos(eq.lat*deg2rad)
+				lon_bin = self.lattice_sites.get_xbin_center(lon_site)	# returns a dict like {'index':j, 'center':x}
+				lat_bin = self.lattice_sites.get_ybin_center(lat_site)
 				#
-				# and let's also assume we want to limit our ETAS map to the input lat/lon:
-				lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
-				lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
+				#print "lon-lat bins: ", lon_bin, lat_bin
 				#
-				#print "lon, lat range: (%f, %f), (%f, %f):: m=%f, L_r=%f, dx=%f/%f" % (lon_min, lon_max, lat_min, lat_max, eq.mag, eq.L_r, eq.L_r*self.etas_range_factor, eq.L_r*self.etas_range_factor/deg2km)
+				#bin_lonlat = xy2_lon_lat(x_bin['center'], y_bin['center'])
+				#bin_lonlat=[lon_bin, lat_bin]
 				#
-				# - choose an elliptical transform: equal-area, rotational, etc.
-				# - calculate initial rate-density
-				# - distribute over relevant sites:
-				#    - for each site, D' = D_spherical * R'/R_xy	of course this will be approximately equal to R'.
+				# now, calculate local ETAS intensity from this eq at this site...
+				# (this should be defined in the Earthquake() object:
+				# note: at this time, we have only the self-similar type local intensity. eventually, we need to split this up. nominally,
+				# this can occur at the Earthquake level, so -- if we so desire, different earthquakes can have differend spatial distributions.
 				#
-				#for lon_site,lat_site in [[j,k] for j in numpy.arange(lon_min, lon_max, d_lon) for k in numpy.arange(lat_min, lat_max, d_lat)]:
-				for lon_site, lat_site in itertools.product(numpy.arange(lon_min+self.bin_lon0, lon_max+self.bin_lon0, self.d_lon), numpy.arange(lat_min+self.bin_lat0, lat_max+self.bin_lat0, self.d_lat)):
-					# so we make a square (or maybe a circle later on) and calc. etas at each site. use Bindex() to correct for any misalignment.
-					#
-					lon_bin = self.lattice_sites.get_xbin_center(lon_site)	# returns a dict like {'index':j, 'center':x}
-					lat_bin = self.lattice_sites.get_ybin_center(lat_site)
-					#
-					#print "lon-lat bins: ", lon_bin, lat_bin
-					#
-					#bin_lonlat = xy2_lon_lat(x_bin['center'], y_bin['center'])
-					#bin_lonlat=[lon_bin, lat_bin]
-					#
-					# now, calculate local ETAS intensity from this eq at this site...
-					# (this should be defined in the Earthquake() object:
-					# note: at this time, we have only the self-similar type local intensity. eventually, we need to split this up. nominally,
-					# this can occur at the Earthquake level, so -- if we so desire, different earthquakes can have differend spatial distributions.
-					#
-					local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon_bin['center'], lat=lat_bin['center']) # anything else?
-					#
-					#self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
-					#
-					#self.lattice_sites.add_to_bin(x=lon_bin['center'], y=lat_bin['center'], z=local_intensity)	# note: if we give x,y instead of the bin index, bindex
-					self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
-					
+				local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon_bin['center'], lat=lat_bin['center']) # anything else?
+				#
+				#self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
+				#
+				#self.lattice_sites.add_to_bin(x=lon_bin['center'], y=lat_bin['center'], z=local_intensity)	# note: if we give x,y instead of the bin index, bindex
+				self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
+				
 					
 			#
-			self.ETAS_array = self.lattice_sites.to_array()
-			print("finished calculating ETAS")	
+		self.ETAS_array = self.lattice_sites.to_array()
+		print("finished calculating ETAS")	
 	#
 	'''
 	# i think these are all handled in the Bindex() object.
@@ -557,7 +590,7 @@ class Earthquake(object):
 		#
 		et = self.elliptical_transform(lon=lon, lat=lat)
 		#
-		# let's adjust t0 so maybe we dont' get nearfield artifacts...
+		# in some cases, let's adjust t0 so maybe we dont' get nearfield artifacts...
 		if t0_prime!=None:
 			t_0_prime = 60.*10.	# ten minutes...
 			tau_prime = (self.tau*self.t_0**self.p)/(t_0_prime)
@@ -782,7 +815,9 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		chi = (r_0**(1.-q))/(N_om*(q-1.))
 		#
 		# temporal Omori parameters:
-		rate_max = l_15_factor + d_tau - mag/6. - (dm_tau + mc)/3.
+		# (something is not correct here; getting negative rate_max (i think))
+		# ... but isn't this supposed to be the exponent (log)?
+		rate_max = 10.**(l_15_factor + d_tau - mag/6. - (dm_tau + mc)/3.)
 		t_0 = N_om*(p-1.)/rate_max		# note, however, that we can really use just about any value for t_0, so long as we are consistent with tau.
 		# something is wrong with this tau calc; we're getting t_0<0. needs fixin...
 		tau = (t_0**(1.-p))/(N_om*(p-1.))
