@@ -30,11 +30,11 @@ def bindex2d_sample():
 	B.add_list(datas)
 	#
 	b_datas = B.to_list()
-	print "datas list: d1==d2: %d, len(d1)==len(d2): %d" % (b_datas==datas, len(b_datas)==len(datas))
+	print("datas list: d1==d2: %d, len(d1)==len(d2): %d" % (b_datas==datas, len(b_datas)==len(datas)))
 	B2 = Bindex2D(**prams)
 	B2.add_list(datas)
 	#
-	print "bindex_items==bindex_items: %d" % (B.items==B2.items)
+	print("bindex_items==bindex_items: %d" % (B.items==B2.items))
 	#
 	B3 = Bindex2D(**prams)
 	B3.leaf_type=list
@@ -185,7 +185,7 @@ class Bindex2D(dict):
 		# numpy.core.records.fromarrays(zip(*best_fit_array), names = ['section_id', 'tau', 'beta', 'sigma_tau', 'sigma_beta', 'mean_chi_sqr'], formats = [type(x).__name__ for x in best_fit_array[0]])
 		if not hasattr(self.leaf_type, '__len__'):
 			z_type_name = type(self.leaf_type()).__name__
-			print "exporting to array; leaf_type_name: ", z_type_name
+			prin("exporting to array; leaf_type_name: ", z_type_name)
 			#
 			return numpy.core.records.fromarrays(zip(*self.to_list()), names = ['x', 'y', 'z'], formats = ['f8', 'f8', z_type_name])
 		#
@@ -205,18 +205,15 @@ class Bindex2D(dict):
 		do_break=False
 		#for j,rw_j in enumerate(self.items.values()):
 		for j,rw_j in enumerate(self.values()):
-			#print "array-checking row: ", j
 			for k,rw_k in enumerate(rw_j.values()):
 				if len(rw_k)>0:
 					z_type = type(rw_k[0])
 					do_break=True
 					break
 			if do_break:
-				#print "break index: ", j,k
 				break
 		#z_type = type(self.items.values()[0].values()[0][0])\
 		z_type = type(self.values()[0].values()[0][0])
-		#print "z_type: ", z_type
 		z_col_names = ['z_%d' % j for j in xrange(max_z_len)]
 		#
 		return numpy.core.records.fromarrays(zip(*[rw[0:2] + rw[2] for rw in self.to_list()]), names = ['x', 'y'] + z_col_names, formats = ['f8', 'f8'] + [z_type.__name__ for j in z_col_names])

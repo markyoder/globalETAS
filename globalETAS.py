@@ -191,20 +191,21 @@ class globalETAS_model(object):
 			print("make_etas():")
 			self.make_etas()
 			print("ETAS complete.")
-		#print "has make_etas?", hasattr(self, 'make_etas')
 	#
 	@property
 	def lattice_sites(self):
 		X = self.ETAS_array['z']
-		X.shape=(len(self.latses), (self.lonses))
+		X.shape=(len(self.latses), len(self.lonses))
 		return X
 	#
-	def calc_etas_contours(self, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5):
+	def calc_etas_contours(self, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
-		self.make_etas()
+		#
+		if refresh_etas or ('ETAS_array' not in self.__dict__.keys()):
+			self.make_etas()
 		#
 		plt.clf()
-		self.etas_contours = plt.contourf(self.lonses, self.latses, self.lattice_sites, self.n_contours)
+		self.etas_contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), self.n_contours)
 		#
 		if contour_fig_file!=None: plt.savefig(contour_fig_file)
 		if contour_kml_file!=None:
@@ -215,7 +216,7 @@ class globalETAS_model(object):
 			# let's just return a string and write our own file. we'll even dump the KML to the class dict. maybe... or maybe we should
 			# use the built in file-writer, since i think we need/want to also include the colorbar...
 			#
-			self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha=alpha_kml, fname_out=contour_kml_file)
+			self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=contour_kml_file)
 			pass
 		
 		
@@ -291,7 +292,8 @@ class globalETAS_model(object):
 				#
 		#
 		# this conversion to the 2d array should probably be moved to a function or @property in the main class scope.
-		self.lattice_sites = numpy.array([rw[2] for rw in self.ETAS_array])
+		
+		#self.lattice_sites = numpy.array([rw[2] for rw in self.ETAS_array])
 		#
 		#self.lattice_sites.shape=(len(latses), len(lonses))
 		#
@@ -999,8 +1001,8 @@ def spherical_dist(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], Rearth = 6378.1):
 	phis  = lon_lat_from[1]*deg2rad
 	lambs = lon_lat_from[0]*deg2rad
 	#
-	#print 'phif: ', phif
-	#print 'lambf: ', lambf
+	#print ('phif: ', phif)
+	#print('lambf: ', lambf)
 	#
 	dphi = (phif - phis)
 	dlambda = (lambf - lambs)
@@ -1078,9 +1080,8 @@ def griddata_brute_plot(xyz, xrange=None, yrange=None, dx=None, dy=None):
 		dy = min([abs(y-xyz['y'][j]) for j,y in enumerate(xyz['y'][1:]) if x-xyz['y'][j]!=0.])
 		#n_y = (n_y or int(round((max_y-min_y)/dy))
 	#
-	#
-	index_x = lambda(x): int(round((x-min_x)/dx))
-	index_y = lambda(y): int(round((y-min_y)/dy))
+	index_x = lambda x: int(round((x-min_x)/dx))
+	index_y = lambda y: int(round((y-min_y)/dy))
 	# now, make a big (empty) 2D array for the data.
 	xy = numpy.array([[None for j in numpy.arange(min_x, max_x+dx, dx)] for k in numpy.arange(min_y, max_y+dy, dy)])
 	#xy=xy.transpose()
