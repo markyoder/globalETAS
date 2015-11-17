@@ -37,8 +37,9 @@ import random
 import numpy
 import scipy
 import itertools
+import sys
 #import scipy.optimize as spo
-#import os
+import os
 #from PIL import Image as ipp
 import multiprocessing as mpp
 #
@@ -59,6 +60,10 @@ import contours2kml
 #
 import rtree
 from rtree import index
+#
+# a bit of version 3-2 compatibility:
+if sys.version_info.major>=3:
+	xrange=range
 
 #
 days2secs = 60.*60.*24.
@@ -204,10 +209,17 @@ class globalETAS_model(object):
 		if refresh_etas or ('ETAS_array' not in self.__dict__.keys()):
 			self.make_etas()
 		#
+		plt.figure(fignum)
 		plt.clf()
-		self.etas_contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), self.n_contours)
 		#
-		if contour_fig_file!=None: plt.savefig(contour_fig_file)
+		self.etas_contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), self.n_contours)
+		plt.colorbar()
+		#
+		if contour_fig_file!=None:
+			p_name, f_name = os.path.split(contour_fig_file)
+			if not os.path.isdir(p_name): os.makedirs(p_name)
+			plt.savefig(contour_fig_file)
+			#
 		if contour_kml_file!=None:
 			# make kml and write to file like:
 			# kml_str = kml_from_contours(cset=contours, colorbarname='napa_colorbar.png', open_file=True, close_file=True, contour_labels=None, top=top, bottom=bottom, fname_out=fname_out, alpha_kml=alpha_kml)
@@ -217,9 +229,12 @@ class globalETAS_model(object):
 			# use the built in file-writer, since i think we need/want to also include the colorbar...
 			#
 			self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=contour_kml_file)
-			pass
-		
-		
+			p_name, f_name = os.path.split(contour_kml_file)
+			if not os.path.isdir(p_name): os.makedirs(p_name)
+			with open(contour_kml_file, 'w') as f_kml:
+				f_kml.write(self.contours_kml_str)
+			#pass
+			#
 	def make_etas_rtree(self):
 		# use the same basic framework as etas_all (aka, instantiate a lattice), but map an rtree index to the lattice, then use a delta_lat, delta_lon
 		# approach (like etas_bindex) bit loop only over the rtree.intersection() of the delta_lat/lon window.
@@ -888,7 +903,7 @@ def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 	#
 	# now, get eig_vals, eig_vectors:
 	n_dof=len(cat_prime)-1
-	cov = numpy.dot(numpy.array(zip(*cat_prime)),numpy.array(cat_prime))/n_dof
+	cov = numpy.dot(numpy.array(list(zip(*cat_prime))),numpy.array(cat_prime))/n_dof
 	#
 	# for now, we can't assume hermitian or symmetric matrices, so use eig(), not eigh()
 	#eig_vals, eig_vecs = numpy.linalg.eig(cov)
@@ -1198,6 +1213,26 @@ def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 
 	#
 	return E_pf, C[j_pf]
 
+def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[dtm.datetime(2000,1,1, tzinfo=pytz.timezone('UTC')), dtm.datetime.now(pytz.timezone('UTC'))], etas_fit_factor=1.5):
+	# make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)
+	# make a test catalog or two. make a real catalog; just keep a couple big earthquakes.
+	#
+	cat0 = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=date_range, fit_factor=etas_fit_factor)
+	l_mags = sorted(cat0['mag'])
+	#
+	m8 = l_mags[int(.8*len(l_mags))]
+	#
+	rw=cat0[-1]
+	Lr = 10.**(.5*rw['mag'] - 1.76)
+	d_lon = 5.*Lr*math.cos(deg2rad*rw['lat'])/deg2km
+	d_lat = 5.*Lr/deg2km
+	etas = ETAS_rtree(catalog=[rw], lons=[rw['lon']-d_lon, rw['lon']+d_lon], lats=[rw['lat']-d_lat, rw['lat']+d_lat])
+	etas.calc_etas_contours(contour_fig_file='temp/temp.png', contour_kml_file='temp/temp.kml')
+	#
+	# so now, 1) get a linear density plot
+	# and 2) create a catalog with multiple entries of the same event; see that they summ together correctly.
+	#
+	return etas
 
 if __name__=='__main__':
 	# do main stuff...
