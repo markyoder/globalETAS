@@ -1213,9 +1213,11 @@ def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 
 	#
 	return E_pf, C[j_pf]
 
-def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[dtm.datetime(2000,1,1, tzinfo=pytz.timezone('UTC')), dtm.datetime.now(pytz.timezone('UTC'))], etas_fit_factor=1.5):
+def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[dtm.datetime(2000,1,1, tzinfo=pytz.timezone('UTC')), dtm.datetime.now(pytz.timezone('UTC'))], etas_fit_factor=1.5, gridsize=.05):
 	# make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)
 	# make a test catalog or two. make a real catalog; just keep a couple big earthquakes.
+	#
+	# status: looks like the r_0 parameter is way too small.
 	#
 	cat0 = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=date_range, fit_factor=etas_fit_factor)
 	l_mags = sorted(cat0['mag'])
@@ -1223,16 +1225,33 @@ def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[
 	m8 = l_mags[int(.8*len(l_mags))]
 	#
 	rw=cat0[-1]
+	eq = rw.copy()
+	#
 	Lr = 10.**(.5*rw['mag'] - 1.76)
 	d_lon = 5.*Lr*math.cos(deg2rad*rw['lat'])/deg2km
 	d_lat = 5.*Lr/deg2km
-	etas = ETAS_rtree(catalog=[rw], lons=[rw['lon']-d_lon, rw['lon']+d_lon], lats=[rw['lat']-d_lat, rw['lat']+d_lat])
-	etas.calc_etas_contours(contour_fig_file='temp/temp.png', contour_kml_file='temp/temp.kml')
+	etas = ETAS_rtree(catalog=[rw], lons=[rw['lon']-d_lon, rw['lon']+d_lon], lats=[rw['lat']-d_lat, rw['lat']+d_lat], d_lat=gridsize, d_lon=gridsize)
+	etas.calc_etas_contours(contour_fig_file='temp/temp.png', contour_kml_file='temp/temp.kml')	
 	#
 	# so now, 1) get a linear density plot
 	# and 2) create a catalog with multiple entries of the same event; see that they summ together correctly.
+	# g1=ggp.WGS84.Inverse(lon_lat_from[1], lon_lat_from[0], lon_lat_to[1],lon_lat_to[0])
+	# return_distances.update({'geo':g1['s12']/1000., 'azi1':g1['azi1'], 'azi2':g1['azi2']})
 	#
-	return etas
+	print("eq: ", eq)
+	#dists = [[ggp.WGS84.Inverse(rw['lat'], rw['lon'], X['y'], X['x'])['s12']/1000., X['z']] for X in etas.ETAS_array]
+	
+	#dists = [[111.2*math.sqrt((eq['lat']-X['y'])**2. + ((eq['lon']-X['x'])*math.cos(rw['lat']*deg2rad))**2.), X['z']] for X in etas.ETAS_array] 
+	dists = [[ggp.WGS84.Inverse(rw['lat'], rw['lon'], X['y'], X['x'])['s12']/1000., X['z']] for X in etas.ETAS_array]
+	plt.figure(1)
+	plt.clf()
+	ax=plt.gca()
+	ax.set_yscale('log')
+	ax.set_xscale('log')
+	plt.plot(*zip(*dists), marker='.', ls='', lw=1.5)
+	#plt.plot(*[[x[0], math.log10(x[1])] for x in dists], marker='.', ls='-', lw=1.5)
+	#
+	return etas, dists
 
 if __name__=='__main__':
 	# do main stuff...
