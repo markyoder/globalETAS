@@ -833,7 +833,10 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		#
 		# mean linear density and spatial Omori parameters:
 		linear_density = 2.0*N_chi/L_r
-		r_0 = N_om*(q-1.)/N_chi
+		#r_0 = N_om*(q-1.)/N_chi
+		# let's try this formulation; sort out details later.
+		lr_0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
+		r_0 = 10.**lr_0
 		chi = (r_0**(1.-q))/(N_om*(q-1.))
 		#
 		# temporal Omori parameters:
