@@ -203,8 +203,10 @@ class globalETAS_model(object):
 		X.shape=(len(self.latses), len(self.lonses))
 		return X
 	#
-	def calc_etas_contours(self, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
+	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
+		#
+		n_contours = (n_contours or self.n_contours)
 		#
 		if refresh_etas or ('ETAS_array' not in self.__dict__.keys()):
 			self.make_etas()
@@ -212,7 +214,7 @@ class globalETAS_model(object):
 		plt.figure(fignum)
 		plt.clf()
 		#
-		self.etas_contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), self.n_contours)
+		self.etas_contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), n_contours)
 		plt.colorbar()
 		#
 		if contour_fig_file!=None:
@@ -832,11 +834,11 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		N_chi = 10.**lN_chi
 		#
 		# mean linear density and spatial Omori parameters:
-		linear_density = 2.0*N_chi/L_r
-		#r_0 = N_om*(q-1.)/N_chi
-		# let's try this formulation; sort out details later.
-		lr_0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
-		r_0 = 10.**lr_0
+		linear_density = 2.0*N_chi/L_r		# (linear density over rupture area).
+		r_0 = N_om*(q-1.)/N_chi
+		## let's try this formulation; sort out details later.
+		#lr_0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
+		#r_0 = 10.**lr_0
 		chi = (r_0**(1.-q))/(N_om*(q-1.))
 		#
 		# temporal Omori parameters:
