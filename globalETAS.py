@@ -36,6 +36,7 @@ import math
 import random
 import numpy
 import scipy
+import scipy.optimize as spo
 import itertools
 import sys
 #import scipy.optimize as spo
@@ -46,6 +47,7 @@ import multiprocessing as mpp
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.mpl as mpl
+import functools
 #
 #import shapely.geometry as sgp
 #
@@ -750,11 +752,74 @@ class Ellipse(Shape):
 #
 
 # Working scripts
+#
+def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, n_cpus=None):
+	# multiprocessing wrapper for make_ETAS_catalog(). note, this would be more efficient and faster if we can figure out how to use shared memory
+	# (don't have to make multiple copies of catalog; don't have to pickle back entire catalog). maybe we need to learn python mpi, rather
+	# than multiprocessing?
+	# ... and this totally does not work (yet?)
+	# ... dunno; throwing some sort of "attr must be string" error on the .get().
+	#
+	etas_prams = locals().copy()
+	etas_prams.__delitem__('n_cpus')
+	etas_prams['incat']=None
+	#etas_prams.__delitem__('self')
+	print('etas_prams: ', etas_prams)
+	# handle dates:
+	if date_range[1]==None: date_range[1] = dtm.datetime.now(pytz.timezone('UTC'))
+	#
+	for j,dt in enumerate(date_range):
+		if isinstance(dt, str):
+			date_range[j] = mpd.num2date(mpd.datestr2num(dt))
+	#
+	if incat==None or (hasattr(incat, '__len__') and len(incat)==0):
+		incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
+	#
+	etas_prams['incat']=incat
+	if n_cpus==None:
+		n_cpus = max(1, mpp.cpu_count()-1)
+		#
+	#
+	P=mpp.Pool(n_cpus)
+	cat_len=len(incat)
+	n = cat_len/n_cpus
+	#
+	pool_handlers = []
+	pool_results = []
+	for k in range(n_cpus):
+		etas_prams['catalog_range']=[k*n, min((k+1)*n, cat_len)]
+		#print("parameters: ", etas_prams)
+		#pool_handlers += [P.apply_async(make_ETAS_catalog), kwds=etas_prams]
+		pool_handlers += [P.apply_async(make_ETAS_catalog,args=[None, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n, cat_len)]])]
+	P.close()
+	#
+	for R in pool_handlers:
+		print("R: ", R)
+		R_return = R.get()
+		if hasattr(R_return, '__len__'):
+			pool_results+=[R_return]
+		#else:
+		#	pool_results+=[None]
+		#pool_results+=[R.get()[0]]
+	
+	print("results fetched.")
+	#pool_results = functools.reduce(numpy.append, [pr for pr in pool_results if pr!=None])
+	pool_results = functools.reduce(numpy.append, pool_results)
+	pool_results.sort(order='event_date_float')
+	
+	#output_catalog.sort(order='event_date_float')
+	#return numpy.core.records.fromarrays(zip(*output_catalog), dtype = dtype)
+	return pool_results
+	#
+	#
 # make a class out of this; derive from recarray; keep universal valuess like p,q,dmstar, etc. as member variables.
-def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True):
+def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, catalog_range=None):
 	'''
 	# fetch (or receive) an earthquake catalog. for each event, calculate ETAS relevant constants including rupture_length,
 	# spatial orientation, elliptical a,b, etc. This catalog will then be provided to other processes to calculate ETAS rates
+	# @catalog_range: use this for mpp operations. to parallelize this script, create n_cpu instances of make_ETAS_catalog; each instance
+	# contains the whole catalog (or work out a shared memory approach), but each instance only fits/processes [catalog_range] of the catalog.
+	# then, aggregate the catalogs after they finish processing.
 	'''
 	#
 	# save a copy of the input parameters to ammend to the output array as metadata. we can do this in lieu of creating a derived class -- sort of a (sloppy?) shortcut...
@@ -765,7 +830,6 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		meta_parameters = {}
 		if hasattr('meta_parameters', incat): incat.meta_parameters.copy()
 		meta_parameters.update({'D_fract':D_fract, 'd_lambda':d_lambda, 'd_tau':d_tau, 'fit_factor':fit_factor, 'p':p, 'q':q, 'dmstar':dmstar, 'b1':b1, 'b2':b2})
-		
 	#
 	#dmstar = 1.0
 	dm_tau = 0.0		# constant sort of like dm_star but for temporal component. we usually treat this as 0, but don't really know...
@@ -794,6 +858,11 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	#
 	if incat==None or (hasattr(incat, '__len__') and len(incat)==0):
 		incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[start_date, end_date], Nmax=None, fout=None, rec_array=True)
+		# catalog_range:
+	# catalog_range parameter, for MPP applications (usually None).
+	if catalog_range==None or len(catalog_range)==0:
+		catalog_range = [0,len(incat)]
+
 	#
 	# first, make a spatial index of the catalog:
 	anss_index = index.Index()
@@ -815,7 +884,8 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	#
 	output_catalog = []
 	#
-	for k_cat, rw in enumerate(incat):
+	#for k_cat, rw in enumerate(incat):
+	for k_cat, rw in enumerate(incat[catalog_range[0]:catalog_range[1]]):
 		#
 		# tentatively, let's just make a catalog of this and calculate the rupture length, etc.
 		# this way, we can specify (different) rupture length, etc. later.
@@ -830,12 +900,15 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		#
 		# self-similar formulation from yoder et al. 2014/15:
 		# start with the (log of the) number of earthquakes/aftershocks in the rupture area:
+		# (in yoder et al. 2015, this is "N_as", or "number of aftershocks (inside rupture area)".
 		lN_chi = (2.0/(2.0 + D))*math.log10(1.0 + D/2.) + D*(mag - dmstar - mc)/(2.+D)
 		N_chi = 10.**lN_chi
 		#
 		# mean linear density and spatial Omori parameters:
-		linear_density = 2.0*N_chi/L_r		# (linear density over rupture area).
-		r_0 = N_om*(q-1.)/N_chi
+		linear_density = 2.0*N_chi/L_r		# (linear density over rupture area, or equivalently the maximum spatial (linear) density of aftershocks.
+		#r_0 = N_om*(q-1.)/N_chi
+		r_0 = N_om*(q-1.)/linear_density
+		#
 		## let's try this formulation; sort out details later.
 		#lr_0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
 		#r_0 = 10.**lr_0
@@ -1257,7 +1330,34 @@ def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[
 	#plt.plot(*[[x[0], math.log10(x[1])] for x in dists], marker='.', ls='-', lw=1.5)
 	#
 	return etas, dists
-
+#
+def etas_diagnostic_r0(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[dtm.datetime(2000,1,1, tzinfo=pytz.timezone('UTC')), dtm.datetime.now(pytz.timezone('UTC'))], etas_fit_factor=1.5, gridsize=.05, D_fract=1.5, b=1.0):
+	'''
+	# another diagnostic:
+	# start by checkin gout the r_0(m) scaling:
+	
+	'''
+	cat0 = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=date_range, fit_factor=etas_fit_factor, D_fract=D_fract, b1=b)
+	#l_mags = sorted(cat0['mag'])
+	f_lin = lambda x,a,b: a + b*x
+	#
+	lstsq, cov = spo.curve_fit(f_lin, xdata=numpy.array(cat0['mag']), ydata=numpy.log10(cat0['r_0']), p0=numpy.array([0.,0.]))
+	#print("lstsq: ", lstsq)
+	#print('a=%f, b=%f' % tuple(lstsq.tolist()))
+	#
+	plt.figure(0)
+	plt.clf()
+	ax = plt.gca()
+	ax.set_yscale('log')
+	ax.set_xscale('linear')
+	#
+	ax.plot(cat0['mag'], cat0['r_0'], '.')
+	#
+	X = [min(cat0['mag']), max(cat0['mag'])]
+	ax.plot(X, [10**(f_lin(X[0], *lstsq)), 10**(f_lin(X[1], *lstsq))], '-', label='a=%f, b=%f' % tuple(lstsq))
+	plt.legend(loc=0, numpoints=1)
+	#
+	
 if __name__=='__main__':
 	# do main stuff...
 	pass
