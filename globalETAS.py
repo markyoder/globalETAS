@@ -628,7 +628,7 @@ class Earthquake(object):
 		#
 		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
 		# radial density (dN/dr), and as i recall this is normalized so that int(round(dN/dr)_0^inf --> 1.0
-		radial_density = (q-1.0)*(self.r_0**(q-1.0))*(self.r_0 + et['R_prime'])**(-q)
+		radial_density = (q-1.0)*(self.r_0**(q-1.0))*((self.r_0 + et['R_prime'])**(-q))
 		#
 		# ... and this is distributed along an elliptical contour. we could approximate with a circle, but what we really want is to distribute along the ellipse
 		# that is orthogonal to our R-R' transformation. fortunately, they have the same radius. calculating the radius of an ellipse is hard. we an exact solution
@@ -1301,8 +1301,11 @@ def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[
 	l_mags = sorted(cat0['mag'])
 	#
 	m8 = l_mags[int(.8*len(l_mags))]
+	m_max = l_mags[-1]
 	#
 	rw=cat0[-1]
+	#
+	rw = [rw for rw in cat0 if rw['mag']==m_max][0]
 	eq = rw.copy()
 	#
 	Lr = 10.**(.5*rw['mag'] - 1.76)
@@ -1317,6 +1320,7 @@ def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[
 	# return_distances.update({'geo':g1['s12']/1000., 'azi1':g1['azi1'], 'azi2':g1['azi2']})
 	#
 	print("eq: ", eq)
+	print('r_0:', eq.r_0, eq.chi)
 	#dists = [[ggp.WGS84.Inverse(rw['lat'], rw['lon'], X['y'], X['x'])['s12']/1000., X['z']] for X in etas.ETAS_array]
 	
 	#dists = [[111.2*math.sqrt((eq['lat']-X['y'])**2. + ((eq['lon']-X['x'])*math.cos(rw['lat']*deg2rad))**2.), X['z']] for X in etas.ETAS_array] 
@@ -1328,6 +1332,9 @@ def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[
 	ax.set_xscale('log')
 	plt.plot(*zip(*dists), marker='.', ls='', lw=1.5)
 	#plt.plot(*[[x[0], math.log10(x[1])] for x in dists], marker='.', ls='-', lw=1.5)
+	plt.plot([Lr/2., Lr/2.], [min([rw[1] for rw in dists]), max([rw[1] for rw in dists])], 'o-', lw=2.)
+	plt.xlabel('distance $r$')
+	plt.ylabel('ETAS rate-density $z$')
 	#
 	return etas, dists
 #
