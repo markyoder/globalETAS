@@ -261,7 +261,7 @@ class globalETAS_model(object):
 		#
 		# make an rtree index:
 		lattice_index = index.Index()
-		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lat,lon) in enumerate(itertools.product(latses,lonses))]
+		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lat,lon) in enumerate(itertools.product(latses,lonses))]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
 		#
 		print("Indices initiated. begin ETAS.")
 		#
@@ -573,7 +573,9 @@ class Earthquake(object):
 		#def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'], Rearth = 6378.1):
 		'''
 		#
-		if T==None: T=self.T
+		# T is the transformation matrix from the PCA.
+		#if T==None: T=self.T
+		T = (T or self.T)
 		#
 		# first, get the actual distance (and related data) to the point:
 		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
@@ -615,6 +617,7 @@ class Earthquake(object):
 		if delta_t<0.:
 			return 0.
 		#
+		# get elliptial transformation for this earthquake:
 		et = self.elliptical_transform(lon=lon, lat=lat)
 		#
 		# in some cases, let's adjust t0 so maybe we dont' get nearfield artifacts...
@@ -622,9 +625,13 @@ class Earthquake(object):
 			t_0_prime = 60.*10.	# ten minutes...
 			tau_prime = (self.tau*self.t_0**self.p)/(t_0_prime)	#this looks wrong; note we have tau in there twice...
 			#
-			orate = 1.0/(tau_prime * (t_0_prime + delta_t)**self.p)
+			#orate = 1.0/(tau_prime * (t_0_prime + delta_t)**p)
 		else:
-			orate = 1.0/(self.tau * (self.t_0 + delta_t)**self.p)
+			#orate = 1.0/(self.tau * (self.t_0 + delta_t)**p)
+			tau_prime = self.tau
+			t_0_prime = self.t_0
+		#
+		orate = 1.0/(tau_prime * (t_0_prime + delta_t)**p)
 		#
 		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
 		# radial density (dN/dr), and as i recall this is normalized so that int(round(dN/dr)_0^inf --> 1.0
@@ -1325,6 +1332,7 @@ def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[
 	
 	#dists = [[111.2*math.sqrt((eq['lat']-X['y'])**2. + ((eq['lon']-X['x'])*math.cos(rw['lat']*deg2rad))**2.), X['z']] for X in etas.ETAS_array] 
 	dists = [[ggp.WGS84.Inverse(rw['lat'], rw['lon'], X['y'], X['x'])['s12']/1000., X['z']] for X in etas.ETAS_array]
+	#
 	plt.figure(1)
 	plt.clf()
 	ax=plt.gca()
@@ -1335,6 +1343,31 @@ def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[
 	plt.plot([Lr/2., Lr/2.], [min([rw[1] for rw in dists]), max([rw[1] for rw in dists])], 'o-', lw=2.)
 	plt.xlabel('distance $r$')
 	plt.ylabel('ETAS rate-density $z$')
+	#
+	xbin=5
+	#X_bins = numpy.zeros(int(max(zip*(dists[0]))-min(zip*(dists)[0])/xbin), 5.)
+	#N = int((max([rw[0] for rw in dists])-min([rw[0] for rw in dists]))/xbin)+1
+	N = int((max([rw[0] for rw in dists]))/xbin) + 1
+	z_bins = numpy.zeros(N)
+	for dist, z in dists:
+		z_bins[int(dist/xbin)]+=z*gridsize*gridsize*math.cos(deg2rad*numpy.mean(lats))*deg2km*deg2km
+	#
+	plt.figure(4)
+	plt.clf()
+	plt.clf()
+	ax=plt.gca()
+	ax.set_yscale('log')
+	ax.set_xscale('log')
+	ax.plot([xbin*j for j,b in enumerate(z_bins)], z_bins, '.-')
+	#
+	plt.figure(3)
+	plt.clf()
+	ax=plt.gca()
+	ax.set_yscale('log')
+	ax.set_xscale('log')
+	f_omori = lambda r,r_0,chi,q: 1.0/(chi*(r_0 + r)**q)
+	X = numpy.arange(0., eq.L_r*5., .01)
+	ax.plot(X, [f_omori(x, eq.r_0, eq.chi, eq.q) for x in X], '.-')
 	#
 	return etas, dists
 #
@@ -1364,6 +1397,8 @@ def etas_diagnostic_r0(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=
 	ax.plot(X, [10**(f_lin(X[0], *lstsq)), 10**(f_lin(X[1], *lstsq))], '-', label='a=%f, b=%f' % tuple(lstsq))
 	plt.legend(loc=0, numpoints=1)
 	#
+	#plt.figure(1)
+	#plt.clf()
 	
 if __name__=='__main__':
 	# do main stuff...
