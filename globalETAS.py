@@ -108,7 +108,7 @@ class globalETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=5.*365., calc_etas=True, n_contours=15):
+	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=5.*365., calc_etas=True, n_contours=15,**kwargs):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -465,7 +465,7 @@ class Earthquake(object):
 	# include "local" ETAS calculation in this object; aka, each earthquake determines its ETAS range based on rupture length and other factors...
 	# maybe.
 	#def __init__(self, event_date=None, lat=0., lon=0., mag=None, eig_vals=[1., 1.], eig_vecs=[[1.,0.], [0., 1.]], transform_type='equal_area'):
-	def __init__(self, dict_or_recarray, transform_type='equal_area', transform_ratio_max=5., ab_rato_expon=.5):
+	def __init__(self, dict_or_recarray, transform_type='equal_area', transform_ratio_max=5., ab_ratio_expon=.5):
 		#
 		# first, load all indexed elements from the input dict or recarray row as class members:
 		if isinstance(dict_or_recarray, dict): self.__dict__.update(dict_or_recarray)
@@ -476,7 +476,7 @@ class Earthquake(object):
 		# elliptical transform bits:
 		self.transform_type = transform_type
 		self.transform_ratio_max = transform_ratio_max
-		self.ab_rato_expon = ab_rato_expon
+		self.ab_ratio_expon = ab_ratio_expon
 		#
 		# check for float datetime...
 		if not hasattr(self, 'event_date_float'): self.event_date_float = mpd.date2num(self.event_date.tolist())
@@ -499,6 +499,22 @@ class Earthquake(object):
 	def lon_lat(self):
 		return [self.lon, self.lat]		
 	#
+	@property
+	def theta_rad(self):
+		return self.eq_theta(deg_rad='rad')
+	@property
+	def theta_deg(self):
+		return self.eq_theta(deg_rad='deg')
+	@property
+	def theta(self):
+		return self.eq_theta(deg_rad='deg')
+	#
+	def eq_theta(self, deg_rad='deg'):
+		dr_factor = deg2rad
+		if deg_rad=='rad': dr_factor=1.0
+		#
+		return math.atan(self.e_vecs[0][0]/self.e_vecs[0][1])/deg2rad
+	#
 	def dist_to(self, lon=None, lat=None, dist_types=['spherical'], Rearth = 6378.1, *args, **kwargs):
 		if hasattr(lon, '__len__'):
 			lon = lon[0]
@@ -506,21 +522,26 @@ class Earthquake(object):
 		#
 		return dist_to(lon_lat_from=self.lon_lat, lon_lat_to=[lon, lat], dist_types=dist_types, Rearth=Rearth, *args, **kwargs)
 	#
-	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None, transform_ratio_max=None, ab_rato_expon=None):
+	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None, transform_ratio_max=None, ab_ratio_expon=None):
 		'''
 		# note: it might be better to not allow custom-runs (aka not allow parameterized calls to this function; always use native member values).
 		#
 		# define the elliptical transformation for calculating intensities.
 		# transform_type: elliptical transformation type = { 'equal_area', 'rotation'}
 		# transform_ratio_max: maximum allowable eigenvalue (and transformed axes length) ratio.
+		#
+		#... and let's clean up a bit, removing some of the inverse, etc. variants.
+		#
 		'''
+		#
 		e_vals = (e_vals or self.e_vals)
 		e_vecs = (e_vecs or self.e_vecs)
 		transform_ratio_max = float(transform_ratio_max or self.transform_ratio_max)
 		transform_type = (transform_type or self.transform_type)
-		ab_rato_expon = (ab_rato_expon or self.ab_rato_expon)
+		ab_ratio_expon = (ab_ratio_expon or self.ab_ratio_expon)
+		ab_ratio_expon = (ab_ratio_expon or .5)
 		#
-		ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_rato_expon)	# note: this **.5 on the e0/e1 value is quasi-arbitrary.
+		ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)	# note: this **.5 on the e0/e1 value is quasi-arbitrary.
 		#																								# ok, so what specifically is e0/e1 supposed to be? stdev, var?
 		#																								# in any case, it seems to be pretty huge almost all the time, so
 		#																								# let's put a fractional power on it...
@@ -539,12 +560,24 @@ class Earthquake(object):
 			self.spatial_intensity_factor = min(self.e_vals_n)/max(self.e_vals_n)		# area of "core" (rupture area) is reduced, so intensity increases.
 			#
 		else:
-			return self.get_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
+			return self.set_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
 		#
+		# (these are probably better named T_cw and T_ccw, since they are not really inverse matrices.
 		E = self.e_vals_n
-		self.T = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs)
-		self.T_inverse = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs.transpose())
+		#
+		# seem to be having a problem with this. see elliptical_transform()...
+		#self.T = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs)
+		#self.T_inverse = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs.transpose())
+		#
+		# ... but for some reason, these transforms don't appear to be setting properly...
+		E_m = numpy.array([[E[0], 0.], [0., E[1]]])
+		self.T = numpy.dot(E_m, e_vecs.transpose())
+		#
+		# and to preserve any older diagnostic scripts, also calculate the "inverse" transformaton matrix (noting that we've switched which one is "inverse"):
+		self.T_inverse = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs)
+		#print('Transform: ', '**', E_m, '**', e_vecs.transpose(), '**', self.T)
 	#
+	# these were variants of elliptical_transform for development/testing purposes:
 	def elliptical_transform_inverse(self, lon=0., lat=0.):
 		return self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse, invert=False)
 	#
@@ -575,7 +608,15 @@ class Earthquake(object):
 		#
 		# T is the transformation matrix from the PCA.
 		#if T==None: T=self.T
-		T = (T or self.T)
+		
+		#T = (T or self.T)	
+		
+		#T = numpy.dot([[self.e_vals_n[0], 0.],[0., self.e_vals_n[1]]], self.e_vecs.transpose())
+		#
+		# diagnostics:
+		T = self.e_vecs.transpose()
+		# this should work, right? should give [e_vals][T]x = x'
+		#T = numpy.dot([[self.e_vals_n[0], 0.], [0., self.e_vals_n[1]]], self.e_vecs.transpose())
 		#
 		# first, get the actual distance (and related data) to the point:
 		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
@@ -588,6 +629,11 @@ class Earthquake(object):
 		else:
 			dx_prime, dy_prime = numpy.dot(T, [dx,dy])	# rotated and dilated into the elliptical FoR...
 		#R_prime = R*((dx_prime*dx_prime + dy_prime*dy_prime)/(dx*dx+dy*dy))**.5	# use this to mitigate artifacts of the spherical transform: R_prime = R_geo*(R_prime_xy/R_xy)
+		
+		# diagnostic:
+		dx_prime, dy_prime = numpy.dot([[self.e_vals_n[0], 0.], [0., self.e_vals_n[1]]], [dx_prime, dy_prime])
+		#dx_prime*=self.e_vals_n[0]
+		#dy_prime*=self.e_vals_n[1]
 		
 		R_prime = R*numpy.linalg.norm([dx_prime, dy_prime])/numpy.linalg.norm([dx,dy])
 		
@@ -607,6 +653,7 @@ class Earthquake(object):
 		# take time in days.
 		'''
 		#print("inputs: ", t, lon, lat, p, q)
+		t = (t or mpd.date2num(dtm.datetime.now(pytz.timezone('UTC'))))
 		p = (p or self.p)
 		q = (q or self.q)
 		# calculate ETAS intensity.
@@ -618,7 +665,7 @@ class Earthquake(object):
 			return 0.
 		#
 		# get elliptial transformation for this earthquake:
-		et = self.elliptical_transform(lon=lon, lat=lat)
+		et = self.elliptical_transform_prime(lon=lon, lat=lat)		# use "inverse" transformation (see code), so x' = numpy.dot(x,T)
 		#
 		# in some cases, let's adjust t0 so maybe we dont' get nearfield artifacts...
 		if t0_prime!=None:
@@ -634,7 +681,7 @@ class Earthquake(object):
 		orate = 1.0/(tau_prime * (t_0_prime + delta_t)**p)
 		#
 		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
-		# radial density (dN/dr), and as i recall this is normalized so that int(round(dN/dr)_0^inf --> 1.0
+		# radial density (dN/dr). the normalization constant comes from integrating N'(r) --> r=inf = N_om (valid, of course, ony for q>1).
 		radial_density = (q-1.0)*(self.r_0**(q-1.0))*((self.r_0 + et['R_prime'])**(-q))
 		#
 		# ... and this is distributed along an elliptical contour. we could approximate with a circle, but what we really want is to distribute along the ellipse
@@ -651,7 +698,9 @@ class Earthquake(object):
 		#
 		#print "diag: ", orate, circumf, self.spatial_intensity_factor*radial_density, spatialdensity
 		#
+		#return spatialdensity
 		return spatialdensity*orate
+		#
 		#return (self.r_0 + et['R_prime'])**(-q)
 #
 class Shape(object):
@@ -1069,7 +1118,7 @@ def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'],
 		#return_distances['geo'] = g1['s12']/1000.0
 		return_distances.update({'geo':g1['s12']/1000., 'azi1':g1['azi1'], 'azi2':g1['azi2']})
 	#
-	if len(return_distances)==1: return_distances = return_distances.items()[0]
+	if len(return_distances)==1: return_distances = list(return_distances.items())[0]
 	#
 	return return_distances
 	
