@@ -571,10 +571,10 @@ class Earthquake(object):
 		#
 		# ... but for some reason, these transforms don't appear to be setting properly...
 		E_m = numpy.array([[E[0], 0.], [0., E[1]]])
-		self.T = numpy.dot(E_m, e_vecs.transpose())
+		self.T = numpy.dot(e_vecs.transpose(), E_m)
 		#
 		# and to preserve any older diagnostic scripts, also calculate the "inverse" transformaton matrix (noting that we've switched which one is "inverse"):
-		self.T_inverse = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs)
+		self.T_inverse = numpy.dot(e_vecs, E_m)
 		#print('Transform: ', '**', E_m, '**', e_vecs.transpose(), '**', self.T)
 	#
 	# these were variants of elliptical_transform for development/testing purposes:
@@ -609,14 +609,13 @@ class Earthquake(object):
 		# T is the transformation matrix from the PCA.
 		#if T==None: T=self.T
 		
-		#T = (T or self.T)	
+		T = (T or self.T)	
 		
 		#T = numpy.dot([[self.e_vals_n[0], 0.],[0., self.e_vals_n[1]]], self.e_vecs.transpose())
 		#
 		# diagnostics:
-		T = self.e_vecs.transpose()
-		# this should work, right? should give [e_vals][T]x = x'
-		#T = numpy.dot([[self.e_vals_n[0], 0.], [0., self.e_vals_n[1]]], self.e_vecs.transpose())
+		#T = self.e_vecs.transpose()
+		E_hat = [[self.e_vals_n[0], 0.], [0., self.e_vals_n[1]]]
 		#
 		# first, get the actual distance (and related data) to the point:
 		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
@@ -626,20 +625,16 @@ class Earthquake(object):
 		#
 		if invert:
 			dx_prime, dy_prime = numpy.dot([dx,dy],T)
+			#dx_prime, dy_prime = numpy.dot(E_hat, numpy.dot(self.e_vecs,[dx,dy]))
 		else:
 			dx_prime, dy_prime = numpy.dot(T, [dx,dy])	# rotated and dilated into the elliptical FoR...
 		#R_prime = R*((dx_prime*dx_prime + dy_prime*dy_prime)/(dx*dx+dy*dy))**.5	# use this to mitigate artifacts of the spherical transform: R_prime = R_geo*(R_prime_xy/R_xy)
-		
-		# diagnostic:
-		dx_prime, dy_prime = numpy.dot([[self.e_vals_n[0], 0.], [0., self.e_vals_n[1]]], [dx_prime, dy_prime])
-		#dx_prime*=self.e_vals_n[0]
-		#dy_prime*=self.e_vals_n[1]
-		
+		#
 		R_prime = R*numpy.linalg.norm([dx_prime, dy_prime])/numpy.linalg.norm([dx,dy])
-		
 		#
 		dists.update({'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime})
 		#return {'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime}
+		#
 		return dists
 	#
 	def spherical_dist(self, to_lon_lat=[]):
