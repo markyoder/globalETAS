@@ -81,6 +81,7 @@ tz_utc = pytz.timezone('UTC')
 dist_calc_types_dict={}
 dist_calc_types_dict.update({key:'spherical' for key in ['sph', 'spherical', 'sphere']})
 dist_calc_types_dict.update({key:'cartesian' for key in ['cartesian', 'cart', 'xy', 'rect']})
+dist_calc_types_dict.update({key:'euclidian' for key in ['euc', 'euclidian', 'euclid']})
 #dist_calc_types_dict.update({key:'cartesian2' for key in ['cartesian2']})
 dist_calc_types_dict.update({key:'geo' for key in ['geo', 'geodesic', 'geodesiclib', 'glib', 'g_lib']})
 # and this one to return the x,y components for cartesian measurements:
@@ -108,7 +109,7 @@ class globalETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=5.*365., calc_etas=True, n_contours=15,**kwargs):
+	def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15,**kwargs):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -275,7 +276,7 @@ class globalETAS_model(object):
 			if abs(eq.lat)==90.:
 				delta_lon=180.
 			else:
-				delta_lon = delta_lat/math.cos(eq.lat*deg2rad)
+				delta_lon = self.etas_range_padding + delta_lat/math.cos(eq.lat*deg2rad)
 			#
 			# and let's also assume we want to limit our ETAS map to the input lat/lon:
 			lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
@@ -296,11 +297,17 @@ class globalETAS_model(object):
 				site_indices += list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max)))
 			#
 			#print("LLRange: ", lon_min, lat_min, lon_max, lat_max, len(list(site_indices)))
-			
+			#
 			for site_index in site_indices:
 				X = lattice_dict[site_index]
 				#
-				local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'])
+				et = eq.elliptical_transform(lon=X['lon'], lat=X['lat'])
+				#
+				# this looks right:
+				#local_intensity = 1.0/((75. + et['R_prime'])**1.5)
+				#
+				# this is messed up:
+				local_intensity = eq.local_intensity_2(t=self.t_forecast, lon=X['lon'], lat=X['lat'])
 				if numpy.isnan(local_intensity):
 					#print("NAN encountered: ", site_index, self.t_forecast, X['lon'], X['lat'], eq.lon, eq.lat, eq.__dict__)
 					continue
@@ -458,7 +465,6 @@ class ETAS_rtree(globalETAS_model):
 		#
 	#
 #
-#
 class Earthquake(object):
 	# an Earthquake object for global ETAS. in parallel operations, treat this more like a bag of member functions than a data container.
 	# pass an earthquake catalog list to a process; use Earthquake() to handle each earthquake event row.
@@ -563,35 +569,36 @@ class Earthquake(object):
 			return self.set_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
 		#
 		# (these are probably better named T_cw and T_ccw, since they are not really inverse matrices.
+		self.E_hat = [[self.e_vals_n[0], 0.], [0., self.e_vals_n[1]]]
 		E = self.e_vals_n
 		#
-		# seem to be having a problem with this. see elliptical_transform()...
-		#self.T = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs)
-		#self.T_inverse = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs.transpose())
-		#
-		# ... but for some reason, these transforms don't appear to be setting properly...
 		E_m = numpy.array([[E[0], 0.], [0., E[1]]])
-		self.T = numpy.dot(e_vecs.transpose(), E_m)
+		#self.T = numpy.dot(e_vecs.transpose(), E_m)
+		self.T = numpy.dot(E_m, e_vecs)
 		#
 		# and to preserve any older diagnostic scripts, also calculate the "inverse" transformaton matrix (noting that we've switched which one is "inverse"):
-		self.T_inverse = numpy.dot(e_vecs, E_m)
+		#self.T_inverse = numpy.dot(e_vecs, E_m)
+		self.T_inverse = numpy.dot(E_m, e_vecs.transpose())
 		#print('Transform: ', '**', E_m, '**', e_vecs.transpose(), '**', self.T)
 	#
 	# these were variants of elliptical_transform for development/testing purposes:
 	def elliptical_transform_inverse(self, lon=0., lat=0.):
-		return self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse, invert=False)
+		#return self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse, invert=False)
+		return self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse)
 	#
 	def elliptical_transform_inverse_prime(self, lon=0., lat=0.):
-		return self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse, invert=True)
+		#return self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse, invert=True)
+		return self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse.transpose())	# this should be cleaned up so that invert --> Tx vs T.transpose().x instead of "if inv. then xT else Tx.
 	#
 		#
 	def elliptical_transform_prime(self, lon=0., lat=0.):
 		'''
 		#wrapper around elliptical_transform()
 		'''
-		return self.elliptical_transform(lon=lon, lat=lat, T=None, invert=True)
+		#return self.elliptical_transform(lon=lon, lat=lat, T=None, invert=True)
+		return self.elliptical_transform(lon=lon, lat=lat, T=self.T.transpose())
 	#
-	def elliptical_transform(self, lon=0., lat=0., T=None, invert=False):
+	def elliptical_transform(self, lon=0., lat=0., T=None):
 		'''
 		# return elliptical transform of position (lon, lat). submit the raw x,y values; we'll subtract this Earthquake's position here...
 		# ... and let's just return all the information: {'R':radial_dist (spherical or geo), 'R_prime':transformed distance, 'lon':lon,'lat':, 
@@ -607,30 +614,45 @@ class Earthquake(object):
 		'''
 		#
 		# T is the transformation matrix from the PCA.
-		#if T==None: T=self.T
+		if T==None: T=self.T
+		E_hat=self.E_hat		# like (e_vals_n x I)
 		
-		T = (T or self.T)	
+		#T = (T or self.T)	# note: this syntax sometimes fails for numpy.array() objects; gives a "multiple truth" error, in other words, " if each element==None, then..."
 		
 		#T = numpy.dot([[self.e_vals_n[0], 0.],[0., self.e_vals_n[1]]], self.e_vecs.transpose())
 		#
 		# diagnostics:
 		#T = self.e_vecs.transpose()
-		E_hat = [[self.e_vals_n[0], 0.], [0., self.e_vals_n[1]]]
 		#
 		# first, get the actual distance (and related data) to the point:
+		
 		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
 		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, and convert to km...
-		#
 		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in general FoR.
+		
+		dx = (self.lon-lon)*111.3
+		dy = (self.lat-lat)*111.3
+		R=(dx*dx + dy*dy)**.5
+		
+		#print('dists: ', dists)
 		#
-		if invert:
-			dx_prime, dy_prime = numpy.dot([dx,dy],T)
-			#dx_prime, dy_prime = numpy.dot(E_hat, numpy.dot(self.e_vecs,[dx,dy]))
-		else:
-			dx_prime, dy_prime = numpy.dot(T, [dx,dy])	# rotated and dilated into the elliptical FoR...
+		# some diagnostics:
+		#dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'euc', 'xy', 'dx_dy'])
+		#R = dists['euclidian']
+		#dx,dy = dists['dx_e'], dists['dy_e']		
+		#
+		#if invert:
+		#	dx_prime, dy_prime = numpy.dot([dx,dy],T)
+		#	#dx_prime, dy_prime = numpy.dot(E_hat, numpy.dot(self.e_vecs,[dx,dy]))
+		#else:
+		#	dx_prime, dy_prime = numpy.dot(T, [dx,dy])	# rotated and dilated into the elliptical FoR...
+		#
+		dx_prime, dy_prime = numpy.dot(T, [dx,dy])	# rotated and dilated into the elliptical FoR...
+		#
 		#R_prime = R*((dx_prime*dx_prime + dy_prime*dy_prime)/(dx*dx+dy*dy))**.5	# use this to mitigate artifacts of the spherical transform: R_prime = R_geo*(R_prime_xy/R_xy)
 		#
 		R_prime = R*numpy.linalg.norm([dx_prime, dy_prime])/numpy.linalg.norm([dx,dy])
+		#R_prime = numpy.linalg.norm([dx_prime, dy_prime])
 		#
 		dists.update({'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime})
 		#return {'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime}
@@ -640,6 +662,60 @@ class Earthquake(object):
 	def spherical_dist(self, to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
 	#
+	def local_intensity_2(self, t=None, lon=None, lat=None, p=None, q=None):
+		t = (t or mpd.date2num(dtm.datetime.now(pytz.timezone('UTC'))))
+		p = (p or self.p)
+		q = (q or self.q)
+		
+		D=1.5
+		dmstar=1.0
+		mc=2.5
+		
+		# calculate ETAS intensity.
+		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
+		# but then make a map using soemthing else. for example, we might use p=0 (or at least p<p_0) to effectivly modify (eliminate) the time dependence.
+		#
+		delta_t = (t - self.event_date_float)*days2secs
+		if delta_t<0.:
+			return 0.
+		#
+		# get elliptial transformation for this earthquake:
+		#et = self.elliptical_transform_prime(lon=lon, lat=lat)		# use "inverse" transformation (see code), so x' = numpy.dot(x,T)
+		et = self.elliptical_transform(lon=lon, lat=lat)
+		#
+		orate = 1./(self.tau * (self.t_0 + delta_t)**p)
+		#
+		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
+		# radial density (dN/dr). the normalization constant comes from integrating N'(r) --> r=inf = N_om (valid, of course, ony for q>1).
+		#r_0 = self.r_0
+		#
+		lr0ssim = self.mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - 1.76 - math.log10(2.0)
+		r0ssim = 10**lr0ssim
+		#
+		radial_density = (q-1.0)*(r0ssim**(q-1.0))*(r0ssim + et['R_prime'])**(-q)
+		#
+		# ... and this is distributed along an elliptical contour. we could approximate with a circle, but what we really want is to distribute along the ellipse
+		# that is orthogonal to our R-R' transformation. fortunately, they have the same radius. calculating the radius of an ellipse is hard. we an exact solution
+		# (that uses a "special" function) and an approximation (that should be faster).
+		# note major,semi-major axes are R*e_1, R*e_2 (doesn't matter which is which)
+		#
+		# radial normalization:
+		# notes: using an R_prime geometry (circle or ellipse) produces nice, elliptical looking contours. normalizing on the physical distances/geometries R,
+		# produces diamond like shapes. so which one is the artifact?
+		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
+		circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R_prime'], b=self.e_vals_n[1]*et['R_prime'])
+		#circumf = math.pi*et['R']**2.
+		#circumf = math.pi*et['R_prime']**2.
+		#
+		spatialdensity = self.spatial_intensity_factor*radial_density/circumf
+		#
+		#print "diag: ", orate, circumf, self.spatial_intensity_factor*radial_density, spatialdensity
+		#
+		#spatialdensity = 1.0*(et['R_prime'] + self.r_0)**(-q)
+		
+		return spatialdensity*orate
+
+		
 	def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 		'''
 		# t0_prime: use this to re-scale the temporal component. we'll transform the initial rate (and effectively minimum delta_t)
@@ -660,7 +736,8 @@ class Earthquake(object):
 			return 0.
 		#
 		# get elliptial transformation for this earthquake:
-		et = self.elliptical_transform_prime(lon=lon, lat=lat)		# use "inverse" transformation (see code), so x' = numpy.dot(x,T)
+		#et = self.elliptical_transform_prime(lon=lon, lat=lat)		# use "inverse" transformation (see code), so x' = numpy.dot(x,T)
+		et = self.elliptical_transform(lon=lon, lat=lat)
 		#
 		# in some cases, let's adjust t0 so maybe we dont' get nearfield artifacts...
 		if t0_prime!=None:
@@ -673,30 +750,75 @@ class Earthquake(object):
 			tau_prime = self.tau
 			t_0_prime = self.t_0
 		#
-		orate = 1.0/(tau_prime * (t_0_prime + delta_t)**p)
+		orate = 1./(tau_prime * (t_0_prime + delta_t)**p)
 		#
 		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
 		# radial density (dN/dr). the normalization constant comes from integrating N'(r) --> r=inf = N_om (valid, of course, ony for q>1).
-		radial_density = (q-1.0)*(self.r_0**(q-1.0))*((self.r_0 + et['R_prime'])**(-q))
+		r_0 = self.r_0
+		#r_0 = 65.
+		#radial_density = (q-1.0)*(self.r_0**(q-1.0))*((self.r_0 + et['R_prime'])**(-q))
+		radial_density = (q-1.0)*(r_0**(q-1.0))*((r_0 + et['R_prime'])**(-q))
 		#
 		# ... and this is distributed along an elliptical contour. we could approximate with a circle, but what we really want is to distribute along the ellipse
 		# that is orthogonal to our R-R' transformation. fortunately, they have the same radius. calculating the radius of an ellipse is hard. we an exact solution
 		# (that uses a "special" function) and an approximation (that should be faster).
 		# note major,semi-major axes are R*e_1, R*e_2 (doesn't matter which is which)
-		
-		#circumf = ellipse_circumference_exact(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]**et['R'])
-		
-		circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
+		#
+		# radial normalization:
+		# notes: using an R_prime geometry (circle or ellipse) produces nice, elliptical looking contours. normalizing on the physical distances/geometries R,
+		# produces diamond like shapes. so which one is the artifact?
+		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
+		circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R_prime'], b=self.e_vals_n[1]*et['R_prime'])
 		#circumf = math.pi*et['R']**2.
+		#circumf = math.pi*et['R_prime']**2.
 		#
 		spatialdensity = self.spatial_intensity_factor*radial_density/circumf
 		#
 		#print "diag: ", orate, circumf, self.spatial_intensity_factor*radial_density, spatialdensity
 		#
-		#return spatialdensity
+		#spatialdensity = 1.0*(et['R_prime'] + self.r_0)**(-q)
+		
 		return spatialdensity*orate
+		
 		#
 		#return (self.r_0 + et['R_prime'])**(-q)
+	#
+	# some diagnostics:
+	def plot_linear_density(self, r_max=None, r_max_factor=5., fignum=0, n_points=1000):
+		'''
+		# a diagnostic plot of thie earthquake's linear density distribution. r_max is, as it sounds, the max value of r to plot. alternatively, use r_max_factor, 
+		# for r_max = r_max_factor * l_r
+		'''
+		#
+		r_max=(r_max or r_max_factor*self.L_r)
+		print("r_max: ", r_max)
+		#
+		plt.figure(fignum)
+		plt.clf()
+		X=numpy.arange(0., r_max, r_max/float(n_points))
+		ax=plt.gca()
+		ax.set_xscale('log')
+		ax.set_yscale('log')
+		ax.plot(X, [1.0/(self.chi*(self.r_0 + r)**self.q) for r in X], '.-', lw=2.)
+		#	
+	#
+	def sketch_evecs(self, fignum=0):
+		plt.figure(fignum)
+		plt.clf()
+		#
+		# axes:
+		x_max = max(self.e_vals_n)
+		plt.plot([x*x_max for x in [-1., 1.]], [0.,0.], 'k-', lw=2)
+		plt.plot( [0.,0.], [x*x_max for x in [-1., 1.]], 'k-', lw=2)
+		plt.plot([-1., 1.], [0.,0.], 'k-', lw=2)
+		plt.plot( [0.,0.], [-1., 1.], 'k-', lw=2)
+		#
+		plt.plot([0., self.e_vecs[0][0]], [0., self.e_vecs[0][1]], 'mo-')
+		plt.plot([0., self.e_vecs[1][0]], [0., self.e_vecs[1][1]], 'co-')
+		#
+		T = numpy.dot(self.E_hat, self.e_vecs)
+		plt.plot([0., T[0][0]], [0., T[0][1]], 'bo-')
+		plt.plot([0., T[1][0]], [0., T[1][1]], 'go-')
 #
 class Shape(object):
 	# helper base class for shapes...
@@ -787,7 +909,7 @@ class Ellipse(Shape):
 		print( "theta: %f" % (self.theta))
 		if self.theta!=0.:
 			#poly = zip(*numpy.dot( [[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]], zip(*poly)))
-			poly = numpy.dot(poly, zip(*[[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]]))
+			poly = numpy.dot(poly, [[math.cos(self.theta), math.sin(self.theta)],[-math.sin(self.theta), math.cos(self.theta)]])
 		#
 		return poly
 	#
@@ -801,7 +923,6 @@ class Ellipse(Shape):
 		plt.plot(*zip(*self.poly()), color='b', marker='.', ls='-', lw='1.5')
 	#	
 #
-
 # Working scripts
 #
 def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, n_cpus=None):
@@ -885,11 +1006,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	#dmstar = 1.0
 	dm_tau = 0.0		# constant sort of like dm_star but for temporal component. we usually treat this as 0, but don't really know...
 	#d_tau = 2.28
-	#b1=1.0
-	#b2=1.5
 	b=b1
-	#q=1.5
-	#p=1.1
 	#
 	# some constants:
 	l_15_factor = (2./3.)*math.log10(1.5)	# pre-calculate some values...
@@ -940,9 +1057,17 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		#
 		# tentatively, let's just make a catalog of this and calculate the rupture length, etc.
 		# this way, we can specify (different) rupture length, etc. later.
+		#
+		#lNas = (2.0*(2.0+D))*math.log10(1.+D/2.) + (D/(2.+D))*(self.mag - self.dm - self.mc)
+		#lNprimemax = lNas - lrupture + math.log10(2.0)	# log(2) from: 0 <r < L/2 -- assume mainshock is centered.   (aka, N/(L/2))
+		#Nas=10.0**lNas
+		#Nprimemax = 10.0**lNprimemax
+		#r0 = Nom*(q-1.0)/Nprimemax
+		#chi = (r0**(1.0-q))/(Nom*(q-1.0))
+		#
 		mag = rw['mag']
 		L_r = 10.0**(.5*mag - d_lambda)
-		dt_r = 10.0**(.5*mag - d_tau)
+		dt_r = 10.0**(.5*mag - d_tau)		# approximate duration of rupture
 		lN_om = b*(mag - dmstar - mc)
 		N_om = 10.0**lN_om
 		#
@@ -952,18 +1077,31 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# self-similar formulation from yoder et al. 2014/15:
 		# start with the (log of the) number of earthquakes/aftershocks in the rupture area:
 		# (in yoder et al. 2015, this is "N_as", or "number of aftershocks (inside rupture area)".
+		#
 		lN_chi = (2.0/(2.0 + D))*math.log10(1.0 + D/2.) + D*(mag - dmstar - mc)/(2.+D)
-		N_chi = 10.**lN_chi
+		N_chi  = 10.**lN_chi
 		#
 		# mean linear density and spatial Omori parameters:
 		linear_density = 2.0*N_chi/L_r		# (linear density over rupture area, or equivalently the maximum spatial (linear) density of aftershocks.
-		#r_0 = N_om*(q-1.)/N_chi
-		r_0 = N_om*(q-1.)/linear_density
+		#
+		## from BASScast:
+		#l_r0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar+ + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
+		# r_0 = 10.**l_r0
+		#
+		# from yoder et al. 2015 and sort of from BASScast:
+		r_0 = N_om*(q-1.0)/linear_density
+		#r_0 = max(r_0, 5.)
+		
+		# note:
+		#r_0 = L_r*9(q-1.0)N_om/(2.0*N_chi))
+		
 		#
 		## let's try this formulation; sort out details later.
 		#lr_0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
 		#r_0 = 10.**lr_0
-		chi = (r_0**(1.-q))/(N_om*(q-1.))
+		#
+		chi = (r_0**(1.-q))/(N_om*(q-1.0))
+		#radialDens = (q-1.0)*(r0ssim**(q-1.0))*(r0ssim + rprime)**(-q)
 		#
 		# temporal Omori parameters:
 		# (something is not correct here; getting negative rate_max (i think))
@@ -1091,6 +1229,17 @@ def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'],
 		return_distances['cartesian2']=(dx*dx+dy*dy)**.5
 		#
 	'''
+	#
+	# add an Euclidian calc. for diagnostics:
+	if 'euclidian' in dist_types:
+		dx_e = (lon_lat_to[0]-lon_lat_from[0])*deg2km
+		dy_e = (lon_lat_to[1]-lon_lat_from[1])*deg2km
+		#if 'cartesian' in dist_types:
+		#
+		return_distances['euclidian'] = ( dx_e**2. + dy_e**2.)**.5
+		#if 'dx_dy' in dist_types:
+		#
+		return_distances.update({'dx_e':dx_e, 'dy_e':dy_e})
 	#
 	if 'cartesian' in dist_types or 'dx_dy' in dist_types:
 		d_lon    = lon_lat_to[0]-lon_lat_from[0]
@@ -1358,12 +1507,22 @@ def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[
 	#
 	rw = [rw for rw in cat0 if rw['mag']==m_max][0]
 	eq = rw.copy()
+	eq_obj = Earthquake(eq)
 	#
 	Lr = 10.**(.5*rw['mag'] - 1.76)
 	d_lon = 5.*Lr*math.cos(deg2rad*rw['lat'])/deg2km
 	d_lat = 5.*Lr/deg2km
 	etas = ETAS_rtree(catalog=[rw], lons=[rw['lon']-d_lon, rw['lon']+d_lon], lats=[rw['lat']-d_lat, rw['lat']+d_lat], d_lat=gridsize, d_lon=gridsize)
-	etas.calc_etas_contours(contour_fig_file='temp/temp.png', contour_kml_file='temp/temp.kml')	
+	etas.calc_etas_contours(contour_fig_file='temp/temp.png', contour_kml_file='temp/temp.kml', fignum=0)
+	plt.figure(0)
+	plt.title('etas_1')
+	#
+	# note: check aggregation
+	# outcom: aggregation seems to be working (test with two identical earthquakes; we get exactly x2=2*x1 for the first 10 (and other) elements.
+	etas2 = ETAS_rtree(catalog=[rw,rw], lons=[rw['lon']-d_lon, rw['lon']+d_lon], lats=[rw['lat']-d_lat, rw['lat']+d_lat], d_lat=gridsize, d_lon=gridsize)
+	etas.calc_etas_contours(contour_fig_file='temp/temp.png', contour_kml_file='temp/temp.kml', fignum=5)
+	plt.figure(5)
+	plt.title('etas_5')
 	#
 	# so now, 1) get a linear density plot
 	# and 2) create a catalog with multiple entries of the same event; see that they summ together correctly.
@@ -1396,7 +1555,7 @@ def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[
 	for dist, z in dists:
 		z_bins[int(dist/xbin)]+=z*gridsize*gridsize*math.cos(deg2rad*numpy.mean(lats))*deg2km*deg2km
 	#
-	plt.figure(4)
+	plt.figure(2)
 	plt.clf()
 	plt.clf()
 	ax=plt.gca()
@@ -1413,7 +1572,31 @@ def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[
 	X = numpy.arange(0., eq.L_r*5., .01)
 	ax.plot(X, [f_omori(x, eq.r_0, eq.chi, eq.q) for x in X], '.-')
 	#
-	return etas, dists
+	'''
+	plt.figure(4)
+	plt.clf()
+	rmap = []
+	
+	Y = list(numpy.arange(lats[0], lats[1], gridsize))
+	X = list(numpy.arange(lons[0], lons[1], gridsize))
+	
+	n_lats = len(Y)
+	n_lons = len(X)
+	
+	for lat, lon in itertools.product(Y,X):
+		et=eq_obj.elliptical_transform(lat=lat, lon=lon)
+		rmap += [-math.log10(et['R_prime']+75.)]
+		#
+	#
+	rmap = numpy.array(rmap)
+	print("rmap: ", rmap.size, n_lats, n_lons)
+	#rmap.shape=(n_lats, n_lons)
+	rmap.shape=(n_lats, n_lons)
+	
+	plt.contourf(X,Y,rmap, 25)
+	'''
+	#
+	return etas, etas2
 #
 def etas_diagnostic_r0(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[dtm.datetime(2000,1,1, tzinfo=pytz.timezone('UTC')), dtm.datetime.now(pytz.timezone('UTC'))], etas_fit_factor=1.5, gridsize=.05, D_fract=1.5, b=1.0):
 	'''
@@ -1443,6 +1626,20 @@ def etas_diagnostic_r0(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=
 	#
 	#plt.figure(1)
 	#plt.clf()
+
+def ellipse_test(fignume=0, N=1000):
+	plt.figure(0)
+	plt.clf()
+	
+	E = Ellipse(a=10., b=5., theta=45.)
+	xy = E.poly()
+	plt.plot(*zip(*xy), marker='.', ls='-', color='b')
+	gs=.1
+	xy_prime = [[float(gs*int(x/gs)), float(gs*int(y/gs))] for x,y in xy]
+	plt.plot(*zip(*xy_prime), marker='x', ls='-', color='g') 
+	#
+	return E
+	
 	
 if __name__=='__main__':
 	# do main stuff...
