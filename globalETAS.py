@@ -184,7 +184,8 @@ class globalETAS_model(object):
 		#
 		if catalog==None:
 			print("fetch and process catalog.")
-			catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
+			#catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
+			catalog = make_ETAS_catalog_mpp(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
 			print("catalog fetched and processed.")
 		self.catalog = catalog
 		#
@@ -205,6 +206,34 @@ class globalETAS_model(object):
 		X = self.ETAS_array['z']
 		X.shape=(len(self.latses), len(self.lonses))
 		return X
+	#
+	def make_etas_contour_map(self, n_contours=None, fignum=0, figsize=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
+		'''
+		# plot contours over a map.
+		'''
+		#
+		plt.figure(fignum, fig_size)
+		plt.clf()
+		#plt.ion()
+		#
+		cntr = [numpy.mean(self.lons), numpy.mean(lats)]
+		cm = Basemap(llcrnrlon=self.lons[0], llcrnrlat=self.lats[0], urcrnrlon=self.lons[1], urcrnrlat=self.lats[1], resolution=self.mapres, projection=self.map_projection, lon_0=cntr[0], lat_0=cntr[1])
+		self.cm=cm
+		cm.drawcoastlines(color='gray', zorder=1)
+		cm.drawcountries(color='gray', zorder=1)
+		cm.drawstates(color='gray', zorder=1)
+		cm.drawrivers(color='gray', zorder=1)
+		cm.fillcontinents(color='beige', zorder=0)
+		# drawlsmask(land_color='0.8', ocean_color='w', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution='l', grid=5, **kwargs)
+		#cm.drawlsmask(land_color='0.8', ocean_color='c', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution=self.mapres, grid=5)
+		#
+		print "lat, lon ranges: ", lats, lons
+		cm.drawmeridians(range(int(lons[0]), int(lons[1])), color='k', labels=[0,0,1,1])
+		cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
+		#
+		# get X,Y for contours:
+		#
+		X,Y=cm(*numpy.meshgrid(X_i, Y_i))
 	#
 	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
@@ -307,7 +336,7 @@ class globalETAS_model(object):
 				#local_intensity = 1.0/((75. + et['R_prime'])**1.5)
 				#
 				# this is messed up:
-				local_intensity = eq.local_intensity_2(t=self.t_forecast, lon=X['lon'], lat=X['lat'])
+				local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'])
 				if numpy.isnan(local_intensity):
 					#print("NAN encountered: ", site_index, self.t_forecast, X['lon'], X['lat'], eq.lon, eq.lat, eq.__dict__)
 					continue
@@ -496,7 +525,8 @@ class Earthquake(object):
 		# now, make some preliminary calculations, namely the peak spatial density and maybe some omori constants? anything we'll calculate
 		# again and again...
 		#
-		self.spatial_intensity_factor=1.0		# corrects for local aftershock density in rotational type transforms.
+		# this gets done in set_transform()
+		#self.spatial_intensity_factor=1.0		# corrects for local aftershock density in rotational type transforms.
 	#	
 	@property
 	def lat_lon(self):
@@ -661,61 +691,7 @@ class Earthquake(object):
 	#
 	def spherical_dist(self, to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
-	#
-	def local_intensity_2(self, t=None, lon=None, lat=None, p=None, q=None):
-		t = (t or mpd.date2num(dtm.datetime.now(pytz.timezone('UTC'))))
-		p = (p or self.p)
-		q = (q or self.q)
-		
-		D=1.5
-		dmstar=1.0
-		mc=2.5
-		
-		# calculate ETAS intensity.
-		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
-		# but then make a map using soemthing else. for example, we might use p=0 (or at least p<p_0) to effectivly modify (eliminate) the time dependence.
-		#
-		delta_t = (t - self.event_date_float)*days2secs
-		if delta_t<0.:
-			return 0.
-		#
-		# get elliptial transformation for this earthquake:
-		#et = self.elliptical_transform_prime(lon=lon, lat=lat)		# use "inverse" transformation (see code), so x' = numpy.dot(x,T)
-		et = self.elliptical_transform(lon=lon, lat=lat)
-		#
-		orate = 1./(self.tau * (self.t_0 + delta_t)**p)
-		#
-		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
-		# radial density (dN/dr). the normalization constant comes from integrating N'(r) --> r=inf = N_om (valid, of course, ony for q>1).
-		#r_0 = self.r_0
-		#
-		lr0ssim = self.mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - 1.76 - math.log10(2.0)
-		r0ssim = 10**lr0ssim
-		#
-		radial_density = (q-1.0)*(r0ssim**(q-1.0))*(r0ssim + et['R_prime'])**(-q)
-		#
-		# ... and this is distributed along an elliptical contour. we could approximate with a circle, but what we really want is to distribute along the ellipse
-		# that is orthogonal to our R-R' transformation. fortunately, they have the same radius. calculating the radius of an ellipse is hard. we an exact solution
-		# (that uses a "special" function) and an approximation (that should be faster).
-		# note major,semi-major axes are R*e_1, R*e_2 (doesn't matter which is which)
-		#
-		# radial normalization:
-		# notes: using an R_prime geometry (circle or ellipse) produces nice, elliptical looking contours. normalizing on the physical distances/geometries R,
-		# produces diamond like shapes. so which one is the artifact?
-		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
-		circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R_prime'], b=self.e_vals_n[1]*et['R_prime'])
-		#circumf = math.pi*et['R']**2.
-		#circumf = math.pi*et['R_prime']**2.
-		#
-		spatialdensity = self.spatial_intensity_factor*radial_density/circumf
-		#
-		#print "diag: ", orate, circumf, self.spatial_intensity_factor*radial_density, spatialdensity
-		#
-		#spatialdensity = 1.0*(et['R_prime'] + self.r_0)**(-q)
-		
-		return spatialdensity*orate
-
-		
+	#		
 	def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 		'''
 		# t0_prime: use this to re-scale the temporal component. we'll transform the initial rate (and effectively minimum delta_t)
@@ -740,6 +716,7 @@ class Earthquake(object):
 		et = self.elliptical_transform(lon=lon, lat=lat)
 		#
 		# in some cases, let's adjust t0 so maybe we dont' get nearfield artifacts...
+		'''
 		if t0_prime!=None:
 			t_0_prime = 60.*10.	# ten minutes...
 			tau_prime = (self.tau*self.t_0**self.p)/(t_0_prime)	#this looks wrong; note we have tau in there twice...
@@ -749,15 +726,15 @@ class Earthquake(object):
 			#orate = 1.0/(self.tau * (self.t_0 + delta_t)**p)
 			tau_prime = self.tau
 			t_0_prime = self.t_0
+		'''
 		#
-		orate = 1./(tau_prime * (t_0_prime + delta_t)**p)
+		#orate = 1./(tau_prime * (t_0_prime + delta_t)**p)
+		orate = 1./(self.tau * (self.t_0 + delta_t)**p)
 		#
 		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
 		# radial density (dN/dr). the normalization constant comes from integrating N'(r) --> r=inf = N_om (valid, of course, ony for q>1).
-		r_0 = self.r_0
-		#r_0 = 65.
-		#radial_density = (q-1.0)*(self.r_0**(q-1.0))*((self.r_0 + et['R_prime'])**(-q))
-		radial_density = (q-1.0)*(r_0**(q-1.0))*((r_0 + et['R_prime'])**(-q))
+		#
+		radial_density = (q-1.0)*(self.r_0**(q-1.0))*((self.r_0 + et['R_prime'])**(-q))
 		#
 		# ... and this is distributed along an elliptical contour. we could approximate with a circle, but what we really want is to distribute along the ellipse
 		# that is orthogonal to our R-R' transformation. fortunately, they have the same radius. calculating the radius of an ellipse is hard. we an exact solution
@@ -765,12 +742,17 @@ class Earthquake(object):
 		# note major,semi-major axes are R*e_1, R*e_2 (doesn't matter which is which)
 		#
 		# radial normalization:
-		# notes: using an R_prime geometry (circle or ellipse) produces nice, elliptical looking contours. normalizing on the physical distances/geometries R,
+		# notes:
+		# - using an R_prime geometry (circle or ellipse) produces nice, elliptical looking contours. normalizing on the physical distances/geometries R,
 		# produces diamond like shapes. so which one is the artifact?
+		# - normalize with r -> r0 + r_prime, (aka, the distance as "seen" by the earthquake). if we normalize with geometric distances, we get singularities around the earthquakes. 
 		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
-		circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R_prime'], b=self.e_vals_n[1]*et['R_prime'])
+		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R_prime'], b=self.e_vals_n[1]*et['R_prime'])
+		
+		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*(self.r_0 + et['R_prime']), b=self.e_vals_n[1]*(et['R_prime'] + self.r_0))
 		#circumf = math.pi*et['R']**2.
-		#circumf = math.pi*et['R_prime']**2.
+		circumf = math.pi*(self.r_0 + et['R_prime'])**2.
+		#circumf = max(circumf, .628)	# limit spatial density. in ETASmf, we use the transformed distance r_prime = R_prime + r_0
 		#
 		spatialdensity = self.spatial_intensity_factor*radial_density/circumf
 		#
@@ -1089,12 +1071,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# r_0 = 10.**l_r0
 		#
 		# from yoder et al. 2015 and sort of from BASScast:
-		r_0 = N_om*(q-1.0)/linear_density
-		#r_0 = max(r_0, 5.)
-		
-		# note:
-		#r_0 = L_r*9(q-1.0)N_om/(2.0*N_chi))
-		
+		r_0 = N_om*(q-1.0)/linear_density		
 		#
 		## let's try this formulation; sort out details later.
 		#lr_0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
