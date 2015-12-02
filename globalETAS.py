@@ -207,33 +207,52 @@ class globalETAS_model(object):
 		X.shape=(len(self.latses), len(self.lonses))
 		return X
 	#
-	def make_etas_contour_map(self, n_contours=None, fignum=0, figsize=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
+	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl'):
 		'''
 		# plot contours over a map.
 		'''
 		#
+		# first, get contours:
+		#etas_contours = self.calc_etas_contours(n_contours=n_contours, fignum=fignum, contour_fig_file=contour_fig_file, contour_kml_file=contour_kml_file, kml_contours_bottom=kml_contours_bottom, kml_contours_top=kml_contours_top, alpha_kml=alpha_kml, refresh_etas=refresh_etas)
+		#
+		# now, clear away the figure and set up the basemap...
+		n_contours = (n_contours or self.n_contours)
+		
 		plt.figure(fignum, fig_size)
 		plt.clf()
-		#plt.ion()
 		#
-		cntr = [numpy.mean(self.lons), numpy.mean(lats)]
-		cm = Basemap(llcrnrlon=self.lons[0], llcrnrlat=self.lats[0], urcrnrlon=self.lons[1], urcrnrlat=self.lats[1], resolution=self.mapres, projection=self.map_projection, lon_0=cntr[0], lat_0=cntr[1])
-		self.cm=cm
+		lons, lats = self.lons, self.lats
+		cntr = [numpy.mean(lons), numpy.mean(lats)]
+		cm = Basemap(llcrnrlon=self.lons[0], llcrnrlat=self.lats[0], urcrnrlon=self.lons[1], urcrnrlat=self.lats[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1])
+		#
+		#cm.drawlsmask(land_color='0.8', ocean_color='b', resolution=map_resolution)
 		cm.drawcoastlines(color='gray', zorder=1)
-		cm.drawcountries(color='gray', zorder=1)
-		cm.drawstates(color='gray', zorder=1)
-		cm.drawrivers(color='gray', zorder=1)
-		cm.fillcontinents(color='beige', zorder=0)
+		cm.drawcountries(color='black', zorder=1)
+		cm.drawstates(color='black', zorder=1)
+		cm.drawrivers(color='blue', zorder=1)
+		cm.fillcontinents(color='beige', lake_color='blue', zorder=0)
 		# drawlsmask(land_color='0.8', ocean_color='w', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution='l', grid=5, **kwargs)
 		#cm.drawlsmask(land_color='0.8', ocean_color='c', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution=self.mapres, grid=5)
 		#
-		print "lat, lon ranges: ", lats, lons
+		#
 		cm.drawmeridians(range(int(lons[0]), int(lons[1])), color='k', labels=[0,0,1,1])
 		cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
 		#
-		# get X,Y for contours:
+		X,Y = cm(numpy.array(self.lonses), numpy.array(self.latses))
+		#print("xylen: ", len(X), len(Y))
+		
+		#plt.figure(42)
+		#plt.clf()
+		#self.etas_contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), n_contours)
+		#plt.colorbar()
+		
+		etas_contours = plt.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=.4)
+		plt.colorbar()
 		#
-		X,Y=cm(*numpy.meshgrid(X_i, Y_i))
+		self.cm=cm
+		#
+		return cm
+		#
 	#
 	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
@@ -269,6 +288,8 @@ class globalETAS_model(object):
 				f_kml.write(self.contours_kml_str)
 			#pass
 			#
+		return self.etas_contours
+	#
 	def make_etas_rtree(self):
 		# use the same basic framework as etas_all (aka, instantiate a lattice), but map an rtree index to the lattice, then use a delta_lat, delta_lon
 		# approach (like etas_bindex) bit loop only over the rtree.intersection() of the delta_lat/lon window.
