@@ -66,7 +66,8 @@ from rtree import index
 # a bit of version 3-2 compatibility:
 if sys.version_info.major>=3:
 	xrange=range
-
+from eq_params import *
+#
 #
 days2secs = 60.*60.*24.
 year2secs = 60.*60.*24.*365.
