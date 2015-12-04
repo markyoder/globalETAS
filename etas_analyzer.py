@@ -64,8 +64,40 @@ def nepal_etas_roc():
 	z1 = plot_mainshock_and_aftershocks(etas=nepal_etas_fc, m0=6.0, fignum=0)
 	#
 	z2 = plot_mainshock_and_aftershocks(etas=nepal_etas_test, m0=6.0, fignum=1)
+	#
+	# now, normalize z1,z2. we can normalize a number of different ways, namely 1) normalize so that sum(z)=1, 2) normailze to max(z).
+	# nominally, if we want to compare a big catalog to a small catalog and we don't want to mess around with time dependence, we just normalize to sum(z)=1.
+	#
+	return nepal_etas_fc, nepal_etas_test
+
+def analyze_etas_roc(etas_fc, etas_test):
+	norm_1 = sum(etas_fc.ETAS_array['z'])
+	norm_2 = sum(etas_test.ETAS_array['z'])
+	#
+	z_fc_norm   = etas_fc.ETAS_array['z']/norm_1
+	z_test_norm = etas_fc.ETAS_array['z']/norm_2
+	#
+	# [z1, z2, diff, h, m, f(predicted, didn't happen)
+	diffs = [[z1, z2, z1-z2, max(z1, z2), -min(z1-z2,0.), max(z1-z2,0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
+	#
+	# to plot contours, we'll want to use the shape from: etas.lattice_sites.shape
+	#
+	sh1 = etas_fc.lattice_sites.shape
+	sh2 = etas_test.lattice_sites.shape
+	#
+	print('shapes: ', sh1, sh2)
+	#
+	zs_diff, h, m, f = list(zip(*diffs))[2:]
+	#for z in [zs_diff, h, m, f]:
+	for z in list(zip(*diffs)):
+		plt.figure()
+		plt.clf()
+		#
+		zz=numpy.array(z)
+		zz.shape=sh1
+		plt.contourf(list(set(etas_fc.ETAS_array['x'])), list(set(etas_fc.ETAS_array['y'])), zz, 25)
 	
-	return nepal_etas_fc
+	return None
 
 def plot_mainshock_and_aftershocks(etas, m0=6.0, mainshock=None, fignum=0):
 	
