@@ -71,14 +71,31 @@ def nepal_etas_roc():
 	return nepal_etas_fc, nepal_etas_test
 
 def analyze_etas_roc(etas_fc, etas_test):
-	norm_1 = sum(etas_fc.ETAS_array['z'])
-	norm_2 = sum(etas_test.ETAS_array['z'])
 	#
-	z_fc_norm   = etas_fc.ETAS_array['z']/norm_1
-	z_test_norm = etas_fc.ETAS_array['z']/norm_2
+	etas_fc.make_etas_contour_map(fignum=0)
+	etas_test.make_etas_contour_map(fignum=1)
+	#
+	lon_vals = sorted(list(set(etas_fc.ETAS_array['x'])))
+	lat_vals = sorted(list(set(etas_fc.ETAS_array['y'])))
+	#
+	# we need normalization here...
+	z_fc_norm = etas_fc.ETAS_array['z'].copy()
+	z_test_norm = etas_test.ETAS_array['z'].copy()
+	#
+	z_fc_norm   = numpy.log10(z_fc_norm)
+	z_test_norm = numpy.log10(z_test_norm)
+	#
+	norm_fc   = sum(z_fc_norm)
+	norm_test = sum(z_test_norm)
+	#
+	z_fc_norm /= norm_fc
+	z_test_norm /= norm_test
 	#
 	# [z1, z2, diff, h, m, f(predicted, didn't happen)
-	diffs = [[z1, z2, z1-z2, max(z1, z2), -min(z1-z2,0.), max(z1-z2,0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
+	#diffs = [[z1, z2, z1-z2, max(z1, z2), -min(z1-z2,0.), max(z1-z2,0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
+	diffs = [[z1, z2, z1-z2, min(z1, z2), -min(z1-z2,0.), max(z1-z2,0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
+	diffs_lbls = ['z_fc', 'z_test', 'z1-z2', 'A: max(z1,z2)', 'misses (B?): -min(z1-z2,0.)', 'over-predicted: max(z1-z2,0.)']
+	#gzintas = numpy.array([z1/z2 for z1,z2 in zip(z_fc_norm, z_test_norm)])
 	#
 	# to plot contours, we'll want to use the shape from: etas.lattice_sites.shape
 	#
@@ -89,13 +106,23 @@ def analyze_etas_roc(etas_fc, etas_test):
 	#
 	zs_diff, h, m, f = list(zip(*diffs))[2:]
 	#for z in [zs_diff, h, m, f]:
-	for z in list(zip(*diffs)):
-		plt.figure()
+	for j,z in enumerate(list(zip(*diffs))):
+		plt.figure(j+2)
 		plt.clf()
 		#
 		zz=numpy.array(z)
 		zz.shape=sh1
-		plt.contourf(list(set(etas_fc.ETAS_array['x'])), list(set(etas_fc.ETAS_array['y'])), zz, 25)
+		#plt.contourf(list(set(etas_fc.ETAS_array['x'])), list(set(etas_fc.ETAS_array['y'])), zz, 25)
+		#plt.contourf(numpy.log10(zz), 25)
+		plt.contourf(lon_vals, lat_vals, zz, 25)
+		plt.title(diffs_lbls[j])
+		plt.colorbar()
+	#plt.figure(j+3)
+	#plt.clf()
+	#gzintas.shape=sh1
+	#fgz = plt.contourf(lon_vals, lat_vals, numpy.log10(gzintas), 15)
+	#plt.title('z_fc/z_cat')
+	#plt.colorbar()
 	
 	return None
 
