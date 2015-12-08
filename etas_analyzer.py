@@ -29,11 +29,12 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from geographiclib.geodesic import Geodesic as ggp
 #
 #
-#import ANSStools as atp
+import ANSStools as atp
 #import bindex
 import contours2kml
 import globalETAS as gep
 from eq_params import *
+import random
 #
 #import rtree
 #from rtree import index
@@ -70,6 +71,121 @@ def nepal_etas_roc():
 	#
 	return nepal_etas_fc, nepal_etas_test
 
+def roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=5.0, fignum=0):
+	#
+	if to_dt==None:
+		from_dt=max([dt.tolist() for dt in etas_fc.catalog['event_date']])
+		to_dt = from_dt + dtm.timedelta(days=cat_len)
+		#
+	#
+	lats = etas_fc.lats
+	lons = etas_fc.lons
+	mc   = etas_fc.mc
+	print("get cataog: ", lons, lats, mc_roc, from_dt, to_dt)
+	if test_catalog==None: test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc_roc, dates0=[from_dt, to_dt])
+	#
+	Zs = etas_fc.ETAS_array.copy()
+	Zs.sort(order='z')
+	#
+	d_lat = etas_fc.d_lat
+	d_lon = etas_fc.d_lon
+	nx,ny = etas_fc.lattice_sites.shape	# should be (i think)= int((max(lon)-min(lon))/d_lon)
+	#
+	#lat0 = min(etas_fc.ETAS_array['y'])
+	#lon0 = min(etas_fc.ETAS_array['x'])
+	#
+	# (for this application, we can also just get nasty and to a loop-loop with geodetic distancing).
+	get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
+	#get_site = lambda x,y: int(round(x-lons[0])/d_lon) + int((y-lats[0])/d_lat)*nx
+	#
+	'''
+	#test:
+	print('testing get_site:')
+	Rx = random.Random()
+	Ry = random.Random()
+	for k in range(10):
+		x = lons[0] + Rx.random()*(lons[1]-lons[0])
+		y = lats[0] + Ry.random()*(lats[1]-lats[0])
+		#
+		j_lattice = get_site(x,y)
+		print("for %f, %f: " % (x,y), etas_fc.ETAS_array[j_lattice])
+	#
+	'''
+	#
+	'''
+	# hits (observed yes, forecast yes):
+	roc_A = [0]
+	# falsies (over-predict) (observed no, fc. yes)
+	roc_B = [0]
+	# misses (observed yes, fc no):
+	roc_C = [0]
+	# didn't happen (observed no, fc no):
+	roc_D = [0]
+	'''
+	#
+	ROCs = [[0,0,0,0]]
+	#print("eZs: ", etas_fc.ETAS_array['z'][0:10], len(etas_fc.ETAS_array['z']))
+	#
+	for j_z, z0 in enumerate(Zs['z']):
+		# z0 is the threshold z for predicted=True/False
+		#
+		for eq in test_catalog:
+			k = get_site(eq['lon'], eq['lat'])
+			#print('site: ', k)
+			z_val = etas_fc.ETAS_array['z'][k]
+			#
+			if z_val>=z0:
+				# predicted!
+				ROCs[-1][0]+=1
+				#
+				# ... and subtract from falsies; in the end, we'll assume all sites>z were false alarms in the end:
+				ROCs[-1][1]-=1
+			else:
+				# missed it
+				ROCs[-1][2]+=1
+				ROCs[-1][3]-=1		# an earthquake occurred in this site. it did not correctly predict non-occurrence.
+			#
+		n_gt = len([z for z in etas_fc.ETAS_array['z'] if z>=z0])
+		n_lt = len([z for z in etas_fc.ETAS_array['z'] if z<z0])
+		#
+		ROCs[-1][1]+=n_gt
+		ROCs[-1][3]+=n_lt
+		#
+		ROCs += [[0,0,0,0]]
+	#
+	plt.figure(fignum)
+	plt.clf()
+	Hs=[]
+	Fs=[]
+	
+	Hs2=[]
+	Fs2=[]
+	for roc in ROCs:
+		#try:
+		if True:
+			roc=[float(x) for x in roc]
+			Hs2 += [roc[0]/(roc[0]+roc[2])]
+			#h=float(len(etas_fc.ETAS_array))
+			#f=roc[1]/float(len(etas_fc.ETAS_array))
+			#
+			Hs += [roc[0]/float(len(test_catalog))]
+			Fs2 += [roc[1]/(roc[1]+roc[3])]
+			Fs += [roc[1]/float(len(etas_fc.ETAS_array))]
+			
+		#except:
+		#	print('ROC error, probably div/0: ', roc, len(test_catalog), len(etas_fc.ETAS_array), roc[0]/float(len(test_catalog)), roc[1]/float(float(len(etas_fc.ETAS_array))) )
+		#
+	#		
+	plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
+	plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
+	#
+	return test_catalog
+
+	
+	
+	#
+	
+
 def analyze_etas_roc(etas_fc, etas_test):
 	#
 	etas_fc.make_etas_contour_map(fignum=0)
@@ -85,16 +201,21 @@ def analyze_etas_roc(etas_fc, etas_test):
 	z_fc_norm   = numpy.log10(z_fc_norm)
 	z_test_norm = numpy.log10(z_test_norm)
 	#
+	z_fc_norm -= min(z_fc_norm)
+	z_test_norm -= min(z_test_norm)
+	#
 	norm_fc   = sum(z_fc_norm)
 	norm_test = sum(z_test_norm)
 	#
 	z_fc_norm /= norm_fc
 	z_test_norm /= norm_test
 	#
+	z1 = z_fc_norm
+	z2 = z_test_norm
 	# [z1, z2, diff, h, m, f(predicted, didn't happen)
 	#diffs = [[z1, z2, z1-z2, max(z1, z2), -min(z1-z2,0.), max(z1-z2,0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
-	diffs = [[z1, z2, z1-z2, min(z1, z2), -min(z1-z2,0.), max(z1-z2,0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
-	diffs_lbls = ['z_fc', 'z_test', 'z1-z2', 'A: max(z1,z2)', 'misses (B?): -min(z1-z2,0.)', 'over-predicted: max(z1-z2,0.)']
+	diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), -min(z2-z1, 0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
+	diffs_lbls = ['z_fc', 'z_test', 'z1-z2', 'A: max(z1,z2)', 'over-predictions (B?): max(z1-z2,0.), misses: -min(z1-z2,0.)']
 	#gzintas = numpy.array([z1/z2 for z1,z2 in zip(z_fc_norm, z_test_norm)])
 	#
 	# to plot contours, we'll want to use the shape from: etas.lattice_sites.shape
