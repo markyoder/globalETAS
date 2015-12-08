@@ -160,7 +160,8 @@ def roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=5.0,
 	
 	Hs2=[]
 	Fs2=[]
-	for roc in ROCs:
+	# note: this migh make a nice practice problem for mpp.Array() ....
+	for roc in ROCs[:-1]:
 		#try:
 		if True:
 			roc=[float(x) for x in roc]
@@ -175,9 +176,13 @@ def roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=5.0,
 		#except:
 		#	print('ROC error, probably div/0: ', roc, len(test_catalog), len(etas_fc.ETAS_array), roc[0]/float(len(test_catalog)), roc[1]/float(float(len(etas_fc.ETAS_array))) )
 		#
-	#		
+	#
+	# now, make a heavy-sizde forecast (aka, "there will be N earthquakes", assume within some alpha*L_r.
+	
+	#	
 	plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
 	plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
+	plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
 	#
 	return test_catalog
 
