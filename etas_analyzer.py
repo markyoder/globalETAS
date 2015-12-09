@@ -71,6 +71,28 @@ def nepal_etas_roc():
 	#
 	return nepal_etas_fc, nepal_etas_test
 
+def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1):
+	#
+	# make a set of ROCs.
+	plt.figure(fignum)
+	plt.clf()
+	FHs=[]
+	#
+	for mc in mc_rocs:
+		# ... we should probalby modify roc_normal() so we can pass a catalog (for speed optimization), but we'll probably only run this a few times.
+		FH = roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=mc, fignum=0)
+		plt.plot(*zip(*FH), marker='o', ls='-', lw=2.5, alpha=.8, label='$m_c=%.2f$' % mc)
+		FHs += [[mc,FH]]
+		#
+	#
+	plt.label(loc=0, numpoints=1)
+	plt.title('ROC Analysis', size=18)
+	plt.xlabel('False Alarm Rate $F$', size=18)
+	plt.yoabel('Hit Rate $H$', size=18)
+	#
+	return FHs
+	
+
 def roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=5.0, fignum=0):
 	#
 	if to_dt==None:
@@ -83,6 +105,7 @@ def roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=5.0,
 	mc   = etas_fc.mc
 	print("get cataog: ", lons, lats, mc_roc, from_dt, to_dt)
 	if test_catalog==None: test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc_roc, dates0=[from_dt, to_dt])
+	print("catlen: ", len(test_catalog))
 	#
 	Zs = etas_fc.ETAS_array.copy()
 	Zs.sort(order='z')
@@ -184,7 +207,7 @@ def roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=5.0,
 	plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
 	plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
 	#
-	return test_catalog
+	return list(zip(Fs,Hs))
 
 	
 	
