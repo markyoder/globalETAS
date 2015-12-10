@@ -71,24 +71,51 @@ def nepal_etas_roc():
 	#
 	return nepal_etas_fc, nepal_etas_test
 
+def toy_etas(ETAS_array=None, lats=None, lons=None, l_lon=.1, d_lat=.1, epicenter=None, mc=None):
+	# make a toy object that contains all the necessary bits to look like an etas object.
+	#
+	# ... but actually, maybe a better way to do this is to just clone (most of) another etas objec, like:
+	# obj.update(etas_template.__dict__)
+	if ETAS_array==None:
+		ETAS_array = [[x,y] for x,y in itertools.product(numpy.arange(lats[0], lats[1]+d_lat, d_lat), numpy.arange(lons[0], lons[1]+d_lon, d_lon))]
+	#
+	epicen_lat = 28.147
+	epicen_lon = 84.708
+	#
+	for j,rw in enumerate(ETAS_array):
+		if len(rw)<3: ETAS_array[j]+=[0]:
+			g1=ggp.WGS84.Inverse(epicen_lat, epicen_lon, rw[1], rw[0])
+			ETAS_array[j][2] = 1.0/(g1['s12']/1000.)
+			#
+	my_etas = object()
+	my_etas.lattice_xy = ETAS_array
+	my_etas.lons=[min([rw[0] for rw in ETAS_array]), max([rw[0] for rw in ETAS_array])]
+	my_etas.lats=[min([rw[1] for rw in ETAS_array]), max([rw[1] for rw in ETAS_array])]
+	#
+	
+
 def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1):
 	#
 	# make a set of ROCs.
 	plt.figure(fignum)
 	plt.clf()
+	ax=plt.gca()
 	FHs=[]
 	#
 	for mc in mc_rocs:
 		# ... we should probalby modify roc_normal() so we can pass a catalog (for speed optimization), but we'll probably only run this a few times.
+		print('roc for %f', mc)
 		FH = roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=mc, fignum=0)
-		plt.plot(*zip(*FH), marker='o', ls='-', lw=2.5, alpha=.8, label='$m_c=%.2f$' % mc)
+		ax.plot(*zip(*FH), marker='o', ls='-', lw=2.5, alpha=.8, label='$m_c=%.2f$' % mc)
 		FHs += [[mc,FH]]
 		#
 	#
-	plt.label(loc=0, numpoints=1)
-	plt.title('ROC Analysis', size=18)
-	plt.xlabel('False Alarm Rate $F$', size=18)
-	plt.yoabel('Hit Rate $H$', size=18)
+	ax.plot(range(2), range(2), ls='--', marker='', lw=2.75, alpha=.7, zorder=1)
+	plt.figure(fignum)
+	ax.legend(loc=0, numpoints=1)
+	ax.set_title('ROC Analysis', size=18)
+	ax.set_xlabel('False Alarm Rate $F$', size=18)
+	ax.set_ylabel('Hit Rate $H$', size=18)
 	#
 	return FHs
 	
