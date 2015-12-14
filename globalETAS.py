@@ -68,6 +68,8 @@ if sys.version_info.major>=3:
 	xrange=range
 from eq_params import *
 #
+# TODO: add a p_map (or p, p0 distinction) variable to distinguish the p value for calculating ETAS parameters (in catalog) and p to calculate
+# ETAS itself. this will facilitate time independent ETAS, etc., which we need to proprly evaluate geo-spatial ROC.
 #
 days2secs = 60.*60.*24.
 year2secs = 60.*60.*24.*365.

@@ -46,17 +46,10 @@ sischuan_prams['to_dt'] = dtm.datetime.now(pytz.timezone('UTC'))
 
 def nepal_etas_roc():
 	# def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15,**kwargs)
-	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':True, 'n_contours':15})
 	#
-	np_prams_test = np_prams.copy()
-	np_prams_test.update({'t_now':dtm.datetime(2015,5,21,tzinfo=tzutc), 't_0':dtm.datetime(2015,5,8,tzinfo=tzutc)})
+	nepal_etas_fc = get_nepal_etas_fc()
+	nepal_etas_test = get_nepal_etas_test()
 	#
-	# note: we can pull one catalog and submit it as a parameter. this will also include aftershocks on the map(s)
-	nepal_etas_fc = gep.ETAS_rtree(**np_prams)
-	nepal_etas_test = gep.ETAS_rtree(**np_prams_test)
-	#
-	
 	# get mainshock:
 	ms = nepal_etas_fc.catalog[0]
 	for rw in nepal_etas_fc.catalog:
@@ -71,6 +64,65 @@ def nepal_etas_roc():
 	#
 	return nepal_etas_fc, nepal_etas_test
 
+def get_nepal_etas_fc():
+	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':True, 'n_contours':15})
+	#nepal_etas_fc = gep.ETAS_rtree(**np_prams)
+	#
+	return gep.ETAS_rtree(**np_prams)
+
+def get_nepal_etas_test():
+	#
+	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':True, 'n_contours':15})
+	#
+	np_prams_test = np_prams
+	np_prams_test.update({'t_now':dtm.datetime(2015,5,21,tzinfo=tzutc), 't_0':dtm.datetime(2015,5,8,tzinfo=tzutc)})
+	#
+	#nepal_etas_test = gep.ETAS_rtree(**np_prams_test)
+	#
+	return gep.ETAS_rtree(**np_prams_test)
+
+class Toy_etas(object):
+	def __init__(self, etas_in, mainshock={'mag':7.3, 'lon':84.698, 'lat':28.175}):
+		# nepal_epi_lon = 84.698
+		# nepal_epi_lat = 28.175
+		self.__dict__.update(etas_in.__dict__)
+		self.__dict__.update(locals())
+		self.lattice_sites = etas_in.lattice_sites
+		#
+		# now, replace all the ETAS z values with 1/r to epicenter... let's do 1/R+L_r/2, so we don't get singularities (it won't matter since the comaprison will
+		# be rank ordered).
+		#
+	
+	def normalize(self):
+		norm_factor = numpy.sum(self.ETAS_array['z'])
+		self.ETAS_array['z']/=norm_factor
+		#
+	#
+class  Toy_etas_invr(Toy_etas):
+	def __init__(self, *args, **kwargs):
+		super(Toy_etas_invr,self).__init__(*args, **kwargs)
+		self.L_r = 10.**(.5*self.mainshock['mag']-1.76)
+		#
+		for j,rw in enumerate(self.ETAS_array):
+			g1=ggp.WGS84.Inverse(self.mainshock['lat'], self.mainshock['lon'], rw['y'], rw['x'])
+			#r_prime = (g1['s12']/1000.) + .5*L_r
+			self.ETAS_array['z'][j] = 1./((g1['s12']/1000.) + .5*self.L_r)
+		#
+		self.normalize()
+#
+class Toy_etas_random(Toy_etas):
+	def __init__(self, *args, **kwargs):
+		super(Toy_etas_random, self).__init__(*args, **kwargs)
+		R=random.Random()
+		for j,rw in enumerate(self.ETAS_array):
+			self.ETAS_array['z'][j] = R.random()
+		#
+		self.normalize()
+
+	#
+'''	
 def toy_etas(ETAS_array=None, lats=None, lons=None, l_lon=.1, d_lat=.1, epicenter=None, mc=None):
 	# make a toy object that contains all the necessary bits to look like an etas object.
 	#
@@ -83,7 +135,8 @@ def toy_etas(ETAS_array=None, lats=None, lons=None, l_lon=.1, d_lat=.1, epicente
 	epicen_lon = 84.708
 	#
 	for j,rw in enumerate(ETAS_array):
-		if len(rw)<3: ETAS_array[j]+=[0]:
+		if len(rw)<3:
+			ETAS_array[j]+=[0]
 			g1=ggp.WGS84.Inverse(epicen_lat, epicen_lon, rw[1], rw[0])
 			ETAS_array[j][2] = 1.0/(g1['s12']/1000.)
 			#
@@ -92,13 +145,13 @@ def toy_etas(ETAS_array=None, lats=None, lons=None, l_lon=.1, d_lat=.1, epicente
 	my_etas.lons=[min([rw[0] for rw in ETAS_array]), max([rw[0] for rw in ETAS_array])]
 	my_etas.lats=[min([rw[1] for rw in ETAS_array]), max([rw[1] for rw in ETAS_array])]
 	#
-	
+'''	
 
-def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1):
+def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-'):
 	#
 	# make a set of ROCs.
 	plt.figure(fignum)
-	plt.clf()
+	if do_clf: plt.clf()
 	ax=plt.gca()
 	FHs=[]
 	#
@@ -106,21 +159,24 @@ def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=
 		# ... we should probalby modify roc_normal() so we can pass a catalog (for speed optimization), but we'll probably only run this a few times.
 		print('roc for %f', mc)
 		FH = roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=mc, fignum=0)
-		ax.plot(*zip(*FH), marker='o', ls='-', lw=2.5, alpha=.8, label='$m_c=%.2f$' % mc)
+		ax.plot(*zip(*FH), marker='', ls=roc_ls, lw=2.5, alpha=.8, label='$m_c=%.2f$' % mc)
 		FHs += [[mc,FH]]
 		#
 	#
 	ax.plot(range(2), range(2), ls='--', marker='', lw=2.75, alpha=.7, zorder=1)
 	plt.figure(fignum)
 	ax.legend(loc=0, numpoints=1)
+	ax.set_ylim([-.1,1.15])
+	ax.set_xlim([-.1,1.15])
 	ax.set_title('ROC Analysis', size=18)
 	ax.set_xlabel('False Alarm Rate $F$', size=18)
 	ax.set_ylabel('Hit Rate $H$', size=18)
+	plt.draw()
 	#
 	return FHs
 	
 
-def roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=5.0, fignum=0):
+def roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=5.0, fignum=0, do_clf=True):
 	#
 	if to_dt==None:
 		from_dt=max([dt.tolist() for dt in etas_fc.catalog['event_date']])
@@ -188,23 +244,22 @@ def roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=5.0,
 				# predicted!
 				ROCs[-1][0]+=1
 				#
-				# ... and subtract from falsies; in the end, we'll assume all sites>z were false alarms in the end:
+				# ... and subtract from falsies; in the end, we'll assume all sites>z were false alarms:
 				ROCs[-1][1]-=1
 			else:
 				# missed it
 				ROCs[-1][2]+=1
 				ROCs[-1][3]-=1		# an earthquake occurred in this site. it did not correctly predict non-occurrence.
 			#
-		n_gt = len([z for z in etas_fc.ETAS_array['z'] if z>=z0])
-		n_lt = len([z for z in etas_fc.ETAS_array['z'] if z<z0])
+		n_gt = float(len([z for z in etas_fc.ETAS_array['z'] if z>=z0]))
+		n_lt = float(len([z for z in etas_fc.ETAS_array['z'] if z<z0]))
 		#
 		ROCs[-1][1]+=n_gt
 		ROCs[-1][3]+=n_lt
 		#
 		ROCs += [[0,0,0,0]]
 	#
-	plt.figure(fignum)
-	plt.clf()
+	
 	Hs=[]
 	Fs=[]
 	
@@ -229,19 +284,43 @@ def roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=5.0,
 	#
 	# now, make a heavy-sizde forecast (aka, "there will be N earthquakes", assume within some alpha*L_r.
 	
-	#	
-	plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
-	plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
-	plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
+	#
+	if fignum!=None:
+		plt.figure(fignum)
+		if do_clf: plt.clf()
+		plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
+		plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
+		plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
 	#
 	return list(zip(Fs,Hs))
 
-	
+def nepal_roc_normal_script(fignum=0):
+	# full, one stop shopping script for nepal ROC analysis.
+	#
+	# first, get nepal ETAS objects:
+	etas_fc, etas_test = nepal_etas_roc()
+	#
+	ROC_n = roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.5, 5.0, 6.0, 7.0], fignum=fignum, do_clf=True)
+	#
+	# now, make a toy catalog:
+	etas_toy = Toy_etas_invr(etas_in=etas_fc, mainshock={'mag':7.3, 'lon':84.698, 'lat':28.175})
+	#
+	ROC_t = roc_normalses(etas_toy, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.5, 5.0, 6.0, 7.0], fignum=fignum, do_clf=False, roc_ls='--')
+	#
+	# now, some random catalogs:
+	for j in range(25):
+		this_etas = Toy_etas_random(etas_in=etas_fc)
+		FH = roc_normal(this_etas, fignum=None)
+		plt.plot(*zip(*FH), marker='.', ls='', alpha=.6)
+		
 	
 	#
-	
 
-def analyze_etas_roc(etas_fc, etas_test):
+
+def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
+	#
+	if etas_fc   == None: etas_fc   = get_nepal_etas_fc()
+	if etas_test == None: etas_test = get_nepal_etas_test()
 	#
 	etas_fc.make_etas_contour_map(fignum=0)
 	etas_test.make_etas_contour_map(fignum=1)
@@ -253,8 +332,9 @@ def analyze_etas_roc(etas_fc, etas_test):
 	z_fc_norm = etas_fc.ETAS_array['z'].copy()
 	z_test_norm = etas_test.ETAS_array['z'].copy()
 	#
-	z_fc_norm   = numpy.log10(z_fc_norm)
-	z_test_norm = numpy.log10(z_test_norm)
+	if do_log:
+		z_fc_norm   = numpy.log10(z_fc_norm)
+		z_test_norm = numpy.log10(z_test_norm)
 	#
 	z_fc_norm -= min(z_fc_norm)
 	z_test_norm -= min(z_test_norm)
@@ -268,10 +348,13 @@ def analyze_etas_roc(etas_fc, etas_test):
 	z1 = z_fc_norm
 	z2 = z_test_norm
 	# [z1, z2, diff, h, m, f(predicted, didn't happen)
-	#diffs = [[z1, z2, z1-z2, max(z1, z2), -min(z1-z2,0.), max(z1-z2,0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
-	diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), -min(z2-z1, 0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
-	diffs_lbls = ['z_fc', 'z_test', 'z1-z2', 'A: max(z1,z2)', 'over-predictions (B?): max(z1-z2,0.), misses: -min(z1-z2,0.)']
-	#gzintas = numpy.array([z1/z2 for z1,z2 in zip(z_fc_norm, z_test_norm)])
+	#diffs = [[z1, z2, z1-z2, max(z1, z2), -min(z1-z2,0.), max(z1-z2,0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)] 
+	# hits: accurately predicted; min(z1,z2)
+	# misses: prediction deficite, or excess events: min(z2-z1,0.)
+	# falsie: excess prediction: min(z1-z2,0.)
+	# then rates: H = hits/sum(z2), F =falsies/sum(z1)
+	diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
+	diffs_lbls = ['z_fc', 'z_test', 'z1-z2', 'hits: max(z1,z2)','misses:min(z2-z1,0)', 'falsie: min(z1-z2,0)']
 	#
 	# to plot contours, we'll want to use the shape from: etas.lattice_sites.shape
 	#
@@ -281,6 +364,11 @@ def analyze_etas_roc(etas_fc, etas_test):
 	print('shapes: ', sh1, sh2)
 	#
 	zs_diff, h, m, f = list(zip(*diffs))[2:]
+	#
+	# and ROC bits:
+	H = sum(h)/sum(z2)
+	F = sum(f)/sum(z1)
+	#
 	#for z in [zs_diff, h, m, f]:
 	for j,z in enumerate(list(zip(*diffs))):
 		plt.figure(j+2)
@@ -300,7 +388,7 @@ def analyze_etas_roc(etas_fc, etas_test):
 	#plt.title('z_fc/z_cat')
 	#plt.colorbar()
 	
-	return None
+	return F,H
 
 def plot_mainshock_and_aftershocks(etas, m0=6.0, mainshock=None, fignum=0):
 	
