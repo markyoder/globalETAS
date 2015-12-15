@@ -71,17 +71,32 @@ def get_nepal_etas_fc():
 	#
 	return gep.ETAS_rtree(**np_prams)
 
-def get_nepal_etas_test():
+def get_nepal_etas_test(**pram_updates):
+	# pram_updates: any earthquake parameters (aka, np_prams) we might want to specify, like "q"...
+	#
+	# 
 	#
 	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':True, 'n_contours':15})
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':False, 'n_contours':15})
 	#
 	np_prams_test = np_prams
 	np_prams_test.update({'t_now':dtm.datetime(2015,5,21,tzinfo=tzutc), 't_0':dtm.datetime(2015,5,8,tzinfo=tzutc)})
+	np_prams_test.update(pram_updates)
 	#
 	#nepal_etas_test = gep.ETAS_rtree(**np_prams_test)
 	#
-	return gep.ETAS_rtree(**np_prams_test)
+	# there's a more proper way to do this, probably to create an inherited class of globalETAS and/or Earthquake for a "stationary" output (p=0 for calculating ETAS, but remember NOT for
+	# the initial rate calculation (which is done in the catalog construction bits) ). for now, create the ETAS object; then spin through the catalog and set p=0 for all the earthquakes.
+	# remember also that etas.catalog is a recarray, not an array of Earthquake objects.
+	#
+	etas = gep.ETAS_rtree(**np_prams_test)
+	for j,eq in enumerate(etas.catalog):
+		etas.catalog['p'][j] = 0.0
+		# ... and sort of a sloppy way to do this as well...
+		for key,val in pram_updates.items(): etas.catalog[key]=val
+	#
+	etas.make_etas()
+	return etas
 
 class Toy_etas(object):
 	def __init__(self, etas_in, mainshock={'mag':7.3, 'lon':84.698, 'lat':28.175}):
@@ -315,7 +330,22 @@ def nepal_roc_normal_script(fignum=0):
 		
 	
 	#
-
+def etas_roc_geospatial_set(etas_fc=None, etas_test=None, do_log=True, q_test_min=1.1, q_test_max=2.0, dq=.1):
+	# compare ETAS for a bunch of different q. right now this is just the "test" q. we'll probably want to vary the forecast as well, but of course taht will be expensive.
+	if etas_fc==None: etas_fc=get_nepal_etas_fc()
+	if etas_test==None: etas_test = get_nepal_etas_test() #... and we don't really need to calc eatas here, so later on maybe clean this up.
+	FH=[]
+	#
+	for q in numpy.arange(q_test_min, q_test_max, dq):
+		#etas_test = get_nepal_etas_test(q=q)		# and we should sort it out to keep a copy of the catalog, or just re-calc etas with new q...
+		for j,rw in enumerate(etas_test.catalog): etas_test.catalog['q'][j]=q
+		etas_test.make_etas()
+		
+		FH += [analyze_etas_roc_geospatial(etas_fc=etas_fc, etas_test=etas_test, do_log=do_log)]
+	#
+	return FH
+		
+	
 
 def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
 	#
@@ -354,7 +384,7 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
 	# falsie: excess prediction: min(z1-z2,0.)
 	# then rates: H = hits/sum(z2), F =falsies/sum(z1)
 	diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
-	diffs_lbls = ['z_fc', 'z_test', 'z1-z2', 'hits: max(z1,z2)','misses:min(z2-z1,0)', 'falsie: min(z1-z2,0)']
+	diffs_lbls = ['z_fc', 'z_test', 'z1-z2', 'hits: min(z1,z2)','misses:min(z2-z1,0)', 'falsie: min(z1-z2,0)']
 	#
 	# to plot contours, we'll want to use the shape from: etas.lattice_sites.shape
 	#
