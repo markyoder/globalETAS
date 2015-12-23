@@ -91,7 +91,7 @@ dist_calc_types_dict.update({key:'geo' for key in ['geo', 'geodesic', 'geodesicl
 dist_calc_types_dict.update({key:'dx_dy' for key in ['dxdy', 'dx_dy']})
 #
 # Developer notes and status:
-# as of 9 oct 2015: globalETAS_model and the various subclasses (which use differend indexing) run (apprently) successfully, but the figures they turn out look a bit
+# as of 9 oct 2015: Global_ETAS_model and the various subclasses (which use differend indexing) run (apprently) successfully, but the figures they turn out look a bit
 # odd, so i'm working on diagnostic scripts (maybe i just need to run a bigger model... or maybe just one more directly comparable to some standard runs like nor/so CA.
 # see also etas_testing.py. it looks like the Earthquake() object products the correct local_intensity(), as compared to the former BASScast/ETASmf model.
 # so maybe the rates are not aggregating correctly, or maybe the indexing is screwing up something.
@@ -102,7 +102,7 @@ dist_calc_types_dict.update({key:'dx_dy' for key in ['dxdy', 'dx_dy']})
 #
 # Classes:
 
-class globalETAS_model(object):
+class Global_ETAS_model(object):
 	# guts of ETAS. this will contain a catalog, lattice sites, etc. graphical tools, plotting, etc. will likely
 	# be kept elsewhere.
 	# questions: use equal distance or equal angel bin spacing? we can nominally do a spherical->cartesian transformation like: x = lon*cos(lat)*deg2km
@@ -112,13 +112,17 @@ class globalETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15,**kwargs):
+	def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15, etas_cat_range=None,**kwargs):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
 		# externally provided. otherwise, get a catalog from ANSS or OH based oon the parameters provided.
 		# note: we want to do this properly in an x-y projection, not lat-lon. our earthquakes will come back to us with lat/lon coordinates
 		# so we'll need to translate. we'll also want lat/lon as well as x/y positions for the lattice sites, so we can get even spacing and accurate distances
+		#
+		# etas_cat_range: range of catalog to do ETAS. mainly, this is to facilitate MPP processing; each process will have a full catalog of earthquakes and
+		# (nominally) a full array of etas lattice sites (though we might be able to improve upon this requirement later -- probably the best appraoch is to
+		# accept this limitation and write a make_etas() that uses an mpp.Array() object (simplified script).
 		'''
 		print("begin globalETAS.__init()__")
 		# dx=1., dy=1., x0=0., y0=0., leaf_type=float)
@@ -191,6 +195,12 @@ class globalETAS_model(object):
 			catalog = make_ETAS_catalog_mpp(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
 			print("catalog fetched and processed.")
 		self.catalog = catalog
+		#
+		# set etas_cat_range as necessary:
+		if etas_cat_range==None: etas_cat_range = [0,len(catalog)]
+		etas_cat_range[0] = (etas_cat_range[0] or None)
+		etas_cat_range[1] = (etas_cat_range[1] or None)
+		self.etas_cat_range = etas_cat_range
 		#
 		# ... and here is really where we do derived classes for different ETAS forcast objects. so for ETAS_bindex(ETAS), we do:
 		if not hasattr(self, 'make_etas'):
@@ -319,7 +329,8 @@ class globalETAS_model(object):
 		#
 		print("Indices initiated. begin ETAS.")
 		#
-		for quake in self.catalog:
+		#for quake in self.catalog:
+		for quake in self.catalog[etas_cat_range[0]:etas_cat_range[1]]:
 			if quake['mag']<self.mc_etas: continue
 			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
@@ -391,7 +402,8 @@ class globalETAS_model(object):
 		#self.lattice_sites = numpy.zeros(len(latses)*len(lonses))
 		self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
 		#
-		for quake in self.catalog:
+		#for quake in self.catalog:
+		for quake in self.catalog[etas_cat_range[0]:etas_cat_range[1]]:
 			if quake['mag']<self.mc_etas: continue
 			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
@@ -422,7 +434,8 @@ class globalETAS_model(object):
 		# copy class level variables:
 		#
 		print( "calc etas...")
-		for quake in self.catalog:
+		#for quake in self.catalog:
+		for quake in self.catalog[etas_cat_range[0]:etas_cat_range[1]]:
 			if quake['mag']<self.mc_etas: continue
 			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
@@ -498,25 +511,112 @@ class globalETAS_model(object):
 		return (bin_num - bin_0)*dx + x0x
 	'''
 #
-class ETAS_bindex(globalETAS_model):
+class ETAS_bindex(Global_ETAS_model):
 	# default case...
 	def __init__(self, *args, **kwargs):
 		self.make_etas=self.make_etas_bindex
 		super(ETAS_bindex,self).__init__(*args, **kwargs)
 #
-class ETAS_brute(globalETAS_model):
+class ETAS_brute(Global_ETAS_model):
 	def __init__(self, *args, **kwargs):
 		self.make_etas = self.make_etas_all
 		super(ETAS_brute, self).__init__(*args, **kwargs)
 		#
 	#
 #
-class ETAS_rtree(globalETAS_model):
+class ETAS_rtree(Global_ETAS_model):
 	def __init__(self, *args, **kwargs):
 		self.make_etas = self.make_etas_rtree
 		super(ETAS_rtree, self).__init__(*args, **kwargs)
 		#
 	#
+#
+class ETAS_rtree_mpp(ETAS_rtree, mpp.Process):
+	'''n 
+	# an mpp version of ETAS_rtree (to be run as an mpp process)
+	'''	
+	def __init__(self, pipe_r, *args, **kwargs):
+		self.make_etas = self.make_etas_rtree
+		self.pipe_r = pipe_r
+		super(ETAS_rtree_mpp, self).__init__(*args, **kwargs)
+		#
+	#
+	def run(self):
+		# the mpp run bit.
+		# i think we need to disable the 'execute make etas' bit in __init__ (super); we need to kick off ETAS in run()
+		self.make_etas()
+		#
+		# now, pipe back the results
+		self.pipe_r.send(self.ETAS_array)		# might need to pipe back in a simpler form. eventually, we want to use a shared memory mpp.Array()...
+#
+#
+class ETAS_mpp_handler(Global_ETAS_model):
+	# a sub/container class to manage and collect results from a bunch of mpp_etas instances.
+
+	def __init__(self, n_processes=None, *args, **kwargs):
+		#self.make_etas = self.make_etas_rtree
+		#
+		self.etas_kwargs = {key:val for key,val in kwargs.items() if key not in ['n_proocesses']}		# or any other kwargs we want to skip. note: might need to handle
+																										# the ETAS_range parameter carefully...
+		#
+		if n_processes==None: n_processes = max(1, mpp.cpu_count()-1)
+		self.n_processes = n_processes
+		#
+		# go ahead and run the base class __init__. this basically handles lats, lons, forecast_time, and some other bits and then kicks off make_etas(), where we'll
+		#kwargs['make_etas']=False
+		self.make_etas = self.make_etas_mpp
+		#
+		# now, when we run __init__, it will build the catalog (unless one is provided). we'll build up a set of etas_rtree objects. we need to sort out how
+		# to generalize. nominally, we set up a sort of parallel-inherited class structure for mpp_in_general and mpp_specific inheritance.
+		#
+		# define the ETAS worker class:
+		self.ETAS_worker = ETAS_rtree_mpp
+		#
+		#
+		super(ETAS_mpp_handler, self).__init__(*args, **kwargs)
+	#
+	def make_etas_mpp(self):
+		#
+		#
+		cat_len = len(self.catalog)
+		#proc_len = cat_len/self.n_processes
+		proc_len = (self.etas_cat_len[1]-self.etas_cat_len[0])/self.n_processes
+		# first, gather a bunch of rtree processes.
+		#
+		etas_workers = []
+		etas_pipes   = []
+		prams = self.etas_kwargs.copy()
+		prams['catalog']=self.catalog		# .copy() ??
+		for j in range(self.n_processes):
+			pipe_r, pipe_s = mpp.Pipe()
+			prams['etas_cat_range'] = [self.etas_cat_len[0]+j*proc_len, (j+1)*proc_len]		# (sort out these indices to be sure we always get the whole catalog...)
+			prams['pipe_r'] = pipe_r
+			etas_pipes = pipe_s
+			#
+			etas_workers += [self.ETAS_worker(**prams)]
+		#
+		# now, go through the list again and start each intance (this can probably be done when they're instantiated):
+		for j,p in enumerate(etas_workers):
+			p.start()
+			#etas_workers[j].start()
+			#
+		#
+		# and join() them? do we need to join if we're doing send()-recv()? (see vq code for examples):
+		# in fact, i think we don't need this, and be careful with the join() syntax (see notes in vq_analyzer code).
+		for j,p in enumerate(etas_workers):
+			p.join()
+		#
+		# now, processes are finished; they return ETAS_array[] like [[x,y,z]]... ETAS_array should be initiated. we can aggregate them by index, but they should all
+		# have the same indexing (they should all be a complete set of lats, lons. so we should check for that here... and i think actually we should have an empty copy
+		# from __init__(), but for now, just add them row by row (maybe sort first). in later versions (maybe this one??) all processes will write directly to an mpp.Array()
+		# shared memory object.
+		#
+		for j,etas,pp in enumerate(zip(etas_workers, etas_pipes)):
+			ary = pp.recv()
+			for k,rw in ary: self.ETAS_array['z'][k]+=rw['z']
+		#
+			
+
 #
 class Earthquake(object):
 	# an Earthquake object for global ETAS. in parallel operations, treat this more like a bag of member functions than a data container.
