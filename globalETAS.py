@@ -162,7 +162,9 @@ class Global_ETAS_model(object):
 		self.n_lat = len(self.latses)
 		self.n_lon = len(self.lonses)
 		
-		self.ETAS_array = numpy.array([])
+		#self.ETAS_array = numpy.array([])
+		self.ETAS_array = numpy.array([[lon, lat, 0.] for lat,lon in itertools.product(self.latses, self.lonses)])
+		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		'''
 		self.lats=lats
 		self.lons=lons
@@ -198,9 +200,10 @@ class Global_ETAS_model(object):
 		#
 		# set etas_cat_range as necessary:
 		if etas_cat_range==None: etas_cat_range = [0,len(catalog)]
-		etas_cat_range[0] = (etas_cat_range[0] or None)
-		etas_cat_range[1] = (etas_cat_range[1] or None)
+		etas_cat_range[0] = (etas_cat_range[0] or 0)
+		etas_cat_range[1] = (etas_cat_range[1] or len(catalog))
 		self.etas_cat_range = etas_cat_range
+		print("ETAS over etas_cat_range: ", self.etas_cat_range)
 		#
 		# ... and here is really where we do derived classes for different ETAS forcast objects. so for ETAS_bindex(ETAS), we do:
 		if not hasattr(self, 'make_etas'):
@@ -317,7 +320,7 @@ class Global_ETAS_model(object):
 		# note: it's important to do the (latses, lonses) in the same sequence so we have consistency in the indices.
 		#     this would make a reasonable case to use a conventional for-loop instead of multiple list comprehensions.
 		print("initialize ETAS array and indices.")
-		self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
+		#self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
 		#
 		# make a dict of lattice sites and their x,y coordinates.
 		lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lat,lon) in enumerate(itertools.product(latses, lonses))}
@@ -327,10 +330,10 @@ class Global_ETAS_model(object):
 		lattice_index = index.Index()
 		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lat,lon) in enumerate(itertools.product(latses,lonses))]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
 		#
-		print("Indices initiated. begin ETAS.")
+		print("Indices initiated. begin ETAS :: ", self.etas_cat_range)
 		#
 		#for quake in self.catalog:
-		for quake in self.catalog[etas_cat_range[0]:etas_cat_range[1]]:
+		for quake in self.catalog[self.etas_cat_range[0]:self.etas_cat_range[1]]:
 			if quake['mag']<self.mc_etas: continue
 			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
@@ -400,7 +403,7 @@ class Global_ETAS_model(object):
 		#
 		#self.lattice_sites = numpy.array([[0. for x in latses] for y in lonses])
 		#self.lattice_sites = numpy.zeros(len(latses)*len(lonses))
-		self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
+		#self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
 		#
 		#for quake in self.catalog:
 		for quake in self.catalog[etas_cat_range[0]:etas_cat_range[1]]:
@@ -537,8 +540,10 @@ class ETAS_rtree_mpp(ETAS_rtree, mpp.Process):
 	'''	
 	def __init__(self, pipe_r, *args, **kwargs):
 		self.make_etas = self.make_etas_rtree
+		kwargs['calc_etas']=False
 		self.pipe_r = pipe_r
 		super(ETAS_rtree_mpp, self).__init__(*args, **kwargs)
+		mpp.Process.__init__(self)
 		#
 	#
 	def run(self):
@@ -547,8 +552,9 @@ class ETAS_rtree_mpp(ETAS_rtree, mpp.Process):
 		self.make_etas()
 		#
 		# now, pipe back the results
+		print('etas complete; now pipe back(%s)' % self.etas_cat_range)
 		self.pipe_r.send(self.ETAS_array)		# might need to pipe back in a simpler form. eventually, we want to use a shared memory mpp.Array()...
-#
+		self.pipe_r.close()
 #
 class ETAS_mpp_handler(Global_ETAS_model):
 	# a sub/container class to manage and collect results from a bunch of mpp_etas instances.
@@ -580,7 +586,7 @@ class ETAS_mpp_handler(Global_ETAS_model):
 		#
 		cat_len = len(self.catalog)
 		#proc_len = cat_len/self.n_processes
-		proc_len = (self.etas_cat_len[1]-self.etas_cat_len[0])/self.n_processes
+		proc_len = (self.etas_cat_range[1]-self.etas_cat_range[0])/self.n_processes
 		# first, gather a bunch of rtree processes.
 		#
 		etas_workers = []
@@ -589,9 +595,9 @@ class ETAS_mpp_handler(Global_ETAS_model):
 		prams['catalog']=self.catalog		# .copy() ??
 		for j in range(self.n_processes):
 			pipe_r, pipe_s = mpp.Pipe()
-			prams['etas_cat_range'] = [self.etas_cat_len[0]+j*proc_len, (j+1)*proc_len]		# (sort out these indices to be sure we always get the whole catalog...)
+			prams['etas_cat_range'] = [int(self.etas_cat_range[0]+j*proc_len), int((j+1)*proc_len)]		# (sort out these indices to be sure we always get the whole catalog...)
 			prams['pipe_r'] = pipe_r
-			etas_pipes = pipe_s
+			etas_pipes += [pipe_s]
 			#
 			etas_workers += [self.ETAS_worker(**prams)]
 		#
@@ -603,19 +609,23 @@ class ETAS_mpp_handler(Global_ETAS_model):
 		#
 		# and join() them? do we need to join if we're doing send()-recv()? (see vq code for examples):
 		# in fact, i think we don't need this, and be careful with the join() syntax (see notes in vq_analyzer code).
-		for j,p in enumerate(etas_workers):
-			p.join()
-		#
+
 		# now, processes are finished; they return ETAS_array[] like [[x,y,z]]... ETAS_array should be initiated. we can aggregate them by index, but they should all
 		# have the same indexing (they should all be a complete set of lats, lons. so we should check for that here... and i think actually we should have an empty copy
 		# from __init__(), but for now, just add them row by row (maybe sort first). in later versions (maybe this one??) all processes will write directly to an mpp.Array()
 		# shared memory object.
 		#
-		for j,etas,pp in enumerate(zip(etas_workers, etas_pipes)):
+		print('now gather sub-arrays...')
+		for j,(etas,pp) in enumerate(zip(etas_workers, etas_pipes)):
 			ary = pp.recv()
-			for k,rw in ary: self.ETAS_array['z'][k]+=rw['z']
+			for k,rw in enumerate(ary): self.ETAS_array['z'][k]+=rw['z']
+			pp.close()
 		#
-			
+		# still not sure if we need this...
+		#for j,p in enumerate(etas_workers):
+		#	p.join()
+		#
+		del etas_workers			
 
 #
 class Earthquake(object):
