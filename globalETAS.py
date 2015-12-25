@@ -112,7 +112,7 @@ class Global_ETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15, etas_cat_range=None,**kwargs):
+	def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_etas=None,**kwargs):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -123,6 +123,8 @@ class Global_ETAS_model(object):
 		# etas_cat_range: range of catalog to do ETAS. mainly, this is to facilitate MPP processing; each process will have a full catalog of earthquakes and
 		# (nominally) a full array of etas lattice sites (though we might be able to improve upon this requirement later -- probably the best appraoch is to
 		# accept this limitation and write a make_etas() that uses an mpp.Array() object (simplified script).
+		#
+		# p_etas: use this to control p for etas calculations, separate for p calculated in catalog (aka, p to solve initial rates). use p_etas to make time-independent maps.
 		'''
 		print("begin globalETAS.__init()__")
 		# dx=1., dy=1., x0=0., y0=0., leaf_type=float)
@@ -135,9 +137,10 @@ class Global_ETAS_model(object):
 		# we might just want the last N days, as a consistent standard. note we might, later on, make this a bit more sophisticated
 		# by processing the full t0 -> t_now catalog, but only doing ETAS for the most recent cat_len days. BUT, to do this, we have
 		# to enforce in all the do_ETAS() functions
+		t_now = (t_now or dtm.datetime.now(pytz.timezone('UTC')))
 		if cat_len != None:
 			t0=t_now - dtm.timedelta(days=cat_len)
-			print("Overriding t0 for ETAS calculations. using t0 = t_now - catlen = %s" % t0)
+			print("Overriding t0 for ETAS calculations. using catalog start, t0 = t_now - catlen (%f) = %s" % (cat_len, t0))
 		#
 		#lats = (lats or [-89.9, 89.9])
 		#lons = (lons or [-180., 180.])
@@ -161,9 +164,15 @@ class Global_ETAS_model(object):
 		self.lonses = numpy.arange(lons[0], lons[1], d_lon)		# to the range().
 		self.n_lat = len(self.latses)
 		self.n_lon = len(self.lonses)
-		
-		#self.ETAS_array = numpy.array([])
-		self.ETAS_array = numpy.array([[lon, lat, 0.] for lat,lon in itertools.product(self.latses, self.lonses)])
+		#
+		# calculate xyz_range (for mpp applications where we split up the geo-spatial array to processes):
+		if etas_xyz_range==None: etas_xyz_range = [0,self.n_lat*self.n_lon]
+		etas_xyz_range[0] = (etas_xyz_range[0] or 0)
+		etas_xyz_range[1] = (etas_xyz_range[1] or self.n_lat*self.n_lon)
+		#
+		self.ETAS_array = numpy.array([])
+		# [etas_xyz_range[0]:etas_xyz_range[1]]
+		self.ETAS_array = numpy.array([[lon, lat, 0.] for j, (lat,lon) in enumerate(itertools.product(self.latses, self.lonses)) if (j>= etas_xyz_range[0] and j<etas_xyz_range[1])])
 		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		'''
 		self.lats=lats
@@ -319,16 +328,23 @@ class Global_ETAS_model(object):
 		#
 		# note: it's important to do the (latses, lonses) in the same sequence so we have consistency in the indices.
 		#     this would make a reasonable case to use a conventional for-loop instead of multiple list comprehensions.
-		print("initialize ETAS array and indices.")
-		#self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
+		#print("initialize ETAS array and indices.")
+		#if not hasattr(self, 'ETAS_array') or len(self.ETAS_array)==0:
+		#	self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
+		#	#self.ETAS_array = numpy.array([[lon, lat, 0.] for lat,lon in itertools.product(self.latses, self.lonses)])
+		#	self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		#
 		# make a dict of lattice sites and their x,y coordinates.
-		lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lat,lon) in enumerate(itertools.product(latses, lonses))}
+		#lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lat,lon) in enumerate(itertools.product(latses, lonses))}
+		lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lon,lat,z) in enumerate(self.ETAS_array)}
 		self.lattice_dict=lattice_dict
+		print("len(local_lattice_dict): ", len(self.lattice_dict))
 		#
 		# make an rtree index:
 		lattice_index = index.Index()
-		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lat,lon) in enumerate(itertools.product(latses,lonses))]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
+		# build index. we should build directly from ETAS_array, particualrly since we'll be (maybe) building an mpp version that splits up ETAS_array between proceses.
+		#[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lat,lon) in enumerate(itertools.product(latses,lonses))]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
+		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lon, lat, z) in enumerate(self.ETAS_array)]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
 		#
 		print("Indices initiated. begin ETAS :: ", self.etas_cat_range)
 		#
@@ -373,8 +389,7 @@ class Global_ETAS_model(object):
 				# this looks right:
 				#local_intensity = 1.0/((75. + et['R_prime'])**1.5)
 				#
-				# this is messed up:
-				local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'])
+				local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'], p=self.p_etas)
 				if numpy.isnan(local_intensity):
 					#print("NAN encountered: ", site_index, self.t_forecast, X['lon'], X['lat'], eq.lon, eq.lat, eq.__dict__)
 					continue
@@ -411,7 +426,7 @@ class Global_ETAS_model(object):
 			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
 			for j, lat_lon in enumerate(itertools.product(latses, lonses)):
-				self.ETAS_array[j][2] += eq.local_intensity(t=self.t_forecast, lon=lat_lon[1], lat=lat_lon[0])
+				self.ETAS_array[j][2] += eq.local_intensity(t=self.t_forecast, lon=lat_lon[1], lat=lat_lon[0], p=self.p_etas)
 			#for lat_tpl,lon_tpl in itertools.product(enumerate(latses), enumerate(lonses)):
 			#	local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon_tpl[1], lat=lat_tpl[1])
 			#	#
@@ -483,7 +498,7 @@ class Global_ETAS_model(object):
 				# note: at this time, we have only the self-similar type local intensity. eventually, we need to split this up. nominally,
 				# this can occur at the Earthquake level, so -- if we so desire, different earthquakes can have differend spatial distributions.
 				#
-				local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon_bin['center'], lat=lat_bin['center']) # anything else?
+				local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon_bin['center'], lat=lat_bin['center'], p=self.p_etas) # anything else?
 				#
 				#self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
 				#
@@ -542,6 +557,7 @@ class ETAS_rtree_mpp(ETAS_rtree, mpp.Process):
 		self.make_etas = self.make_etas_rtree
 		kwargs['calc_etas']=False
 		self.pipe_r = pipe_r
+		#print('initting worker, xyz_range = ', locals().get('etas_xyz_range', 'none'), kwargs.get('etas_xyz_range', 'nnonee'))
 		super(ETAS_rtree_mpp, self).__init__(*args, **kwargs)
 		mpp.Process.__init__(self)
 		#
@@ -624,6 +640,91 @@ class ETAS_mpp_handler(Global_ETAS_model):
 		# still not sure if we need this...
 		#for j,p in enumerate(etas_workers):
 		#	p.join()
+		#
+		del etas_workers			
+#
+#
+class ETAS_mpp_handler_xyz(Global_ETAS_model):
+	# a sub/container class to manage and collect results from a bunch of mpp_etas instances.
+
+	def __init__(self, n_processes=None, *args, **kwargs):
+		#self.make_etas = self.make_etas_rtree
+		#
+		self.etas_kwargs = {key:val for key,val in kwargs.items() if key not in ['n_proocesses']}		# or any other kwargs we want to skip. note: might need to handle
+																										# the ETAS_range parameter carefully...
+		#
+		if n_processes==None: n_processes = max(1, mpp.cpu_count()-1)
+		self.n_processes = n_processes
+		#
+		# go ahead and run the base class __init__. this basically handles lats, lons, forecast_time, and some other bits and then kicks off make_etas(), where we'll
+		#kwargs['make_etas']=False
+		self.make_etas = self.make_etas_mpp
+		#
+		# now, when we run __init__, it will build the catalog (unless one is provided). we'll build up a set of etas_rtree objects. we need to sort out how
+		# to generalize. nominally, we set up a sort of parallel-inherited class structure for mpp_in_general and mpp_specific inheritance.
+		#
+		# define the ETAS worker class:
+		self.ETAS_worker = ETAS_rtree_mpp
+		#
+		#
+		super(ETAS_mpp_handler_xyz, self).__init__(*args, **kwargs)
+	#
+	def make_etas_mpp(self):
+		#
+		#
+		cat_len = len(self.catalog)
+		##proc_len = cat_len/self.n_processes
+		#proc_len = (self.etas_cat_range[1]-self.etas_cat_range[0])/self.n_processes
+		#
+		xyz_len = self.n_lat*self.n_lon/self.n_processes
+		#
+		# first, gather a bunch of rtree processes.
+		#
+		etas_workers = []
+		etas_pipes   = []
+		prams = self.etas_kwargs.copy()
+		prams['etas_cat_range']=None
+		prams['catalog']=self.catalog		# .copy() ??
+		for j in range(self.n_processes):
+			pipe_r, pipe_s = mpp.Pipe()
+			prams['etas_xyz_range'] = [int(j*xyz_len), int((j+1)*xyz_len)]		# (sort out these indices to be sure we always get the whole catalog...)
+			print('etas_mpp worker xyz_range: ', prams['etas_xyz_range'])
+			prams['pipe_r'] = pipe_r
+			etas_pipes += [pipe_s]
+			#
+			etas_workers += [self.ETAS_worker(**prams)]
+		#
+		# now, go through the list again and start each intance (this can probably be done when they're instantiated):
+		for j,p in enumerate(etas_workers):
+			p.start()
+			#etas_workers[j].start()
+			#
+		#
+		# and join() them? do we need to join if we're doing send()-recv()? (see vq code for examples):
+		# in fact, i think we don't need this, and be careful with the join() syntax (see notes in vq_analyzer code).
+
+		# now, processes are finished; they return ETAS_array[] like [[x,y,z]]... ETAS_array should be initiated. we can aggregate them by index, but they should all
+		# have the same indexing (they should all be a complete set of lats, lons. so we should check for that here... and i think actually we should have an empty copy
+		# from __init__(), but for now, just add them row by row (maybe sort first). in later versions (maybe this one??) all processes will write directly to an mpp.Array()
+		# shared memory object.
+		#
+		self.ETAS_array = []
+		#self.arys = []
+		#
+		print('now gather sub-arrays...')
+		for j,(etas,pp) in enumerate(zip(etas_workers, etas_pipes)):
+			ary = pp.recv()
+			#self.arys += [ary]
+			#for k,rw in enumerate(ary): self.ETAS_array['z'][k]+=rw['z']
+			self.ETAS_array += list(ary)
+			pp.close()
+		#
+		self.ETAS_array.sort(key=lambda rw: (rw[1],rw[0]))
+		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
+		
+		# still not sure if we need this...
+		for j,p in enumerate(etas_workers):
+			p.join()
 		#
 		del etas_workers			
 
