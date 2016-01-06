@@ -232,7 +232,7 @@ class Global_ETAS_model(object):
 		X.shape=(len(self.latses), len(self.lonses))
 		return X
 	#
-	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl'):
+	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl'):
 		'''
 		# plot contours over a map.
 		'''
@@ -241,8 +241,7 @@ class Global_ETAS_model(object):
 		#etas_contours = self.calc_etas_contours(n_contours=n_contours, fignum=fignum, contour_fig_file=contour_fig_file, contour_kml_file=contour_kml_file, kml_contours_bottom=kml_contours_bottom, kml_contours_top=kml_contours_top, alpha_kml=alpha_kml, refresh_etas=refresh_etas)
 		#
 		# now, clear away the figure and set up the basemap...
-		n_contours = (n_contours or self.n_contours)
-		
+		#		
 		plt.figure(fignum, fig_size)
 		plt.clf()
 		#
@@ -263,6 +262,11 @@ class Global_ETAS_model(object):
 		cm.drawmeridians(range(int(lons[0]), int(lons[1])), color='k', labels=[0,0,1,1])
 		cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
 		#
+		return cm
+	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='spectral'):
+		n_contours = (n_contours or self.n_contours)
+		#
+		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
 		X,Y = cm(numpy.array(self.lonses), numpy.array(self.latses))
 		#print("xylen: ", len(X), len(Y))
 		
@@ -271,13 +275,29 @@ class Global_ETAS_model(object):
 		#self.etas_contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), n_contours)
 		#plt.colorbar()
 		
-		etas_contours = plt.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=.4)
+		etas_contours = plt.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=alpha)
 		plt.colorbar()
 		#
 		self.cm=cm
 		#
 		return cm
 		#
+	#
+	def make_etas_boxy_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='spectral'):
+		#
+		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
+		c_map = plt.get_cmap(map_cmap)
+		zs = numpy.log10(self.ETAS_array['z'])
+		cNorm = mpl.colors.Normalize(vmin=min(zs), vmax=max(zs))
+		scalarMap = mpl.cm.ScalarMappable(norm=cNorm, cmap=c_map)
+		#
+		for rw in self.ETAS_array:
+			plt.fill_between(x=[rw['x']-self.d_lon/2., rw['x']+self.d_lon/2.], y1=[rw['y']-.5*self.d_lat, rw['y']-.5*self.d_lat], y2=[rw['y']+.5*self.d_lat, rw['y']+.5*self.d_lat], color=scalarMap.to_rgba(numpy.log10(rw['z'])))
+		#plt.colorbar()		# not sure how to make this work for non-contour plot...
+		#
+		return cm
+		#
+		
 	#
 	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.

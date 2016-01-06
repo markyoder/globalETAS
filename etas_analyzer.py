@@ -69,7 +69,8 @@ def get_nepal_etas_fc():
 	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':True, 'n_contours':15})
 	#nepal_etas_fc = gep.ETAS_rtree(**np_prams)
 	#
-	return gep.ETAS_rtree(**np_prams)
+	#return gep.ETAS_rtree(**np_prams)
+	return gep.ETAS_mpp_handler_xyz(**np_prams)
 
 def get_nepal_etas_test(**pram_updates):
 	# pram_updates: any earthquake parameters (aka, np_prams) we might want to specify, like "q"...
@@ -89,7 +90,8 @@ def get_nepal_etas_test(**pram_updates):
 	# the initial rate calculation (which is done in the catalog construction bits) ). for now, create the ETAS object; then spin through the catalog and set p=0 for all the earthquakes.
 	# remember also that etas.catalog is a recarray, not an array of Earthquake objects.
 	#
-	etas = gep.ETAS_rtree(**np_prams_test)
+	#etas = gep.ETAS_rtree(**np_prams_test)
+	etas = gep.ETAS_mpp_handler_xyz(**np_prams_test)
 	for j,eq in enumerate(etas.catalog):
 		etas.catalog['p'][j] = 0.0
 		# ... and sort of a sloppy way to do this as well...
@@ -330,7 +332,36 @@ def nepal_roc_normal_script(fignum=0):
 		
 	
 	#
-def etas_roc_geospatial_set(etas_fc=None, etas_test=None, do_log=True, q_test_min=1.1, q_test_max=2.0, dq=.1):
+def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=2.5, q_test_min=1.1, q_test_max=2.5, do_log=True, dq_fc=.1, dq_test=.1, fignum=0):
+	#
+	#if etas_fc==None: 
+	etas_fc=get_nepal_etas_fc()
+	#if etas_test==None: 
+	etas_test = get_nepal_etas_test() #... and we don't really need to calc eatas here, so later on maybe clean this up.
+	
+	FH=[]
+	#
+	for q_fc in numpy.arange(q_fc_min, q_fc_max, dq_fc):
+		for j,rw in enumerate(etas_fc.catalog): etas_fc.catalog['q'][j] = q_fc
+		etas_fc.make_etas()
+		#
+		fh = etas_roc_geospatial_set(etas_fc=etas_fc, etas_test=etas_test, q_test_min=q_test_min, q_test_max=q_test_max, do_log=do_log, dq=dq_test, fignum=None)
+		for rw in fh: FH += [[q_fc] + rw]
+	#
+	plt.figure(fignum)
+	plt.clf()
+	plt.plot([rw[2] for rw in FH], [rw[3] for rw in FH], 'o')
+	#
+	with open('roc_geospatial.csv', 'w') as fout:
+		fout.write('#roc output.\n#q_fc\tq_test\tF\tH\n')
+		for rw in FH:
+			fout.write('%s\n' % '\t'.join([str(x) for x in rw]))
+			#
+		#
+	#
+	return FH
+#
+def etas_roc_geospatial_set(etas_fc=None, etas_test=None, do_log=True, q_test_min=1.1, q_test_max=2.0, dq=.1, fignum=0):
 	# compare ETAS for a bunch of different q. right now this is just the "test" q. we'll probably want to vary the forecast as well, but of course taht will be expensive.
 	if etas_fc==None: etas_fc=get_nepal_etas_fc()
 	if etas_test==None: etas_test = get_nepal_etas_test() #... and we don't really need to calc eatas here, so later on maybe clean this up.
@@ -341,12 +372,80 @@ def etas_roc_geospatial_set(etas_fc=None, etas_test=None, do_log=True, q_test_mi
 		for j,rw in enumerate(etas_test.catalog): etas_test.catalog['q'][j]=q
 		etas_test.make_etas()
 		
-		FH += [analyze_etas_roc_geospatial(etas_fc=etas_fc, etas_test=etas_test, do_log=do_log)]
+		FH += [[q] + list(analyze_etas_roc_geospatial(etas_fc=etas_fc, etas_test=etas_test, do_log=do_log))]
 	#
+	if fignum != None:
+		plt.figure(fignum)
+		plt.plot([rw[0] for rw in FH], [rw[2]-rw[1] for rw in FH], 'bo-', lw=2.5)
+		plt.xlabel('Test catalog scaling exponent $q_{test}$', size=18)
+		plt.ylabel('Skill, $H-F$', size=18)
+		#
+		plt.figure(fignum+1)
+		plt.plot([rw[1] for rw in FH], [rw[2] for rw in FH], 'bo-', lw=2.5)
+		plt.plot(range(2), range(2), 'r--', lw=3., alpha=.8)
+		plt.plot([0., 0.], [0.,1.], 'k-', lw=2)
+		plt.plot([0.,1.], [0.,0.], 'k-', lw=2)
+		plt.xlabel('False Alarm Rate $F$', size=18)
+		plt.ylabel('Hit Rate $H$', size=18)
+		#
 	return FH
-		
-	
-
+#		
+#
+def roc_plots_from_gsroc(FH, fignum=0):
+	if len(FH[0])==4: cols = {key:val for key,val in zip(['q_fc', 'q_t', 'F', 'H'], range(4))}
+	if len(FH[0])==3: cols = {key:val for key,val in zip(['q_t', 'F', 'H'], range(3))}
+	#
+	skl = [rw[-1]-rw[-2] for rw in FH]
+	#
+	fg=plt.figure(fignum)
+	plt.clf()
+	lft=.05
+	btm=.05
+	dx=.4
+	dy=.4
+	ax_ll = fg.add_axes([lft, btm, dx, dy])
+	ax_lr = fg.add_axes([lft+dx + .05, btm, dx, dy])
+	ax_ul = fg.add_axes([lft, btm+dy + .05, dx, dy])
+	ax_ur = fg.add_axes([lft+dx + .05, btm+dy+.05,dx,dy])
+	#
+	ax_ll.plot([x[cols['F']] for x in FH], [x[cols['H']] for x in FH], 'o', lw=2.)
+	ax_ll.plot([FH[0][cols['F']]], [FH[0][cols['H']]], 'rd', lw=2.)
+	ax_ll.plot([FH[-1][cols['F']]], [FH[-1][cols['H']]], 'cs', lw=2.)
+	ax_ll.plot(range(2),range(2), 'r--', lw=3, alpha=.8)
+	ax_ll.set_xlabel('False Alarm Rate $F$')
+	ax_ll.set_ylabel('Hit Rate $H$')
+	ax_ll.set_title('ROC')
+	#
+	ax_lr.plot(skl, 'o-')
+	ax_lr.plot([0], [skl[0]], 'rd')
+	ax_lr.plot([len(skl)-1], [skl[-1]], 'cs')
+	ax_lr.set_ylabel('Skill Score, $H-F$')
+	ax_lr.set_xlabel('$q_{fc}, q_{test}$')
+	ax_lr.set_title('Skill Score')
+	#
+	if len(FH[0])==4:
+		# contour:
+		X = sorted(list(set([x[cols['q_fc']] for x in FH])))
+		Y = sorted(list(set([x[cols['q_t']] for x in FH])))
+		#
+		zs = numpy.array([x[cols['H']]-x[cols['F']] for x in FH])
+		zs.shape=(len(X), len(Y))
+		#
+		#ax_ul.contourf(X,Y,zs, 15, alpha=.75)
+		ax_ul.contourf(Y,X,zs,15,alpha=.75)
+		#
+		ax_ul.set_ylabel('$q_{fc}$')
+		ax_ul.set_xlabel('$q_{test}$')
+	#
+	# best skill:
+	best_skill = max(skl)
+	for rw in FH:
+		if rw[-1]-rw[-2]==best_skill: print("best skill: ", rw)
+	#besk_skill = [rw for rw in skl if skl[-1]==best_skill][0]
+	#print('Best Skill: ', best_skill)
+	#	
+#
+#def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=False):
 def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
 	#
 	if etas_fc   == None: etas_fc   = get_nepal_etas_fc()
@@ -377,6 +476,10 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
 	#
 	z1 = z_fc_norm
 	z2 = z_test_norm
+	#
+	return roc_from_z1_z2(z1,z2)
+#
+def roc_from_z1_z2(z1, z2):
 	# [z1, z2, diff, h, m, f(predicted, didn't happen)
 	#diffs = [[z1, z2, z1-z2, max(z1, z2), -min(z1-z2,0.), max(z1-z2,0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)] 
 	# hits: accurately predicted; min(z1,z2)
@@ -386,6 +489,7 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
 	diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
 	diffs_lbls = ['z_fc', 'z_test', 'z1-z2', 'hits: min(z1,z2)','misses:min(z2-z1,0)', 'falsie: min(z1-z2,0)']
 	#
+
 	# to plot contours, we'll want to use the shape from: etas.lattice_sites.shape
 	#
 	sh1 = etas_fc.lattice_sites.shape
@@ -417,9 +521,20 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
 	#fgz = plt.contourf(lon_vals, lat_vals, numpy.log10(gzintas), 15)
 	#plt.title('z_fc/z_cat')
 	#plt.colorbar()
-	
+	#
+	#if diagnostic:
+	#	return [diffs_lbls] + diffs
+	#else:
+	#	return F,H
 	return F,H
-
+	#
+#
+def roc_gs_linear_figs(diffs):
+	# test the roc_gs bit. basically, take two xyz arrays, do the gs_roc thing;
+	# plot out the various arrays like time-series. show the various H,F, etc. in time series.
+	pass
+	
+#
 def plot_mainshock_and_aftershocks(etas, m0=6.0, mainshock=None, fignum=0):
 	
 	map_etas = etas.make_etas_contour_map(n_contours=25, fignum=fignum)
