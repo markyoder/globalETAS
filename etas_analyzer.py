@@ -445,8 +445,8 @@ def roc_plots_from_gsroc(FH, fignum=0):
 	#print('Best Skill: ', best_skill)
 	#	
 #
-#def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=False):
-def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
+def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=False):
+#def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
 	#
 	if etas_fc   == None: etas_fc   = get_nepal_etas_fc()
 	if etas_test == None: etas_test = get_nepal_etas_test()
@@ -477,17 +477,19 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
 	z1 = z_fc_norm
 	z2 = z_test_norm
 	#
-	return roc_from_z1_z2(z1,z2)
-#
-def roc_from_z1_z2(z1, z2):
+	#
 	# [z1, z2, diff, h, m, f(predicted, didn't happen)
 	#diffs = [[z1, z2, z1-z2, max(z1, z2), -min(z1-z2,0.), max(z1-z2,0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)] 
 	# hits: accurately predicted; min(z1,z2)
 	# misses: prediction deficite, or excess events: min(z2-z1,0.)
 	# falsie: excess prediction: min(z1-z2,0.)
 	# then rates: H = hits/sum(z2), F =falsies/sum(z1)
-	diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
+	#diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
+	#
+	# so we can test this properly, we'll want to move diffs offline to a function call (eventually)...
+	diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z1, z2)]
 	diffs_lbls = ['z_fc', 'z_test', 'z1-z2', 'hits: min(z1,z2)','misses:min(z2-z1,0)', 'falsie: min(z1-z2,0)']
+	diffs_lbl_basic = ['z_fc', 'z_test', 'z1-z2', 'hits','misses', 'falsie']
 	#
 
 	# to plot contours, we'll want to use the shape from: etas.lattice_sites.shape
@@ -522,17 +524,39 @@ def roc_from_z1_z2(z1, z2):
 	#plt.title('z_fc/z_cat')
 	#plt.colorbar()
 	#
-	#if diagnostic:
-	#	return [diffs_lbls] + diffs
-	#else:
-	#	return F,H
-	return F,H
+	if diagnostic:
+		return [diffs_lbls] + diffs
+	else:
+		return F,H
+	#return F,H
 	#
 #
-def roc_gs_linear_figs(diffs):
+def roc_gs_linear_figs(diffs, fignum=0):
 	# test the roc_gs bit. basically, take two xyz arrays, do the gs_roc thing;
 	# plot out the various arrays like time-series. show the various H,F, etc. in time series.
-	pass
+	#pass
+	cols = diffs[0]
+	diffs = diffs[1:]
+	print('cols: ', cols)
+	#
+	diffs = numpy.core.records.fromarrays(zip(*diffs),  names=cols, formats=['float' for c in cols])
+	#
+	f = plt.figure(fignum)
+	plt.clf()
+	ax0 = f.add_axes([.1,.1,.4,.4])
+	ax1 = f.add_axes([.1,.5,.4,.4], sharex=ax0)
+	ax2 = f.add_axes([.55,.1,.4,.4])
+	ax3 = f.add_axes([.55,.55, .4,.4])
+	#
+	X=numpy.arange(len(diffs))
+	#
+	ax0.plot(X, diffs['z_fc'], '-', lw=2.)
+	ax0.plot(X, diffs['z_test'], '-', lw=2.)
+	ax0.fill_between(X, y1=numpy.zeros(len(diffs['z_fc'])), y2=diffs['hits'], color='c', alpha=.25)
+	ax0.fill_between(X, y1=diffs['z_test'], y2=diffs['z_fc'], color='r', alpha=.25)
+	
+	ax1.plot(X, diffs['falsie'], 'r-', lw=2., alpha=.8)
+	ax1.plot(X, diffs['misses'], 'b-', lw=2., alpha=.8)
 	
 #
 def plot_mainshock_and_aftershocks(etas, m0=6.0, mainshock=None, fignum=0):
