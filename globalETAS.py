@@ -677,6 +677,9 @@ class ETAS_mpp_handler(Global_ETAS_model):
 #
 class ETAS_mpp_handler_xyz(Global_ETAS_model):
 	# a sub/container class to manage and collect results from a bunch of mpp_etas instances.
+	# this is a semi-memory friendly version in which the forecast lattice is divided amongst the processes,
+	# as opposed to ETAS_mpp_handler() in which the catalog is split up, which uses a lot of memory (and probably lots
+	# of time piping results) for large maps.
 
 	def __init__(self, n_processes=None, *args, **kwargs):
 		#self.make_etas = self.make_etas_rtree

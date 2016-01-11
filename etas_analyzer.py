@@ -131,13 +131,30 @@ class  Toy_etas_invr(Toy_etas):
 #
 class Toy_etas_random(Toy_etas):
 	def __init__(self, *args, **kwargs):
-		super(Toy_etas_random, self).__init__(*args, **kwargs)
+		super(Toy_etas_random, self).__init__(None,*args, **kwargs)
 		R=random.Random()
 		for j,rw in enumerate(self.ETAS_array):
 			self.ETAS_array['z'][j] = R.random()
 		#
 		self.normalize()
-
+#class Toy_etas_fromxyz(Toy_etas):
+class Toy_etas_fromxyz(object):
+	# maybe inherit from Toy_etas later...
+	# (still needs testing and development)
+	def __init__(self, fname='global_map_20151129.xyz', *args, **kwargs):
+		#super(Toy_etas_fromxyz, self).__init__(*args, **kwargs)
+		#self.ETAS_array=[]
+		with open(fname,'r') as f:
+			self.ETAS_array = [[float(x) for x in rw] for rw in f if rw[0]!='#']
+		#
+		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), names=('x', 'y', 'z'), formats = ('double', 'double', 'double'))
+		#
+		self.lons = [min(self.ETAS_array['x']), max(self.ETAS_array['x'])]
+		self.lats = [min(self.ETAS_array['y']), max(self.ETAS_array['y'])]
+		#
+		#
+	#
+		
 	#
 '''	
 def toy_etas(ETAS_array=None, lats=None, lons=None, l_lon=.1, d_lat=.1, epicenter=None, mc=None):
@@ -191,12 +208,290 @@ def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=
 	plt.draw()
 	#
 	return FHs
-	
 
-def roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=5.0, fignum=0, do_clf=True):
+#
+class ROC_base(object):
+	# a base class object for MPP ROC stuff. we'll inherit this for both the worker and handerl mpp classes.
 	#
-	if to_dt==None:
+	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
+		#
+		if isinstance(fc_xyz, str):
+			# if we're given a filename...
+			with open(fc_xyz, 'r') as froc:
+				fc_xyz= [[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]
+		#
+		if to_dt == None:
+			to_dt = dtm.datetime.now(pytz.timezone('UTC'))
+		if from_dt == None or from_dt>to_dt:
+			from_dt = to_dt - dtm.timedelta(days=cat_len)
+	
+			#
+		#
+		#return fc_xyz
+		if not hasattr(fc_xyz, 'dtype'):
+			fc_xyz = numpy.core.records.fromarrays(zip(*fc_xyz), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
+		#
+		lats = [min(fc_xyz['y']), max(fc_xyz['y'])]
+		lons = [min(fc_xyz['x']), max(fc_xyz['x'])]
+		#
+		#mc   = mc_roc
+		X_set = list(set(fc_xyz['x']))
+		Y_set = list(set(fc_xyz['y'])) 
+		d_lon = (dx or abs(X_set[1] - X_set[0]))
+		d_lat = (dy or abs(Y_set[1] - Y_set[0]))
+		nx = len(X_set)
+		ny = len(Y_set)
+		#
+		# (for this application, we can also just get nasty and to a loop-loop with geodetic distancing).
+		# (maybe ought to set this as a regular class function?)
+		get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
+		#
+		
+		print("get cataog: ", lons, lats, mc, from_dt, to_dt)
+		if test_catalog==None: test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[from_dt, to_dt])
+		print("catlen: ", len(test_catalog))
+		#
+		# note: this will reduce the number of z values a bit, but what we really need to do is bin them into N bins... or maybe
+		# we do explicitly want to remove each site, one at a time to get a proper ROC...
+		#Zs = list(set(sorted(list(fc_xyz['z'].copy()))))
+		Zs = sorted(list(fc_xyz['z'].copy()))
+		ROCs = [[0,0,0,0]]
+		# nominally, we'd make a copy of the whole catalog, but for memory conservation, just index the lsit.
+		#eq_ks = [[get_site(eq['lon'], eq['lat']), eq] for eq in test_catalog]
+		eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
+		#
+		# basic bits and pieces established. now, handler class will allocate sub-sets of Zs to workers; workers will aggregate roc.
+		#
+	#
+	def calc_ROCs(self):
+		#for j_z, z0 in enumerate(Zs['z']):
+		ROCs = [[0,0,0,0]]
+		for j_z, z0 in enumerate(Zs):
+			# z0 is the threshold z for predicted=True/False
+			#
+			for j_eq, eq in enumerate(test_catalog):
+				# TODO: and parse it up for MPP.
+				#k = get_site(eq['lon'], eq['lat'])
+				k = eq_site_indices[j_eq]
+				#print('site: ', k)
+				z_val = fc_xyz['z'][k]
+				#
+				if z_val>=z0:
+					# predicted!
+					ROCs[-1][0]+=1
+					#
+					# ... and subtract from falsies; in the end, we'll assume all sites>z were false alarms:
+					ROCs[-1][1]-=1
+				else:
+					# missed it
+					ROCs[-1][2]+=1
+					ROCs[-1][3]-=1		# an earthquake occurred in this site. it did not correctly predict non-occurrence.
+				#
+			n_gt = float(len([z for z in fc_xyz['z'] if z>=z0]))
+			n_lt = float(len([z for z in fc_xyz['z'] if z<z0]))
+			#
+			ROCs[-1][1]+=n_gt
+			ROCs[-1][3]+=n_lt
+			#
+			ROCs += [[0,0,0,0]]
+		#
+		self.ROCs=ROCs
+		#
+		# return ROCs
+	#
+	def calc_HF(self):
+		self.calc_ROCs()
+		#
+		#Hs2=[]
+		#Fs2=[]
+		# note: this migh make a nice practice problem for mpp.Array() ....
+		HF = [[float(rw[0])/float(len(test_catalog)), roc[1]/float(len(fc_xyz))] for rw in ROCs[:-1]]
+		#
+		self.HF = HF
+		#for roc in ROCs[:-1]:
+		#	roc=[float(x) for x in roc]
+		#	#
+		#	Hs += [roc[0]/float(len(test_catalog))]
+		#	Fs += [roc[1]/float(len(fc_xyz))]
+	#
+	def plot_HF(self, fignum=0):
+		plt.figure(fignum)
+		if do_clf: plt.clf()
+		#plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
+		plt.plot(*zip(*self.HF), ls='-', label='ROC_approx.', lw=2., alpha=.8)
+		#plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
+		plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
+
+
+#
+class ROC_mpp_handler(ROC_base):
+	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, n_procs=None):
+		super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key!='self'})
+		#
+		if n_procs==None: n_procs = min(1, mpp.cpu_count()-1)
+		#
+		
+	#
+class ROC_worker(ROC_base):
+	# worker class for ROC calculations.
+	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
+		super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key!='self'})
+		pass	
+
+
+	
+#
+def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, fignum=0, do_clf=True):
+	#
+	# roc from an xyz forecast input. eventually, convolve this with roc_normal() which takes etas_fc, an etas type, object as an input.
+	# dx, dy are grid-sizes in the x,y direction. if none, we'll figure them out.
+	#
+	if isinstance(fc_xyz, str):
+		# if we're given a filename...
+		with open(fc_xyz, 'r') as froc:
+			fc_xyz= [[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]
+	#
+	if to_dt == None:
+		to_dt = dtm.datetime.now(pytz.timezone('UTC'))
+	if from_dt == None or from_dt>to_dt:
+		from_dt = to_dt - dtm.timedelta(days=cat_len)
+	
+		#
+	#
+	#return fc_xyz
+	if not hasattr(fc_xyz, 'dtype'):
+		fc_xyz = numpy.core.records.fromarrays(zip(*fc_xyz), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
+	#
+	lats = [min(fc_xyz['y']), max(fc_xyz['y'])]
+	lons = [min(fc_xyz['x']), max(fc_xyz['x'])]
+	#
+	#mc   = mc_roc
+	X_set = list(set(fc_xyz['x']))
+	Y_set = list(set(fc_xyz['y'])) 
+	dx = (dx or abs(X_set[1] - X_set[0]))
+	dy = (dy or abs(Y_set[1] - Y_set[0]))
+	#
+		
+	print("get cataog: ", lons, lats, mc, from_dt, to_dt)
+	if test_catalog==None: test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[from_dt, to_dt])
+	print("catlen: ", len(test_catalog))
+	#
+	# note: this will reduce the number of z values a bit, but what we really need to do is bin them into N bins... or maybe
+	# we do explicitly want to remove each site, one at a time to get a proper ROC...
+	#Zs = list(set(sorted(list(fc_xyz['z'].copy()))))
+	Zs = sorted(list(fc_xyz['z'].copy()))
+	#Zs.sort(order='z')
+	#
+	d_lat = dy
+	d_lon = dx
+	nx = len(X_set)
+	ny = len(Y_set)
+	#
+	# (for this application, we can also just get nasty and to a loop-loop with geodetic distancing).
+	get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
+	#
+	'''
+	#test:
+	print('testing get_site:')
+	Rx = random.Random()
+	Ry = random.Random()
+	for k in range(10):
+		x = lons[0] + Rx.random()*(lons[1]-lons[0])
+		y = lats[0] + Ry.random()*(lats[1]-lats[0])
+		#
+		j_lattice = get_site(x,y)
+		print("for %f, %f: " % (x,y), etas_fc.ETAS_array[j_lattice])
+	#
+	'''
+	#
+	'''
+	# hits (observed yes, forecast yes):
+	roc_A = [0]
+	# falsies (over-predict) (observed no, fc. yes)
+	roc_B = [0]
+	# misses (observed yes, fc no):
+	roc_C = [0]
+	# didn't happen (observed no, fc no):
+	roc_D = [0]
+	'''
+	#
+	ROCs = [[0,0,0,0]]
+	# nominally, we'd make a copy of the whole catalog, but for memory conservation, just index the lsit.
+	#eq_ks = [[get_site(eq['lon'], eq['lat']), eq] for eq in test_catalog]
+	eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
+	#print("eZs: ", etas_fc.ETAS_array['z'][0:10], len(etas_fc.ETAS_array['z']))
+	#
+	# (and here, we really need to figure out how to MPP this).
+	#for j_z, z0 in enumerate(Zs['z']):
+	for j_z, z0 in enumerate(Zs):
+		# z0 is the threshold z for predicted=True/False
+		#
+		for j_eq, eq in enumerate(test_catalog):
+			# TODO: and parse it up for MPP.
+			#k = get_site(eq['lon'], eq['lat'])
+			k = eq_site_indices[j_eq]
+			#print('site: ', k)
+			z_val = fc_xyz['z'][k]
+			#
+			if z_val>=z0:
+				# predicted!
+				ROCs[-1][0]+=1
+				#
+				# ... and subtract from falsies; in the end, we'll assume all sites>z were false alarms:
+				ROCs[-1][1]-=1
+			else:
+				# missed it
+				ROCs[-1][2]+=1
+				ROCs[-1][3]-=1		# an earthquake occurred in this site. it did not correctly predict non-occurrence.
+			#
+		n_gt = float(len([z for z in fc_xyz['z'] if z>=z0]))
+		n_lt = float(len([z for z in fc_xyz['z'] if z<z0]))
+		#
+		ROCs[-1][1]+=n_gt
+		ROCs[-1][3]+=n_lt
+		#
+		ROCs += [[0,0,0,0]]
+	#
+	
+	Hs=[]
+	Fs=[]
+	
+	Hs2=[]
+	Fs2=[]
+	# note: this migh make a nice practice problem for mpp.Array() ....
+	for roc in ROCs[:-1]:
+		#try:
+		if True:
+			roc=[float(x) for x in roc]
+			#h=float(len(etas_fc.ETAS_array))
+			#f=roc[1]/float(len(etas_fc.ETAS_array))
+			#
+			Hs += [roc[0]/float(len(test_catalog))]
+			Fs += [roc[1]/float(len(fc_xyz))]
+			#
+			## diagnostic formulation:
+			#Hs2 += [roc[0]/(roc[0]+roc[2])]
+			#Fs2 += [roc[1]/(roc[1]+roc[3])]
+			
+		#except:
+		#	print('ROC error, probably div/0: ', roc, len(test_catalog), len(etas_fc.ETAS_array), roc[0]/float(len(test_catalog)), roc[1]/float(float(len(etas_fc.ETAS_array))) )
+		#	
+	#
+	if fignum!=None:
+		plt.figure(fignum)
+		if do_clf: plt.clf()
+		plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
+		#plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
+		plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
+	#
+	return list(zip(Fs,Hs))
+#	
+#
+def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120., mc_roc=5.0, fignum=0, do_clf=True):
+	#
+	if from_dt==None:
 		from_dt=max([dt.tolist() for dt in etas_fc.catalog['event_date']])
+	if to_dt==None:
 		to_dt = from_dt + dtm.timedelta(days=cat_len)
 		#
 	#
@@ -531,6 +826,11 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	#return F,H
 	#
 #
+def nepal_linear_roc():
+	# production figure script (almost... just script ranges).
+	diffs = analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=True)
+	AA=eap.roc_gs_linear_figs(diffs)
+#
 def roc_gs_linear_figs(diffs, fignum=0):
 	# test the roc_gs bit. basically, take two xyz arrays, do the gs_roc thing;
 	# plot out the various arrays like time-series. show the various H,F, etc. in time series.
@@ -544,19 +844,43 @@ def roc_gs_linear_figs(diffs, fignum=0):
 	f = plt.figure(fignum)
 	plt.clf()
 	ax0 = f.add_axes([.1,.1,.4,.4])
-	ax1 = f.add_axes([.1,.5,.4,.4], sharex=ax0)
-	ax2 = f.add_axes([.55,.1,.4,.4])
-	ax3 = f.add_axes([.55,.55, .4,.4])
+	ax1 = f.add_axes([.1,.55,.4,.4], sharex=ax0)
+	ax2 = f.add_axes([.55,.1,.4,.4], sharex=ax0, sharey=ax1)
+	ax3 = f.add_axes([.55,.55, .4,.4], sharex=ax0, sharey=ax1)
+	#
+	plt.figure(fignum+1)
+	plt.clf()
+	ax_main=plt.gca()
+	
 	#
 	X=numpy.arange(len(diffs))
 	#
-	ax0.plot(X, diffs['z_fc'], '-', lw=2.)
-	ax0.plot(X, diffs['z_test'], '-', lw=2.)
-	ax0.fill_between(X, y1=numpy.zeros(len(diffs['z_fc'])), y2=diffs['hits'], color='c', alpha=.25)
-	ax0.fill_between(X, y1=diffs['z_test'], y2=diffs['z_fc'], color='r', alpha=.25)
+	for ax in (ax0, ax_main):
+		ax.plot(X, diffs['z_fc'], '-', lw=3., label='forecast')
+		ax.plot(X, diffs['z_test'], '-', lw=3., label='test')
+		ax.fill_between(X, y1=numpy.zeros(len(diffs['z_fc'])), y2=diffs['hits'], color='c', alpha=.25)
+		ax.fill_between(X, y1=diffs['z_test'], y2=diffs['z_fc'], where=[True if zfc<ztest else False for zfc,ztest in zip(diffs['z_fc'],diffs['z_test'])], label='misses', color='r', alpha=.8)
+		ax.fill_between(X, y1=diffs['z_test'], y2=diffs['z_fc'], where=[True if zfc>ztest else False for zfc,ztest in zip(diffs['z_fc'],diffs['z_test'])], label='falsies', color='m', alpha=.25)
+		ax.legend(loc=0, numpoints=1)
+		ax.set_title('Hits, False Alarms, Misses')
 	
-	ax1.plot(X, diffs['falsie'], 'r-', lw=2., alpha=.8)
-	ax1.plot(X, diffs['misses'], 'b-', lw=2., alpha=.8)
+	ax1.plot(X, diffs['hits'], 'm-',   lw=2., alpha=.8, label='hits')
+	ax1.plot(X, diffs['falsie'], 'r-', lw=2., alpha=.8, label='falsies')
+	ax1.plot(X, diffs['misses'], 'b-', lw=2., alpha=.8, label='misses')
+	ax1.legend(loc=0, numpoints=1)
+	ax1.set_title('Hit, falsies, misses')
+	#
+	ax2.plot(X, diffs['z_fc'], '-', lw=2., label='forecast')
+	ax2.plot(X, diffs['z_test'], '-', lw=2., label='test')
+	ax2.fill_between(X, y1=diffs['z_fc'],y2=diffs['z_test'], where=[True if zfc>ztest else False for zfc,ztest in zip(diffs['z_fc'],diffs['z_test'])], label='falsies', color='b')
+	ax2.set_title('False Alarms')
+	ax2.legend(loc=0, numpoints=1)
+	#
+	ax3.plot(X, diffs['z_fc'], '-', lw=2., label='forecast')
+	ax3.plot(X, diffs['z_test'], '-', lw=2., label='test')
+	ax3.fill_between(X, y1=diffs['z_fc'],y2=diffs['z_test'], where=[True if zfc<ztest else False for zfc,ztest in zip(diffs['z_fc'],diffs['z_test'])], label='misses', color='r')
+	ax3.set_title('Misses')
+	ax3.legend(loc=0, numpoints=1)
 	
 #
 def plot_mainshock_and_aftershocks(etas, m0=6.0, mainshock=None, fignum=0):
