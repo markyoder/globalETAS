@@ -38,7 +38,7 @@ import numpy
 import scipy
 import itertools
 #import scipy.optimize as spo
-#import os
+import sys
 #from PIL import Image as ipp
 import multiprocessing as mpp
 #
@@ -59,7 +59,10 @@ import contours2kml
 #
 import rtree
 from rtree import index
-
+#
+# python3 vs python2 issues:
+if sys.version_info.major >= 3:
+	xrange = range 
 #
 days2secs = 60.*60.*24.
 year2secs = 60.*60.*24.*365.
