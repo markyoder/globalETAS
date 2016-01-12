@@ -156,15 +156,19 @@ class Bindex2D(dict):
 		#x0,y0 = self.get_xybins(x,y,r_type='tuple')
 		bin_x = (bin_x or get_bin(x, dx=self.dx, x0=self.x0, bin_0=0))
 		bin_y = (bin_y or get_bin(y, dx=self.dy, x0=self.y0, bin_0=0))
-		#		
-		if not self.has_key(bin_x): self[bin_x]={}
-		if not self[bin_x].has_key(bin_y):
+		#
+		# think dic.has_key() was removed from/changed in pthon3. let's just addit as a helper funcion... or just recode..
+		
+		if not bin_x in self.keys(): self[bin_x]={} 
+		#if not self.has_key(bin_x): self[bin_x]={}
+		#if not self[bin_x].has_key(bin_y):
+		if not bin_y in self[bin_x].keys():
 			self[bin_x][bin_y]=self.leaf_type()
 		#
 		self[bin_x][bin_y]+=z
 		#
 		return None
-	#
+	#ss
 	def to_list(self):
 		# should probably figure out the proper way to override list conversion method(s).
 		#
@@ -217,7 +221,8 @@ class Bindex2D(dict):
 		z_col_names = ['z_%d' % j for j in xrange(max_z_len)]
 		#
 		return numpy.core.records.fromarrays(zip(*[rw[0:2] + rw[2] for rw in self.to_list()]), names = ['x', 'y'] + z_col_names, formats = ['f8', 'f8'] + [z_type.__name__ for j in z_col_names])
-		
+	def has_key(self, key):
+		return (key in self.keys())
 
 class Bindex(dict):
 	# a single, 1D bindex component. stack these together for n-D bindex objects?

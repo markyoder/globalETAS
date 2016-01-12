@@ -36,15 +36,19 @@ import math
 import random
 import numpy
 import scipy
+import scipy.optimize as spo
 import itertools
+import sys
 #import scipy.optimize as spo
 import sys
+import os
 #from PIL import Image as ipp
 import multiprocessing as mpp
 #
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.mpl as mpl
+import functools
 #
 #import shapely.geometry as sgp
 #
@@ -61,8 +65,13 @@ import rtree
 from rtree import index
 #
 # python3 vs python2 issues:
-if sys.version_info.major >= 3:
-	xrange = range 
+# a bit of version 3-2 compatibility:
+if sys.version_info.major>=3:
+	xrange=range
+from eq_params import *
+#
+# TODO: add a p_map (or p, p0 distinction) variable to distinguish the p value for calculating ETAS parameters (in catalog) and p to calculate
+# ETAS itself. this will facilitate time independent ETAS, etc., which we need to proprly evaluate geo-spatial ROC.
 #
 days2secs = 60.*60.*24.
 year2secs = 60.*60.*24.*365.
@@ -77,13 +86,14 @@ tz_utc = pytz.timezone('UTC')
 dist_calc_types_dict={}
 dist_calc_types_dict.update({key:'spherical' for key in ['sph', 'spherical', 'sphere']})
 dist_calc_types_dict.update({key:'cartesian' for key in ['cartesian', 'cart', 'xy', 'rect']})
+dist_calc_types_dict.update({key:'euclidian' for key in ['euc', 'euclidian', 'euclid']})
 #dist_calc_types_dict.update({key:'cartesian2' for key in ['cartesian2']})
 dist_calc_types_dict.update({key:'geo' for key in ['geo', 'geodesic', 'geodesiclib', 'glib', 'g_lib']})
 # and this one to return the x,y components for cartesian measurements:
 dist_calc_types_dict.update({key:'dx_dy' for key in ['dxdy', 'dx_dy']})
 #
 # Developer notes and status:
-# as of 9 oct 2015: globalETAS_model and the various subclasses (which use differend indexing) run (apprently) successfully, but the figures they turn out look a bit
+# as of 9 oct 2015: Global_ETAS_model and the various subclasses (which use differend indexing) run (apprently) successfully, but the figures they turn out look a bit
 # odd, so i'm working on diagnostic scripts (maybe i just need to run a bigger model... or maybe just one more directly comparable to some standard runs like nor/so CA.
 # see also etas_testing.py. it looks like the Earthquake() object products the correct local_intensity(), as compared to the former BASScast/ETASmf model.
 # so maybe the rates are not aggregating correctly, or maybe the indexing is screwing up something.
@@ -94,7 +104,7 @@ dist_calc_types_dict.update({key:'dx_dy' for key in ['dxdy', 'dx_dy']})
 #
 # Classes:
 
-class globalETAS_model(object):
+class Global_ETAS_model(object):
 	# guts of ETAS. this will contain a catalog, lattice sites, etc. graphical tools, plotting, etc. will likely
 	# be kept elsewhere.
 	# questions: use equal distance or equal angel bin spacing? we can nominally do a spherical->cartesian transformation like: x = lon*cos(lat)*deg2km
@@ -104,13 +114,19 @@ class globalETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=5.*365., calc_etas=True, n_contours=15):
+	def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_etas=None,**kwargs):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
 		# externally provided. otherwise, get a catalog from ANSS or OH based oon the parameters provided.
 		# note: we want to do this properly in an x-y projection, not lat-lon. our earthquakes will come back to us with lat/lon coordinates
 		# so we'll need to translate. we'll also want lat/lon as well as x/y positions for the lattice sites, so we can get even spacing and accurate distances
+		#
+		# etas_cat_range: range of catalog to do ETAS. mainly, this is to facilitate MPP processing; each process will have a full catalog of earthquakes and
+		# (nominally) a full array of etas lattice sites (though we might be able to improve upon this requirement later -- probably the best appraoch is to
+		# accept this limitation and write a make_etas() that uses an mpp.Array() object (simplified script).
+		#
+		# p_etas: use this to control p for etas calculations, separate for p calculated in catalog (aka, p to solve initial rates). use p_etas to make time-independent maps.
 		'''
 		print("begin globalETAS.__init()__")
 		# dx=1., dy=1., x0=0., y0=0., leaf_type=float)
@@ -123,9 +139,10 @@ class globalETAS_model(object):
 		# we might just want the last N days, as a consistent standard. note we might, later on, make this a bit more sophisticated
 		# by processing the full t0 -> t_now catalog, but only doing ETAS for the most recent cat_len days. BUT, to do this, we have
 		# to enforce in all the do_ETAS() functions
+		t_now = (t_now or dtm.datetime.now(pytz.timezone('UTC')))
 		if cat_len != None:
 			t0=t_now - dtm.timedelta(days=cat_len)
-			print("Overriding t0 for ETAS calculations. using t0 = t_now - catlen = %s" % t0)
+			print("Overriding t0 for ETAS calculations. using catalog start, t0 = t_now - catlen (%f) = %s" % (cat_len, t0))
 		#
 		#lats = (lats or [-89.9, 89.9])
 		#lons = (lons or [-180., 180.])
@@ -149,8 +166,16 @@ class globalETAS_model(object):
 		self.lonses = numpy.arange(lons[0], lons[1], d_lon)		# to the range().
 		self.n_lat = len(self.latses)
 		self.n_lon = len(self.lonses)
-		
+		#
+		# calculate xyz_range (for mpp applications where we split up the geo-spatial array to processes):
+		if etas_xyz_range==None: etas_xyz_range = [0,self.n_lat*self.n_lon]
+		etas_xyz_range[0] = (etas_xyz_range[0] or 0)
+		etas_xyz_range[1] = (etas_xyz_range[1] or self.n_lat*self.n_lon)
+		#
 		self.ETAS_array = numpy.array([])
+		# [etas_xyz_range[0]:etas_xyz_range[1]]
+		self.ETAS_array = numpy.array([[lon, lat, 0.] for j, (lat,lon) in enumerate(itertools.product(self.latses, self.lonses)) if (j>= etas_xyz_range[0] and j<etas_xyz_range[1])])
+		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		'''
 		self.lats=lats
 		self.lons=lons
@@ -179,9 +204,17 @@ class globalETAS_model(object):
 		#
 		if catalog==None:
 			print("fetch and process catalog.")
-			catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
+			#catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
+			catalog = make_ETAS_catalog_mpp(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
 			print("catalog fetched and processed.")
 		self.catalog = catalog
+		#
+		# set etas_cat_range as necessary:
+		if etas_cat_range==None: etas_cat_range = [0,len(catalog)]
+		etas_cat_range[0] = (etas_cat_range[0] or 0)
+		etas_cat_range[1] = (etas_cat_range[1] or len(catalog))
+		self.etas_cat_range = etas_cat_range
+		print("ETAS over etas_cat_range/xyz_range: ", (self.etas_cat_range, self.etas_xyz_range))
 		#
 		# ... and here is really where we do derived classes for different ETAS forcast objects. so for ETAS_bindex(ETAS), we do:
 		if not hasattr(self, 'make_etas'):
@@ -201,16 +234,92 @@ class globalETAS_model(object):
 		X.shape=(len(self.latses), len(self.lonses))
 		return X
 	#
-	def calc_etas_contours(self, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
+	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl'):
+		'''
+		# plot contours over a map.
+		'''
+		#
+		# first, get contours:
+		#etas_contours = self.calc_etas_contours(n_contours=n_contours, fignum=fignum, contour_fig_file=contour_fig_file, contour_kml_file=contour_kml_file, kml_contours_bottom=kml_contours_bottom, kml_contours_top=kml_contours_top, alpha_kml=alpha_kml, refresh_etas=refresh_etas)
+		#
+		# now, clear away the figure and set up the basemap...
+		#		
+		plt.figure(fignum, fig_size)
+		plt.clf()
+		#
+		lons, lats = self.lons, self.lats
+		cntr = [numpy.mean(lons), numpy.mean(lats)]
+		cm = Basemap(llcrnrlon=self.lons[0], llcrnrlat=self.lats[0], urcrnrlon=self.lons[1], urcrnrlat=self.lats[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1])
+		#
+		#cm.drawlsmask(land_color='0.8', ocean_color='b', resolution=map_resolution)
+		cm.drawcoastlines(color='gray', zorder=1)
+		cm.drawcountries(color='black', zorder=1)
+		cm.drawstates(color='black', zorder=1)
+		cm.drawrivers(color='blue', zorder=1)
+		cm.fillcontinents(color='beige', lake_color='blue', zorder=0)
+		# drawlsmask(land_color='0.8', ocean_color='w', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution='l', grid=5, **kwargs)
+		#cm.drawlsmask(land_color='0.8', ocean_color='c', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution=self.mapres, grid=5)
+		#
+		#
+		cm.drawmeridians(range(int(lons[0]), int(lons[1])), color='k', labels=[0,0,1,1])
+		cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
+		#
+		return cm
+	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='spectral'):
+		n_contours = (n_contours or self.n_contours)
+		#
+		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
+		X,Y = cm(numpy.array(self.lonses), numpy.array(self.latses))
+		#print("xylen: ", len(X), len(Y))
+		
+		#plt.figure(42)
+		#plt.clf()
+		#self.etas_contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), n_contours)
+		#plt.colorbar()
+		
+		etas_contours = plt.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=alpha)
+		plt.colorbar()
+		#
+		self.cm=cm
+		#
+		return cm
+		#
+	#
+	def make_etas_boxy_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='spectral'):
+		#
+		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
+		c_map = plt.get_cmap(map_cmap)
+		zs = numpy.log10(self.ETAS_array['z'])
+		cNorm = mpl.colors.Normalize(vmin=min(zs), vmax=max(zs))
+		scalarMap = mpl.cm.ScalarMappable(norm=cNorm, cmap=c_map)
+		#
+		for rw in self.ETAS_array:
+			plt.fill_between(x=[rw['x']-self.d_lon/2., rw['x']+self.d_lon/2.], y1=[rw['y']-.5*self.d_lat, rw['y']-.5*self.d_lat], y2=[rw['y']+.5*self.d_lat, rw['y']+.5*self.d_lat], color=scalarMap.to_rgba(numpy.log10(rw['z'])))
+		#plt.colorbar()		# not sure how to make this work for non-contour plot...
+		#
+		return cm
+		#
+		
+	#
+	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
+		#
+		n_contours = (n_contours or self.n_contours)
 		#
 		if refresh_etas or ('ETAS_array' not in self.__dict__.keys()):
 			self.make_etas()
 		#
+		plt.figure(fignum)
 		plt.clf()
-		self.etas_contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), self.n_contours)
 		#
-		if contour_fig_file!=None: plt.savefig(contour_fig_file)
+		self.etas_contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), n_contours)
+		plt.colorbar()
+		#
+		if contour_fig_file!=None:
+			p_name, f_name = os.path.split(contour_fig_file)
+			if not os.path.isdir(p_name): os.makedirs(p_name)
+			plt.savefig(contour_fig_file)
+			#
 		if contour_kml_file!=None:
 			# make kml and write to file like:
 			# kml_str = kml_from_contours(cset=contours, colorbarname='napa_colorbar.png', open_file=True, close_file=True, contour_labels=None, top=top, bottom=bottom, fname_out=fname_out, alpha_kml=alpha_kml)
@@ -220,9 +329,14 @@ class globalETAS_model(object):
 			# use the built in file-writer, since i think we need/want to also include the colorbar...
 			#
 			self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=contour_kml_file)
-			pass
-		
-		
+			p_name, f_name = os.path.split(contour_kml_file)
+			if not os.path.isdir(p_name): os.makedirs(p_name)
+			with open(contour_kml_file, 'w') as f_kml:
+				f_kml.write(self.contours_kml_str)
+			#pass
+			#
+		return self.etas_contours
+	#
 	def make_etas_rtree(self):
 		# use the same basic framework as etas_all (aka, instantiate a lattice), but map an rtree index to the lattice, then use a delta_lat, delta_lon
 		# approach (like etas_bindex) bit loop only over the rtree.intersection() of the delta_lat/lon window.
@@ -236,20 +350,28 @@ class globalETAS_model(object):
 		#
 		# note: it's important to do the (latses, lonses) in the same sequence so we have consistency in the indices.
 		#     this would make a reasonable case to use a conventional for-loop instead of multiple list comprehensions.
-		print("initialize ETAS array and indices.")
-		self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
+		#print("initialize ETAS array and indices.")
+		#if not hasattr(self, 'ETAS_array') or len(self.ETAS_array)==0:
+		#	self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
+		#	#self.ETAS_array = numpy.array([[lon, lat, 0.] for lat,lon in itertools.product(self.latses, self.lonses)])
+		#	self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		#
 		# make a dict of lattice sites and their x,y coordinates.
-		lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lat,lon) in enumerate(itertools.product(latses, lonses))}
+		#lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lat,lon) in enumerate(itertools.product(latses, lonses))}
+		lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lon,lat,z) in enumerate(self.ETAS_array)}
 		self.lattice_dict=lattice_dict
+		print("len(local_lattice_dict): ", len(self.lattice_dict))
 		#
 		# make an rtree index:
 		lattice_index = index.Index()
-		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lat,lon) in enumerate(itertools.product(latses,lonses))]
+		# build index. we should build directly from ETAS_array, particualrly since we'll be (maybe) building an mpp version that splits up ETAS_array between proceses.
+		#[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lat,lon) in enumerate(itertools.product(latses,lonses))]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
+		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lon, lat, z) in enumerate(self.ETAS_array)]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
 		#
-		print("Indices initiated. begin ETAS.")
+		print("Indices initiated. begin ETAS :: ", self.etas_cat_range)
 		#
-		for quake in self.catalog:
+		#for quake in self.catalog:
+		for quake in self.catalog[self.etas_cat_range[0]:self.etas_cat_range[1]]:
 			if quake['mag']<self.mc_etas: continue
 			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
@@ -259,11 +381,14 @@ class globalETAS_model(object):
 			if abs(eq.lat)==90.:
 				delta_lon=180.
 			else:
-				delta_lon = delta_lat/math.cos(eq.lat*deg2rad)
+				delta_lon = self.etas_range_padding + delta_lat/math.cos(eq.lat*deg2rad)
 			#
 			# and let's also assume we want to limit our ETAS map to the input lat/lon:
+			# this formulation can get confused if lons, lats, and a catalog are provided separately. look for a smarter way...
 			lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
 			lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
+			#
+			#print('rtree indexing: ', quake, lon_min, lat_min, lon_max, lat_max, self.lons, self.lats, delta_lon, delta_lat)
 			#
 			site_indices = lattice_index.intersection((lon_min, lat_min, lon_max, lat_max))
 			# ... and if we wrap around the other side of the world...
@@ -280,17 +405,29 @@ class globalETAS_model(object):
 				site_indices += list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max)))
 			#
 			#print("LLRange: ", lon_min, lat_min, lon_max, lat_max, len(list(site_indices)))
-			
+			#
 			for site_index in site_indices:
 				X = lattice_dict[site_index]
 				#
-				local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'])
+				et = eq.elliptical_transform(lon=X['lon'], lat=X['lat'])
+				#
+				# this looks right:
+				#local_intensity = 1.0/((75. + et['R_prime'])**1.5)
+				#
+				local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'], p=self.p_etas)
 				if numpy.isnan(local_intensity):
 					#print("NAN encountered: ", site_index, self.t_forecast, X['lon'], X['lat'], eq.lon, eq.lat, eq.__dict__)
 					continue
 				#
 				#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
 				#self.lattice_sites[j_lon][j_lat] += local_intensity
+				#
+				# TODO: generalize this; write a function like: self.add_to_ETAS(site_index, local_intensity).
+				#       for current, SPP or non-memory shared versions, this will be the same as below -- directly add to the array.
+				#       however, if we 1) write a c++ extension version or 2) use a shared memory array (or both), we can override the class
+				#       definition of self.add_to_ETAS() to be something like, self.shared_ETAS_array[3*site_index+2]+=local_intensity.
+				#       that said, it might be possible to accomplish this in the __init__ by declaring the ETAS_array as a list from
+				#       the shared array by reff. (??)
 				self.ETAS_array[site_index][2] += local_intensity
 				#
 		#
@@ -313,14 +450,15 @@ class globalETAS_model(object):
 		#
 		#self.lattice_sites = numpy.array([[0. for x in latses] for y in lonses])
 		#self.lattice_sites = numpy.zeros(len(latses)*len(lonses))
-		self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
+		#self.ETAS_array = [[lon, lat, 0.] for lat,lon in itertools.product(latses, lonses)]
 		#
-		for quake in self.catalog:
+		#for quake in self.catalog:
+		for quake in self.catalog[etas_cat_range[0]:etas_cat_range[1]]:
 			if quake['mag']<self.mc_etas: continue
 			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
 			for j, lat_lon in enumerate(itertools.product(latses, lonses)):
-				self.ETAS_array[j][2] += eq.local_intensity(t=self.t_forecast, lon=lat_lon[1], lat=lat_lon[0])
+				self.ETAS_array[j][2] += eq.local_intensity(t=self.t_forecast, lon=lat_lon[1], lat=lat_lon[0], p=self.p_etas)
 			#for lat_tpl,lon_tpl in itertools.product(enumerate(latses), enumerate(lonses)):
 			#	local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon_tpl[1], lat=lat_tpl[1])
 			#	#
@@ -340,13 +478,15 @@ class globalETAS_model(object):
 		# rewrite this version; minimize the use of functional indexing; aka, get initial position from functional index; then just count.
 		#
 		# do the ETAS calculation. for each earthquake, figure out what bins it contributes to and calc. etas for each bin.
-		#
-		self.lattice_sites = bindex.Bindex2D(dx=self.d_lon, dy=self.d_lat, x0=self.bin_lon0, y0=self.bin_lat0)	# list of lattice site objects, and let's index it by...
-																							# probably (i_x/lon, j_y/lat)
+		# (new in p3?) can't seem to set this attribute... maybe in __init__()? generally, i think we're going to handle this a bit differently anyway...
+		self.lattice_sites = None 
+		bb=bindex.Bindex2D(dx=self.d_lon, dy=self.d_lat, x0=self.bin_lon0, y0=self.bin_lat0)	# list of lattice site objects, and let's index it by...
+		self.lattce_sites=bb																			# probably (i_x/lon, j_y/lat)
 		# copy class level variables:
 		#
-		print( "calc etas...")
-		for quake in self.catalog:
+		print( "calc bindex etas...")
+		#for quake in self.catalog:
+		for quake in self.catalog[etas_cat_range[0]:etas_cat_range[1]]:
 			if quake['mag']<self.mc_etas: continue
 			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
@@ -391,7 +531,7 @@ class globalETAS_model(object):
 				# note: at this time, we have only the self-similar type local intensity. eventually, we need to split this up. nominally,
 				# this can occur at the Earthquake level, so -- if we so desire, different earthquakes can have differend spatial distributions.
 				#
-				local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon_bin['center'], lat=lat_bin['center']) # anything else?
+				local_intensity = eq.local_intensity(t=self.t_forecast, lon=lon_bin['center'], lat=lat_bin['center'], p=self.p_etas) # anything else?
 				#
 				#self.lattice_sites.add_to_bin(x=x_bin['center'], y=y_bin['center'], z=1.0/distances['geo'])
 				#
@@ -422,26 +562,218 @@ class globalETAS_model(object):
 		return (bin_num - bin_0)*dx + x0x
 	'''
 #
-class ETAS_bindex(globalETAS_model):
+class ETAS_bindex(Global_ETAS_model):
 	# default case...
 	def __init__(self, *args, **kwargs):
 		self.make_etas=self.make_etas_bindex
 		super(ETAS_bindex,self).__init__(*args, **kwargs)
 #
-class ETAS_brute(globalETAS_model):
+class ETAS_brute(Global_ETAS_model):
 	def __init__(self, *args, **kwargs):
 		self.make_etas = self.make_etas_all
 		super(ETAS_brute, self).__init__(*args, **kwargs)
 		#
 	#
 #
-class ETAS_rtree(globalETAS_model):
+class ETAS_rtree(Global_ETAS_model):
 	def __init__(self, *args, **kwargs):
 		self.make_etas = self.make_etas_rtree
 		super(ETAS_rtree, self).__init__(*args, **kwargs)
 		#
 	#
 #
+class ETAS_rtree_mpp(ETAS_rtree, mpp.Process):
+	'''n 
+	# an mpp version of ETAS_rtree (to be run as an mpp process)
+	'''	
+	def __init__(self, pipe_r, *args, **kwargs):
+		self.make_etas = self.make_etas_rtree
+		kwargs['calc_etas']=False
+		self.pipe_r = pipe_r
+		#print('initting worker, xyz_range = ', locals().get('etas_xyz_range', 'none'), kwargs.get('etas_xyz_range', 'nnonee'))
+		super(ETAS_rtree_mpp, self).__init__(*args, **kwargs)
+		mpp.Process.__init__(self)
+		#
+	#
+	def run(self):
+		# the mpp run bit.
+		# i think we need to disable the 'execute make etas' bit in __init__ (super); we need to kick off ETAS in run()
+		self.make_etas()
+		#
+		# now, pipe back the results
+		print('etas complete (from mpp_rtree run() loop); now pipe back(%s)' % self.etas_cat_range)
+		self.pipe_r.send(self.ETAS_array)		# might need to pipe back in a simpler form. eventually, we want to use a shared memory mpp.Array()...
+		self.pipe_r.close()
+#
+class ETAS_mpp_handler(Global_ETAS_model):
+	# a sub/container class to manage and collect results from a bunch of mpp_etas instances.
+
+	def __init__(self, n_processes=None, *args, **kwargs):
+		#self.make_etas = self.make_etas_rtree
+		#
+		self.etas_kwargs = {key:val for key,val in kwargs.items() if key not in ['n_proocesses']}		# or any other kwargs we want to skip. note: might need to handle
+																										# the ETAS_range parameter carefully...
+		#
+		if n_processes==None: n_processes = max(1, mpp.cpu_count()-1)
+		self.n_processes = n_processes
+		#
+		# go ahead and run the base class __init__. this basically handles lats, lons, forecast_time, and some other bits and then kicks off make_etas(), where we'll
+		#kwargs['make_etas']=False
+		self.make_etas = self.make_etas_mpp
+		#
+		# now, when we run __init__, it will build the catalog (unless one is provided). we'll build up a set of etas_rtree objects. we need to sort out how
+		# to generalize. nominally, we set up a sort of parallel-inherited class structure for mpp_in_general and mpp_specific inheritance.
+		#
+		# define the ETAS worker class:
+		self.ETAS_worker = ETAS_rtree_mpp
+		#
+		#
+		super(ETAS_mpp_handler, self).__init__(*args, **kwargs)
+	#
+	def make_etas_mpp(self):
+		#
+		#
+		cat_len = len(self.catalog)
+		#proc_len = cat_len/self.n_processes
+		proc_len = (self.etas_cat_range[1]-self.etas_cat_range[0])/self.n_processes
+		# first, gather a bunch of rtree processes.
+		#
+		etas_workers = []
+		etas_pipes   = []
+		prams = self.etas_kwargs.copy()
+		prams['catalog']=self.catalog		# .copy() ??
+		for j in range(self.n_processes):
+			pipe_r, pipe_s = mpp.Pipe()
+			prams['etas_cat_range'] = [int(self.etas_cat_range[0]+j*proc_len), int((j+1)*proc_len)]		# (sort out these indices to be sure we always get the whole catalog...)
+			prams['pipe_r'] = pipe_r
+			etas_pipes += [pipe_s]
+			#
+			etas_workers += [self.ETAS_worker(**prams)]
+		#
+		# now, go through the list again and start each intance (this can probably be done when they're instantiated):
+		for j,p in enumerate(etas_workers):
+			p.start()
+			#etas_workers[j].start()
+			#
+		#
+		# and join() them? do we need to join if we're doing send()-recv()? (see vq code for examples):
+		# in fact, i think we don't need this, and be careful with the join() syntax (see notes in vq_analyzer code).
+
+		# now, processes are finished; they return ETAS_array[] like [[x,y,z]]... ETAS_array should be initiated. we can aggregate them by index, but they should all
+		# have the same indexing (they should all be a complete set of lats, lons. so we should check for that here... and i think actually we should have an empty copy
+		# from __init__(), but for now, just add them row by row (maybe sort first). in later versions (maybe this one??) all processes will write directly to an mpp.Array()
+		# shared memory object.
+		#
+		print('now gather sub-arrays...')
+		for j,(etas,pp) in enumerate(zip(etas_workers, etas_pipes)):
+			ary = pp.recv()
+			for k,rw in enumerate(ary): self.ETAS_array['z'][k]+=rw['z']
+			pp.close()
+		#
+		# still not sure if we need this...
+		#for j,p in enumerate(etas_workers):
+		#	p.join()
+		#
+		del etas_workers			
+#
+#
+class ETAS_mpp_handler_xyz(Global_ETAS_model):
+	# a sub/container class to manage and collect results from a bunch of mpp_etas instances.
+	# this is a semi-memory friendly version in which the forecast lattice is divided amongst the processes,
+	# as opposed to ETAS_mpp_handler() in which the catalog is split up, which uses a lot of memory (and probably lots
+	# of time piping results) for large maps.
+
+	def __init__(self, n_processes=None, *args, **kwargs):
+		#self.make_etas = self.make_etas_rtree
+		#
+		self.etas_kwargs = {key:val for key,val in kwargs.items() if key not in ['n_proocesses']}		# or any other kwargs we want to skip. note: might need to handle
+																										# the ETAS_range parameter carefully...
+		#
+		if n_processes==None: n_processes = max(1, mpp.cpu_count()-1)
+		self.n_processes = n_processes
+		#
+		# go ahead and run the base class __init__. this basically handles lats, lons, forecast_time, and some other bits and then kicks off make_etas(), where we'll
+		#kwargs['make_etas']=False
+		self.make_etas = self.make_etas_mpp
+		#
+		# now, when we run __init__, it will build the catalog (unless one is provided). we'll build up a set of etas_rtree objects. we need to sort out how
+		# to generalize. nominally, we set up a sort of parallel-inherited class structure for mpp_in_general and mpp_specific inheritance.
+		#
+		# define the ETAS worker class:
+		self.ETAS_worker = ETAS_rtree_mpp
+		#
+		#
+		super(ETAS_mpp_handler_xyz, self).__init__(*args, **kwargs)
+	#
+	def make_etas_mpp(self):
+		#
+		#
+		cat_len = len(self.catalog)
+		##proc_len = cat_len/self.n_processes
+		#proc_len = (self.etas_cat_range[1]-self.etas_cat_range[0])/self.n_processes
+		#
+		xyz_len = self.n_lat*self.n_lon/self.n_processes
+		#
+		# first, gather a bunch of rtree processes.
+		#
+		etas_workers = []
+		etas_pipes   = []
+		prams = self.etas_kwargs.copy()
+		prams['etas_cat_range']=None
+		prams['catalog']=self.catalog		# .copy() ??
+		for j in range(self.n_processes):
+			pipe_r, pipe_s = mpp.Pipe()
+			prams['etas_xyz_range'] = [int(j*xyz_len), int((j+1)*xyz_len)]		# (sort out these indices to be sure we always get the whole catalog...)
+			print('etas_mpp worker xyz_range: ', prams['etas_xyz_range'])
+			prams['pipe_r'] = pipe_r
+			etas_pipes += [pipe_s]
+			#
+			etas_workers += [self.ETAS_worker(**prams)]
+		#
+		# now, go through the list again and start each intance (this can probably be done when they're instantiated):
+		for j,p in enumerate(etas_workers):
+			p.start()
+			#etas_workers[j].start()
+			#
+		#
+		# and join() them? do we need to join if we're doing send()-recv()? (see vq code for examples):
+		# in fact, i think we don't need this, and be careful with the join() syntax (see notes in vq_analyzer code).
+
+		# now, processes are finished; they return ETAS_array[] like [[x,y,z]]... ETAS_array should be initiated. we can aggregate them by index, but they should all
+		# have the same indexing (they should all be a complete set of lats, lons. so we should check for that here... and i think actually we should have an empty copy
+		# from __init__(), but for now, just add them row by row (maybe sort first). in later versions (maybe this one??) all processes will write directly to an mpp.Array()
+		# shared memory object.
+		#
+		self.ETAS_array = []
+		#self.arys = []
+		#
+		print('now gather sub-arrays...')
+		'''
+		for j,(etas,pp) in enumerate(zip(etas_workers, etas_pipes)):
+			#ary = pp.recv()
+			#self.arys += [ary]
+			#for k,rw in enumerate(ary): self.ETAS_array['z'][k]+=rw['z']
+			#self.ETAS_array += list(ary)
+			self.ETAS_array += list(pp.recv())
+			pp.close()
+			# can we delete each worker here? might be necessary to reduce max memory footprint. no. instead, use an mpp.Queue() (i think) or a while-loop
+			# and delete off the top or bottom of the list after each pipe.close()
+		'''
+		for j in range(len(etas_workers)):
+			self.ETAS_array += list(etas_pipes[0].recv())
+			etas_pipes[0].close()
+			del etas_pipes[0]
+			del etas_workers[0]
+		#
+		self.ETAS_array.sort(key=lambda rw: (rw[1],rw[0]))
+		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
+		
+		# still not sure if we need this...
+		#for j,p in enumerate(etas_workers):
+		#	p.join()
+		#
+		del etas_workers			
+
 #
 class Earthquake(object):
 	# an Earthquake object for global ETAS. in parallel operations, treat this more like a bag of member functions than a data container.
@@ -449,7 +781,7 @@ class Earthquake(object):
 	# include "local" ETAS calculation in this object; aka, each earthquake determines its ETAS range based on rupture length and other factors...
 	# maybe.
 	#def __init__(self, event_date=None, lat=0., lon=0., mag=None, eig_vals=[1., 1.], eig_vecs=[[1.,0.], [0., 1.]], transform_type='equal_area'):
-	def __init__(self, dict_or_recarray, transform_type='equal_area', transform_ratio_max=5., ab_rato_expon=.5):
+	def __init__(self, dict_or_recarray, transform_type='equal_area', transform_ratio_max=5., ab_ratio_expon=.5):
 		#
 		# first, load all indexed elements from the input dict or recarray row as class members:
 		if isinstance(dict_or_recarray, dict): self.__dict__.update(dict_or_recarray)
@@ -460,7 +792,7 @@ class Earthquake(object):
 		# elliptical transform bits:
 		self.transform_type = transform_type
 		self.transform_ratio_max = transform_ratio_max
-		self.ab_rato_expon = ab_rato_expon
+		self.ab_ratio_expon = ab_ratio_expon
 		#
 		# check for float datetime...
 		if not hasattr(self, 'event_date_float'): self.event_date_float = mpd.date2num(self.event_date.tolist())
@@ -474,7 +806,8 @@ class Earthquake(object):
 		# now, make some preliminary calculations, namely the peak spatial density and maybe some omori constants? anything we'll calculate
 		# again and again...
 		#
-		self.spatial_intensity_factor=1.0		# corrects for local aftershock density in rotational type transforms.
+		# this gets done in set_transform()
+		#self.spatial_intensity_factor=1.0		# corrects for local aftershock density in rotational type transforms.
 	#	
 	@property
 	def lat_lon(self):
@@ -483,6 +816,22 @@ class Earthquake(object):
 	def lon_lat(self):
 		return [self.lon, self.lat]		
 	#
+	@property
+	def theta_rad(self):
+		return self.eq_theta(deg_rad='rad')
+	@property
+	def theta_deg(self):
+		return self.eq_theta(deg_rad='deg')
+	@property
+	def theta(self):
+		return self.eq_theta(deg_rad='deg')
+	#
+	def eq_theta(self, deg_rad='deg'):
+		dr_factor = deg2rad
+		if deg_rad=='rad': dr_factor=1.0
+		#
+		return math.atan(self.e_vecs[0][0]/self.e_vecs[0][1])/deg2rad
+	#
 	def dist_to(self, lon=None, lat=None, dist_types=['spherical'], Rearth = 6378.1, *args, **kwargs):
 		if hasattr(lon, '__len__'):
 			lon = lon[0]
@@ -490,24 +839,30 @@ class Earthquake(object):
 		#
 		return dist_to(lon_lat_from=self.lon_lat, lon_lat_to=[lon, lat], dist_types=dist_types, Rearth=Rearth, *args, **kwargs)
 	#
-	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None, transform_ratio_max=None, ab_rato_expon=None):
+	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None, transform_ratio_max=None, ab_ratio_expon=None):
 		'''
 		# note: it might be better to not allow custom-runs (aka not allow parameterized calls to this function; always use native member values).
 		#
 		# define the elliptical transformation for calculating intensities.
 		# transform_type: elliptical transformation type = { 'equal_area', 'rotation'}
 		# transform_ratio_max: maximum allowable eigenvalue (and transformed axes length) ratio.
+		#
+		#... and let's clean up a bit, removing some of the inverse, etc. variants.
+		#
 		'''
+		#
 		e_vals = (e_vals or self.e_vals)
 		e_vecs = (e_vecs or self.e_vecs)
 		transform_ratio_max = float(transform_ratio_max or self.transform_ratio_max)
 		transform_type = (transform_type or self.transform_type)
-		ab_rato_expon = (ab_rato_expon or self.ab_rato_expon)
+		ab_ratio_expon = (ab_ratio_expon or self.ab_ratio_expon)
+		ab_ratio_expon = (ab_ratio_expon or .5)
 		#
-		ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_rato_expon)	# note: this **.5 on the e0/e1 value is quasi-arbitrary.
+		ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)	# note: this **.5 on the e0/e1 value is quasi-arbitrary.
 		#																								# ok, so what specifically is e0/e1 supposed to be? stdev, var?
 		#																								# in any case, it seems to be pretty huge almost all the time, so
 		#																								# let's put a fractional power on it...
+		#abratio = 2.0
 		self.ab_ratio=ab_ratio
 		#
 		if transform_type=='equal_area':
@@ -523,26 +878,35 @@ class Earthquake(object):
 			self.spatial_intensity_factor = min(self.e_vals_n)/max(self.e_vals_n)		# area of "core" (rupture area) is reduced, so intensity increases.
 			#
 		else:
-			return self.get_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
+			return self.set_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
 		#
-		E = self.e_vals_n
-		self.T = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs)
-		self.T_inverse = numpy.dot([[E[0], 0.], [0., E[1]]], e_vecs.transpose())
-	#
-	def elliptical_transform_inverse(self, lon=0., lat=0.):
-		return self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse, invert=False)
-	#
-	def elliptical_transform_inverse_prime(self, lon=0., lat=0.):
-		return self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse, invert=True)
-	#
+
+	def elliptical_transform(self, lon=0., lat=0.):
 		#
-	def elliptical_transform_prime(self, lon=0., lat=0.):
-		'''
-		#wrapper around elliptical_transform()
-		'''
-		return self.elliptical_transform(lon=lon, lat=lat, T=None, invert=True)
+		# ... no idea if this works, but it should be about right. perhaps a bit redundant in the LT's ??
+		# simple elliptical transform:
+		# get v = [lon,lat]-[self.lon, self.lat]
+		# rotate v with transpose: v_prime = numpy.dot(self.e_vecs.transpose(),v)
+		#    -- x_prime = v dot x_prime
+		#    -- y_prime = v dot y_prime    
+		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
+		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
+		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in
+		#
+		v = [dx, dy]
+		#v_prime = numpy.dot(self.e_vecs.transpose(),v)
+		#
+		dx_prime = self.e_vals_n[1]*numpy.dot(v,self.e_vecs.transpose()[0])
+		dy_prime = self.e_vals_n[0]*numpy.dot(v,self.e_vecs.transpose()[1])		# ... but isn't this the rotation transform?
+		#
+		R_prime = R * numpy.linalg.norm([dx_prime,dy_prime])/numpy.linalg.norm([dx,dy])
+		
+		dists.update({'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime})
+		#
+		return dists
+		#
 	#
-	def elliptical_transform(self, lon=0., lat=0., T=None, invert=False):
+	def elliptical_transform_depricated(self, lon=0., lat=0., T=None):
 		'''
 		# return elliptical transform of position (lon, lat). submit the raw x,y values; we'll subtract this Earthquake's position here...
 		# ... and let's just return all the information: {'R':radial_dist (spherical or geo), 'R_prime':transformed distance, 'lon':lon,'lat':, 
@@ -557,30 +921,50 @@ class Earthquake(object):
 		#def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'], Rearth = 6378.1):
 		'''
 		#
+		# T is the transformation matrix from the PCA.
 		if T==None: T=self.T
+		E_hat=self.E_hat		# like (e_vals_n x I)
+		
+		#T = (T or self.T)	# note: this syntax sometimes fails for numpy.array() objects; gives a "multiple truth" error, in other words, " if each element==None, then..."
+		
+		#T = numpy.dot([[self.e_vals_n[0], 0.],[0., self.e_vals_n[1]]], self.e_vecs.transpose())
+		#
+		# diagnostics:
+		#T = self.e_vecs.transpose()
 		#
 		# first, get the actual distance (and related data) to the point:
+		
 		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
-		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, and convert to km...
-		#
+		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
 		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in general FoR.
+		
+		#dx = (self.lon-lon)*111.3
+		#dy = (self.lat-lat)*111.3
+		#R=(dx*dx + dy*dy)**.5
+		
+		#print('dists: ', dists)
 		#
-		if invert:
-			dx_prime, dy_prime = numpy.dot([dx,dy],T)
-		else:
-			dx_prime, dy_prime = numpy.dot(T, [dx,dy])	# rotated and dilated into the elliptical FoR...
+		# some diagnostics:
+		#dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'euc', 'xy', 'dx_dy'])
+		#R = dists['euclidian']
+		#dx,dy = dists['dx_e'], dists['dy_e']		
+		#
+		dx_prime, dy_prime = numpy.dot(T, [dx,dy])	# rotated and dilated into the elliptical FoR...
+		#dx_prime, dy_prime = numpy.dot(self.e_vecs.inverse(), [dx,dy])
+		#
 		#R_prime = R*((dx_prime*dx_prime + dy_prime*dy_prime)/(dx*dx+dy*dy))**.5	# use this to mitigate artifacts of the spherical transform: R_prime = R_geo*(R_prime_xy/R_xy)
-		
+		#
 		R_prime = R*numpy.linalg.norm([dx_prime, dy_prime])/numpy.linalg.norm([dx,dy])
-		
+		#R_prime = numpy.linalg.norm([dx_prime, dy_prime])
 		#
 		dists.update({'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime})
 		#return {'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime}
+		#
 		return dists
 	#
 	def spherical_dist(self, to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
-	#
+	#		
 	def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 		'''
 		# t0_prime: use this to re-scale the temporal component. we'll transform the initial rate (and effectively minimum delta_t)
@@ -589,6 +973,7 @@ class Earthquake(object):
 		# take time in days.
 		'''
 		#print("inputs: ", t, lon, lat, p, q)
+		t = (t or mpd.date2num(dtm.datetime.now(pytz.timezone('UTC'))))
 		p = (p or self.p)
 		q = (q or self.q)
 		# calculate ETAS intensity.
@@ -599,37 +984,97 @@ class Earthquake(object):
 		if delta_t<0.:
 			return 0.
 		#
+		# get elliptial transformation for this earthquake:
+		#et = self.elliptical_transform_prime(lon=lon, lat=lat)		# use "inverse" transformation (see code), so x' = numpy.dot(x,T)
+		#et = self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse)
 		et = self.elliptical_transform(lon=lon, lat=lat)
 		#
 		# in some cases, let's adjust t0 so maybe we dont' get nearfield artifacts...
+		'''
 		if t0_prime!=None:
 			t_0_prime = 60.*10.	# ten minutes...
-			tau_prime = (self.tau*self.t_0**self.p)/(t_0_prime)
+			tau_prime = (self.tau*self.t_0**self.p)/(t_0_prime)	#this looks wrong; note we have tau in there twice...
 			#
-			orate = 1.0/(tau_prime * (t_0_prime + delta_t)**self.p)
+			#orate = 1.0/(tau_prime * (t_0_prime + delta_t)**p)
 		else:
-			orate = 1.0/(self.tau * (self.t_0 + delta_t)**self.p)
+			#orate = 1.0/(self.tau * (self.t_0 + delta_t)**p)
+			tau_prime = self.tau
+			t_0_prime = self.t_0
+		'''
+		#
+		#orate = 1./(tau_prime * (t_0_prime + delta_t)**p)
+		orate = 1./(self.tau * (self.t_0 + delta_t)**p)
 		#
 		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
-		# radial density (dN/dr), and as i recall this is normalized so that int(round(dN/dr)_0^inf --> 1.0
-		radial_density = (q-1.0)*(self.r_0**(q-1.0))*(self.r_0 + et['R_prime'])**(-q)
+		# radial density (dN/dr). the normalization constant comes from integrating N'(r) --> r=inf = N_om (valid, of course, ony for q>1).
+		#
+		radial_density = (q-1.0)*(self.r_0**(q-1.0))*((self.r_0 + et['R_prime'])**(-q))
 		#
 		# ... and this is distributed along an elliptical contour. we could approximate with a circle, but what we really want is to distribute along the ellipse
 		# that is orthogonal to our R-R' transformation. fortunately, they have the same radius. calculating the radius of an ellipse is hard. we an exact solution
 		# (that uses a "special" function) and an approximation (that should be faster).
 		# note major,semi-major axes are R*e_1, R*e_2 (doesn't matter which is which)
+		#
+		# radial normalization:
+		# notes:
+		# - using an R_prime geometry (circle or ellipse) produces nice, elliptical looking contours. normalizing on the physical distances/geometries R,
+		# produces diamond like shapes. so which one is the artifact?
+		# - normalize with r -> r0 + r_prime, (aka, the distance as "seen" by the earthquake). if we normalize with geometric distances, we get singularities around the earthquakes. 
+		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
+		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R_prime'], b=self.e_vals_n[1]*et['R_prime'])
 		
-		#circumf = ellipse_circumference_exact(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]**et['R'])
-		
-		circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
+		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*(self.r_0 + et['R_prime']), b=self.e_vals_n[1]*(et['R_prime'] + self.r_0))
 		#circumf = math.pi*et['R']**2.
+		circumf = math.pi*(self.r_0 + et['R_prime'])**2.
+		#circumf = max(circumf, .628)	# limit spatial density. in ETASmf, we use the transformed distance r_prime = R_prime + r_0
 		#
 		spatialdensity = self.spatial_intensity_factor*radial_density/circumf
 		#
 		#print "diag: ", orate, circumf, self.spatial_intensity_factor*radial_density, spatialdensity
 		#
+		#spatialdensity = 1.0*(et['R_prime'] + self.r_0)**(-q)
+		
 		return spatialdensity*orate
+		
+		#
 		#return (self.r_0 + et['R_prime'])**(-q)
+	#
+	# some diagnostics:
+	def plot_linear_density(self, r_max=None, r_max_factor=5., fignum=0, n_points=1000):
+		'''
+		# a diagnostic plot of thie earthquake's linear density distribution. r_max is, as it sounds, the max value of r to plot. alternatively, use r_max_factor, 
+		# for r_max = r_max_factor * l_r
+		'''
+		#
+		r_max=(r_max or r_max_factor*self.L_r)
+		print("r_max: ", r_max)
+		#
+		plt.figure(fignum)
+		plt.clf()
+		X=numpy.arange(0., r_max, r_max/float(n_points))
+		ax=plt.gca()
+		ax.set_xscale('log')
+		ax.set_yscale('log')
+		ax.plot(X, [1.0/(self.chi*(self.r_0 + r)**self.q) for r in X], '.-', lw=2.)
+		#	
+	#
+	def sketch_evecs(self, fignum=0):
+		plt.figure(fignum)
+		plt.clf()
+		#
+		# axes:
+		x_max = max(self.e_vals_n)
+		plt.plot([x*x_max for x in [-1., 1.]], [0.,0.], 'k-', lw=2)
+		plt.plot( [0.,0.], [x*x_max for x in [-1., 1.]], 'k-', lw=2)
+		plt.plot([-1., 1.], [0.,0.], 'k-', lw=2)
+		plt.plot( [0.,0.], [-1., 1.], 'k-', lw=2)
+		#
+		plt.plot([0., self.e_vecs[0][0]], [0., self.e_vecs[0][1]], 'mo-')
+		plt.plot([0., self.e_vecs[1][0]], [0., self.e_vecs[1][1]], 'co-')
+		#
+		T = numpy.dot(self.E_hat, self.e_vecs)
+		plt.plot([0., T[0][0]], [0., T[0][1]], 'bo-')
+		plt.plot([0., T[1][0]], [0., T[1][1]], 'go-')
 #
 class Shape(object):
 	# helper base class for shapes...
@@ -641,8 +1086,10 @@ class Shape(object):
 		#
 		# some default plotting bits:
 		defaults = {'color':'b', 'marker':'.', 'ls':'-', 'lw':1.5}
-		for key,val in defaults.iteritems():
-			if not kwargs.has_key(key): kwargs[key]=val
+		for key,val in defaults.items():
+			#if not kwargs.has_key(key): kwargs[key]=val
+			#if not key in kwargs.keys(): kwargs[key]=val
+			kwargs[key] = kwargs.get(key, val)
 		#
 		plt.figure(fignum)
 		if do_clf: plt.clf()
@@ -720,7 +1167,7 @@ class Ellipse(Shape):
 		print( "theta: %f" % (self.theta))
 		if self.theta!=0.:
 			#poly = zip(*numpy.dot( [[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]], zip(*poly)))
-			poly = numpy.dot(poly, zip(*[[math.cos(self.theta), -math.sin(self.theta)],[math.sin(self.theta), math.cos(self.theta)]]))
+			poly = numpy.dot(poly, [[math.cos(self.theta), math.sin(self.theta)],[-math.sin(self.theta), math.cos(self.theta)]])
 		#
 		return poly
 	#
@@ -734,13 +1181,79 @@ class Ellipse(Shape):
 		plt.plot(*zip(*self.poly()), color='b', marker='.', ls='-', lw='1.5')
 	#	
 #
-
 # Working scripts
+#
+def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, n_cpus=None):
+	# multiprocessing wrapper for make_ETAS_catalog(). note, this would be more efficient and faster if we can figure out how to use shared memory
+	# (don't have to make multiple copies of catalog; don't have to pickle back entire catalog). maybe we need to learn python mpi, rather
+	# than multiprocessing?
+	# ... and this totally does not work (yet?)
+	# ... dunno; throwing some sort of "attr must be string" error on the .get().
+	#
+	etas_prams = locals().copy()
+	etas_prams.__delitem__('n_cpus')
+	etas_prams['incat']=None
+	#etas_prams.__delitem__('self')
+	print('etas_prams: ', etas_prams)
+	# handle dates:
+	if date_range[1]==None: date_range[1] = dtm.datetime.now(pytz.timezone('UTC'))
+	#
+	for j,dt in enumerate(date_range):
+		if isinstance(dt, str):
+			date_range[j] = mpd.num2date(mpd.datestr2num(dt))
+	#
+	if incat==None or (hasattr(incat, '__len__') and len(incat)==0):
+		incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
+	#
+	etas_prams['incat']=incat
+	if n_cpus==None:
+		n_cpus = max(1, mpp.cpu_count()-1)
+		#
+	#
+	P=mpp.Pool(n_cpus)
+	cat_len=len(incat)
+	n = cat_len/n_cpus
+	#
+	pool_handlers = []
+	pool_results = []
+	for k in range(n_cpus):
+		etas_prams['catalog_range']=[k*n, min((k+1)*n, cat_len)]
+		#print("parameters: ", etas_prams)
+		#pool_handlers += [P.apply_async(make_ETAS_catalog), kwds=etas_prams]
+		pool_handlers += [P.apply_async(make_ETAS_catalog,args=[None, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n, cat_len)]])]
+		# i think this version, where we pass incat to the child processes, works properly, though it should be checked.
+		 # ... or maybe it doesn't; maybe the recarrays don't pickle (i may have pickled one somewhere else... or maybe not). probably need to build in some smart header handlers for mpp.
+		 #
+		#pool_handlers += [P.apply_async(make_ETAS_catalog,args=[incat, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n,cat_len)]])]
+	P.close()
+	#
+	for R in pool_handlers:
+		print("R: ", R)
+		R_return = R.get()
+		if hasattr(R_return, '__len__'):
+			pool_results+=[R_return]
+		#else:
+		#	pool_results+=[None]
+		#pool_results+=[R.get()[0]]
+	
+	print("results fetched.")
+	#pool_results = functools.reduce(numpy.append, [pr for pr in pool_results if pr!=None])
+	pool_results = functools.reduce(numpy.append, pool_results)
+	pool_results.sort(order='event_date_float')
+	
+	#output_catalog.sort(order='event_date_float')
+	#return numpy.core.records.fromarrays(zip(*output_catalog), dtype = dtype)
+	return pool_results
+	#
+	#
 # make a class out of this; derive from recarray; keep universal valuess like p,q,dmstar, etc. as member variables.
-def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True):
+def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, catalog_range=None):
 	'''
 	# fetch (or receive) an earthquake catalog. for each event, calculate ETAS relevant constants including rupture_length,
 	# spatial orientation, elliptical a,b, etc. This catalog will then be provided to other processes to calculate ETAS rates
+	# @catalog_range: use this for mpp operations. to parallelize this script, create n_cpu instances of make_ETAS_catalog; each instance
+	# contains the whole catalog (or work out a shared memory approach), but each instance only fits/processes [catalog_range] of the catalog.
+	# then, aggregate the catalogs after they finish processing.
 	'''
 	#
 	# save a copy of the input parameters to ammend to the output array as metadata. we can do this in lieu of creating a derived class -- sort of a (sloppy?) shortcut...
@@ -749,18 +1262,13 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		meta_parameters = locals().copy()
 	else:
 		meta_parameters = {}
-		if hasattr('meta_parameters', incat): incat.meta_parameters.copy()
+		if hasattr(incat, 'meta_parameters'): incat.meta_parameters.copy()
 		meta_parameters.update({'D_fract':D_fract, 'd_lambda':d_lambda, 'd_tau':d_tau, 'fit_factor':fit_factor, 'p':p, 'q':q, 'dmstar':dmstar, 'b1':b1, 'b2':b2})
-		
 	#
 	#dmstar = 1.0
 	dm_tau = 0.0		# constant sort of like dm_star but for temporal component. we usually treat this as 0, but don't really know...
 	#d_tau = 2.28
-	#b1=1.0
-	#b2=1.5
 	b=b1
-	#q=1.5
-	#p=1.1
 	#
 	# some constants:
 	l_15_factor = (2./3.)*math.log10(1.5)	# pre-calculate some values...
@@ -780,6 +1288,11 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	#
 	if incat==None or (hasattr(incat, '__len__') and len(incat)==0):
 		incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[start_date, end_date], Nmax=None, fout=None, rec_array=True)
+		# catalog_range:
+	# catalog_range parameter, for MPP applications (usually None).
+	if catalog_range==None or len(catalog_range)==0:
+		catalog_range = [0,len(incat)]
+
 	#
 	# first, make a spatial index of the catalog:
 	anss_index = index.Index()
@@ -801,13 +1314,22 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	#
 	output_catalog = []
 	#
-	for k_cat, rw in enumerate(incat):
+	#for k_cat, rw in enumerate(incat):
+	for k_cat, rw in enumerate(incat[catalog_range[0]:catalog_range[1]]):
 		#
 		# tentatively, let's just make a catalog of this and calculate the rupture length, etc.
 		# this way, we can specify (different) rupture length, etc. later.
+		#
+		#lNas = (2.0*(2.0+D))*math.log10(1.+D/2.) + (D/(2.+D))*(self.mag - self.dm - self.mc)
+		#lNprimemax = lNas - lrupture + math.log10(2.0)	# log(2) from: 0 <r < L/2 -- assume mainshock is centered.   (aka, N/(L/2))
+		#Nas=10.0**lNas
+		#Nprimemax = 10.0**lNprimemax
+		#r0 = Nom*(q-1.0)/Nprimemax
+		#chi = (r0**(1.0-q))/(Nom*(q-1.0))
+		#
 		mag = rw['mag']
 		L_r = 10.0**(.5*mag - d_lambda)
-		dt_r = 10.0**(.5*mag - d_tau)
+		dt_r = 10.0**(.5*mag - d_tau)		# approximate duration of rupture
 		lN_om = b*(mag - dmstar - mc)
 		N_om = 10.0**lN_om
 		#
@@ -816,13 +1338,27 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		#
 		# self-similar formulation from yoder et al. 2014/15:
 		# start with the (log of the) number of earthquakes/aftershocks in the rupture area:
+		# (in yoder et al. 2015, this is "N_as", or "number of aftershocks (inside rupture area)".
+		#
 		lN_chi = (2.0/(2.0 + D))*math.log10(1.0 + D/2.) + D*(mag - dmstar - mc)/(2.+D)
-		N_chi = 10.**lN_chi
+		N_chi  = 10.**lN_chi
 		#
 		# mean linear density and spatial Omori parameters:
-		linear_density = 2.0*N_chi/L_r
-		r_0 = N_om*(q-1.)/N_chi
-		chi = (r_0**(1.-q))/(N_om*(q-1.))
+		linear_density = 2.0*N_chi/L_r		# (linear density over rupture area, or equivalently the maximum spatial (linear) density of aftershocks.
+		#
+		## from BASScast:
+		#l_r0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar+ + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
+		# r_0 = 10.**l_r0
+		#
+		# from yoder et al. 2015 and sort of from BASScast:
+		r_0 = N_om*(q-1.0)/linear_density		
+		#
+		## let's try this formulation; sort out details later.
+		#lr_0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
+		#r_0 = 10.**lr_0
+		#
+		chi = (r_0**(1.-q))/(N_om*(q-1.0))
+		#radialDens = (q-1.0)*(r0ssim**(q-1.0))*(r0ssim + rprime)**(-q)
 		#
 		# temporal Omori parameters:
 		# (something is not correct here; getting negative rate_max (i think))
@@ -872,6 +1408,106 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	
 	return output_catalog
 #
+def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, max_ratio=2.0):
+	# script to test elliptical transforms...
+	# keep this simple. we'll line up n_quakes along a line with angle theta, length L.
+	# then, run them through catalog pre-processing then etas and see what we get... halos should line up along the line of events.
+	#
+	if abs(theta)>math.pi*2.1: theta*=deg2rad
+	dx = math.cos(theta)
+	dy = math.sin(theta)
+	Rx = random.Random()
+	Ry = random.Random()
+	R_l = random.Random()
+	#
+	L = (10.**(.5*m-1.76))/deg2km
+	#
+	# test catalog should have a fromat like:
+	# test_cat_like = incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
+	#
+	# which returns rows like:
+	# datetime.datetime(2005, 1, 1, 22, 20, 16, 950000), 30.471, 141.204, 4.1, 40.0, 731947.9307517362)
+	#
+	# then process the catalog like:
+	# processed_catalog = make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, n_cpus=None)
+	#
+	x1 = x0 - L*math.cos(theta)
+	y1 = y0 - L*math.sin(theta)
+	#
+	t_now = dtm.datetime.now(pytz.timezone('UTC'))
+	catalog = []
+	#
+	for j in range(n_quakes):
+		#x,y = (x1+
+		#
+		#x = x1 + 2.*L*dx*Rx.random()
+		#y = y1 + 2.*L*dy*Ry.random()
+		L_prime = L*2.0*R_l.random()
+		x = x1 + L_prime*math.cos(theta)
+		y = y1 + L_prime*math.sin(theta)
+		#pass
+		#
+		dt = t_now - dtm.timedelta(days=10)
+		#
+		catalog += [[dt, y, x, m-2.0, 42., mpd.date2num(dt)]]
+		#
+	#
+	dt = dtm.datetime.now(pytz.timezone('UTC'))
+	# grab a dummy catalog --  a stupid way to get a dtype array.
+	ct = atp.catfromANSS(dates0=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=10), dtm.datetime.now(pytz.timezone('UTC'))], lat=[31., 33.], lon=[-117., -115.])
+	catalog += [[dt, y0, x0, m, 21., mpd.date2num(dt)]]
+	catalog = numpy.core.records.fromarrays(zip(*catalog), dtype=ct.dtype)
+	#
+	print("cat_len: ", len(catalog))
+	#
+	ct = make_ETAS_catalog(incat=catalog, lats=[min(catalog['lat']), max(catalog['lat'])], lons=[min(catalog['lon']), max(catalog['lon'])], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, catalog_range=None)
+	print("len new catalog: ", len(ct))
+	#
+	#ct = make_ETAS_catalog(incat=catalog, lats=None, lons=None, mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, catalog_range=None)
+	#
+	#etas = ETAS_rtree(catalog=ct, t_0 = t_now-dtm.timedelta(days=2), t_now = t_now+dtm.timedelta(days=1), cat_len=None, lats=[min(catalog['lat']), max(catalog['lat'])], lons=[min(catalog['lon']), max(catalog['lon'])], transform_ratio_max=15.)
+	etas = ETAS_rtree(catalog=ct, t_0 = t_now-dtm.timedelta(days=12), t_now = t_now+dtm.timedelta(days=15), cat_len=None, lats=[y0-2.0*L, y0+2.0*L], lons=[x0-2.0*L, x0+2.0*L], transform_ratio_max=max_ratio)
+	#
+	#
+	plt.figure(0)
+	plt.clf()
+	etas.make_etas_contour_map(fignum=0)
+	#plt.plot(*zip(*[[rw[2], rw[1]] for rw in catalog]), marker='o', ls='')
+	#plt.plot(*zip(*[[rw[2], rw[1]] for rw in catalog[-1:]]), marker='*', color='r', ms=18., ls='')
+	x,y = etas.cm(catalog['lon'], catalog['lat'])
+	plt.plot(x,y, marker='o', ls='')
+	x,y = etas.cm(catalog['lon'][-1], catalog['lat'][-1])
+	plt.plot([x],[y], marker='*', ms=18., ls='')
+	#
+	plt.figure(1)
+	plt.clf()
+	ms = Earthquake(ct[-1])
+	print('evecs: ', ms.e_vals, ms.e_vecs)
+	x_prime = numpy.dot(ms.e_vecs.transpose(),[1.0,0.])
+	y_prime = numpy.dot(ms.e_vecs.transpose(), [0., 1.])
+	print('xprime: ', x_prime, y_prime)
+	plt.plot(*zip([0.,0.],x_prime), ls='-', lw=2., marker='s')		# ... so we want to rotate with the transpose matrix, then adjust basis vector lengths...
+	plt.plot(*zip([0.,0.],y_prime), ls='-', lw=2., marker='s')		# ... so we want to rotate with the transpose matrix, then adjust basis vector lengths...
+	#
+	#E = [[min(ms.e_vals[1], 2.0),0.], [0., min(ms.e_vals[0], 2.0)]]
+	e1 = min(2.0, max(ms.e_vals[1], .5))
+	e2 = min(2.0, max(ms.e_vals[0], .5))
+	E = [[e2,e1], [e2, e1]]
+	#x_pp = numpy.dot(E,x_prime)
+	#y_pp = numpy.dot(E,y_prime)
+	x_pp = e1*x_prime
+	y_pp = e2*y_prime
+	# right... so we don't want to dot E dot x_prime, we want to just to scalar multiply the prime vectors. maybe if we reverse the order so it's like R*E*v ???,
+	# but for now, let's just do the rotation and multiply the new basis vectors (prime coordinates) by the corresponding eigen-vectors.
+	#e_vals_n = numpy.linalg.norm(self.e_vals) # ... and enforce a maximum aspect ratio of between 2 and 5 or so...
+	#
+	plt.plot(*zip([0.,0.],x_pp), ls='--', lw=2., marker='D')		# ... so we want to rotate with the transpose matrix, then adjust basis vector lengths...
+	plt.plot(*zip([0.,0.],y_pp), ls='--', lw=2., marker='D')		# ... so we want to rotate with the transpose matrix, then adjust basis vector lengths...
+	#
+	print('x_prime dot y_prime: ', numpy.dot(x_prime, y_prime), numpy.dot(y_prime, x_prime), x_pp, y_pp, numpy.dot(x_pp, y_pp))
+	
+	
+#
 # helper scripts
 def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 	# get pca for the input catalog. if center_lat/lon=None, then subtrac these values as the 'mean' (standard PCA). otherwis,
@@ -891,7 +1527,7 @@ def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 	#
 	# now, get eig_vals, eig_vectors:
 	n_dof=len(cat_prime)-1
-	cov = numpy.dot(numpy.array(zip(*cat_prime)),numpy.array(cat_prime))/n_dof
+	cov = numpy.dot(numpy.array(list(zip(*cat_prime))),numpy.array(cat_prime))/n_dof
 	#
 	# for now, we can't assume hermitian or symmetric matrices, so use eig(), not eigh()
 	#eig_vals, eig_vecs = numpy.linalg.eig(cov)
@@ -951,6 +1587,17 @@ def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'],
 		#
 	'''
 	#
+	# add an Euclidian calc. for diagnostics:
+	if 'euclidian' in dist_types:
+		dx_e = (lon_lat_to[0]-lon_lat_from[0])*deg2km
+		dy_e = (lon_lat_to[1]-lon_lat_from[1])*deg2km
+		#if 'cartesian' in dist_types:
+		#
+		return_distances['euclidian'] = ( dx_e**2. + dy_e**2.)**.5
+		#if 'dx_dy' in dist_types:
+		#
+		return_distances.update({'dx_e':dx_e, 'dy_e':dy_e})
+	#
 	if 'cartesian' in dist_types or 'dx_dy' in dist_types:
 		d_lon    = lon_lat_to[0]-lon_lat_from[0]
 		mean_lat = .5*(lon_lat_from[1]+lon_lat_to[1])
@@ -972,7 +1619,7 @@ def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'],
 		#return_distances['geo'] = g1['s12']/1000.0
 		return_distances.update({'geo':g1['s12']/1000., 'azi1':g1['azi1'], 'azi2':g1['azi2']})
 	#
-	if len(return_distances)==1: return_distances = return_distances.items()[0]
+	if len(return_distances)==1: return_distances = list(return_distances.items())[0]
 	#
 	return return_distances
 	
@@ -1201,7 +1848,156 @@ def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 
 	#
 	return E_pf, C[j_pf]
 
+def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[dtm.datetime(2000,1,1, tzinfo=pytz.timezone('UTC')), dtm.datetime.now(pytz.timezone('UTC'))], etas_fit_factor=1.5, gridsize=.05):
+	# make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)
+	# make a test catalog or two. make a real catalog; just keep a couple big earthquakes.
+	#
+	# status: looks like the r_0 parameter is way too small.
+	#
+	cat0 = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=date_range, fit_factor=etas_fit_factor)
+	l_mags = sorted(cat0['mag'])
+	#
+	m8 = l_mags[int(.8*len(l_mags))]
+	m_max = l_mags[-1]
+	#
+	rw=cat0[-1]
+	#
+	rw = [rw for rw in cat0 if rw['mag']==m_max][0]
+	eq = rw.copy()
+	eq_obj = Earthquake(eq)
+	#
+	Lr = 10.**(.5*rw['mag'] - 1.76)
+	d_lon = 5.*Lr*math.cos(deg2rad*rw['lat'])/deg2km
+	d_lat = 5.*Lr/deg2km
+	etas = ETAS_rtree(catalog=[rw], lons=[rw['lon']-d_lon, rw['lon']+d_lon], lats=[rw['lat']-d_lat, rw['lat']+d_lat], d_lat=gridsize, d_lon=gridsize)
+	etas.calc_etas_contours(contour_fig_file='temp/temp.png', contour_kml_file='temp/temp.kml', fignum=0)
+	plt.figure(0)
+	plt.title('etas_1')
+	#
+	# note: check aggregation
+	# outcom: aggregation seems to be working (test with two identical earthquakes; we get exactly x2=2*x1 for the first 10 (and other) elements.
+	etas2 = ETAS_rtree(catalog=[rw,rw], lons=[rw['lon']-d_lon, rw['lon']+d_lon], lats=[rw['lat']-d_lat, rw['lat']+d_lat], d_lat=gridsize, d_lon=gridsize)
+	etas.calc_etas_contours(contour_fig_file='temp/temp.png', contour_kml_file='temp/temp.kml', fignum=5)
+	plt.figure(5)
+	plt.title('etas_5')
+	#
+	# so now, 1) get a linear density plot
+	# and 2) create a catalog with multiple entries of the same event; see that they summ together correctly.
+	# g1=ggp.WGS84.Inverse(lon_lat_from[1], lon_lat_from[0], lon_lat_to[1],lon_lat_to[0])
+	# return_distances.update({'geo':g1['s12']/1000., 'azi1':g1['azi1'], 'azi2':g1['azi2']})
+	#
+	print("eq: ", eq)
+	print('r_0:', eq.r_0, eq.chi)
+	#dists = [[ggp.WGS84.Inverse(rw['lat'], rw['lon'], X['y'], X['x'])['s12']/1000., X['z']] for X in etas.ETAS_array]
+	
+	#dists = [[111.2*math.sqrt((eq['lat']-X['y'])**2. + ((eq['lon']-X['x'])*math.cos(rw['lat']*deg2rad))**2.), X['z']] for X in etas.ETAS_array] 
+	dists = [[ggp.WGS84.Inverse(rw['lat'], rw['lon'], X['y'], X['x'])['s12']/1000., X['z']] for X in etas.ETAS_array]
+	#
+	plt.figure(1)
+	plt.clf()
+	ax=plt.gca()
+	ax.set_yscale('log')
+	ax.set_xscale('log')
+	plt.plot(*zip(*dists), marker='.', ls='', lw=1.5)
+	#plt.plot(*[[x[0], math.log10(x[1])] for x in dists], marker='.', ls='-', lw=1.5)
+	plt.plot([Lr/2., Lr/2.], [min([rw[1] for rw in dists]), max([rw[1] for rw in dists])], 'o-', lw=2.)
+	plt.xlabel('distance $r$')
+	plt.ylabel('ETAS rate-density $z$')
+	#
+	xbin=5
+	#X_bins = numpy.zeros(int(max(zip*(dists[0]))-min(zip*(dists)[0])/xbin), 5.)
+	#N = int((max([rw[0] for rw in dists])-min([rw[0] for rw in dists]))/xbin)+1
+	N = int((max([rw[0] for rw in dists]))/xbin) + 1
+	z_bins = numpy.zeros(N)
+	for dist, z in dists:
+		z_bins[int(dist/xbin)]+=z*gridsize*gridsize*math.cos(deg2rad*numpy.mean(lats))*deg2km*deg2km
+	#
+	plt.figure(2)
+	plt.clf()
+	plt.clf()
+	ax=plt.gca()
+	ax.set_yscale('log')
+	ax.set_xscale('log')
+	ax.plot([xbin*j for j,b in enumerate(z_bins)], z_bins, '.-')
+	#
+	plt.figure(3)
+	plt.clf()
+	ax=plt.gca()
+	ax.set_yscale('log')
+	ax.set_xscale('log')
+	f_omori = lambda r,r_0,chi,q: 1.0/(chi*(r_0 + r)**q)
+	X = numpy.arange(0., eq.L_r*5., .01)
+	ax.plot(X, [f_omori(x, eq.r_0, eq.chi, eq.q) for x in X], '.-')
+	#
+	'''
+	plt.figure(4)
+	plt.clf()
+	rmap = []
+	
+	Y = list(numpy.arange(lats[0], lats[1], gridsize))
+	X = list(numpy.arange(lons[0], lons[1], gridsize))
+	
+	n_lats = len(Y)
+	n_lons = len(X)
+	
+	for lat, lon in itertools.product(Y,X):
+		et=eq_obj.elliptical_transform(lat=lat, lon=lon)
+		rmap += [-math.log10(et['R_prime']+75.)]
+		#
+	#
+	rmap = numpy.array(rmap)
+	print("rmap: ", rmap.size, n_lats, n_lons)
+	#rmap.shape=(n_lats, n_lons)
+	rmap.shape=(n_lats, n_lons)
+	
+	plt.contourf(X,Y,rmap, 25)
+	'''
+	#
+	return etas, etas2
+#
+def etas_diagnostic_r0(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[dtm.datetime(2000,1,1, tzinfo=pytz.timezone('UTC')), dtm.datetime.now(pytz.timezone('UTC'))], etas_fit_factor=1.5, gridsize=.05, D_fract=1.5, b=1.0):
+	'''
+	# another diagnostic:
+	# start by checkin gout the r_0(m) scaling:
+	
+	'''
+	cat0 = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=date_range, fit_factor=etas_fit_factor, D_fract=D_fract, b1=b)
+	#l_mags = sorted(cat0['mag'])
+	f_lin = lambda x,a,b: a + b*x
+	#
+	lstsq, cov = spo.curve_fit(f_lin, xdata=numpy.array(cat0['mag']), ydata=numpy.log10(cat0['r_0']), p0=numpy.array([0.,0.]))
+	#print("lstsq: ", lstsq)
+	#print('a=%f, b=%f' % tuple(lstsq.tolist()))
+	#
+	plt.figure(0)
+	plt.clf()
+	ax = plt.gca()
+	ax.set_yscale('log')
+	ax.set_xscale('linear')
+	#
+	ax.plot(cat0['mag'], cat0['r_0'], '.')
+	#
+	X = [min(cat0['mag']), max(cat0['mag'])]
+	ax.plot(X, [10**(f_lin(X[0], *lstsq)), 10**(f_lin(X[1], *lstsq))], '-', label='a=%f, b=%f' % tuple(lstsq))
+	plt.legend(loc=0, numpoints=1)
+	#
+	#plt.figure(1)
+	#plt.clf()
 
+def ellipse_test(fignume=0, N=1000):
+	plt.figure(0)
+	plt.clf()
+	
+	E = Ellipse(a=10., b=5., theta=45.)
+	xy = E.poly()
+	plt.plot(*zip(*xy), marker='.', ls='-', color='b')
+	gs=.1
+	xy_prime = [[float(gs*int(x/gs)), float(gs*int(y/gs))] for x,y in xy]
+	plt.plot(*zip(*xy_prime), marker='x', ls='-', color='g') 
+	#
+	return E
+	
+	
 if __name__=='__main__':
 	# do main stuff...
 	pass
