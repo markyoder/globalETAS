@@ -43,62 +43,7 @@ import random
 sischuan_prams = {'to_dt':dtm.datetime(2008,6,12, tzinfo=pytz.timezone('UTC')), 'mainshock_dt':dtm.datetime(2008,5,13, tzinfo=pytz.timezone('UTC')), 'lat_center':31.021, 'lon_center':103.367, 'Lr_map_factor':4.0, 'mc':4.0, 'mc_0':None, 'dm_cat':2.0, 'gridsize':.1, 'fnameroot':'etas_auto_sichuan', 'catlen':10.0*365., 'd_lambda':1.76, 'doplot':True}
 #sischuan_prams['to_dt'] = dtm.datetime(2014,4,20, tzinfo=pytz.timezone('UTC'))
 sischuan_prams['to_dt'] = dtm.datetime.now(pytz.timezone('UTC'))
-
-def nepal_etas_roc():
-	# def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15,**kwargs)
-	#
-	nepal_etas_fc = get_nepal_etas_fc()
-	nepal_etas_test = get_nepal_etas_test()
-	#
-	# get mainshock:
-	ms = nepal_etas_fc.catalog[0]
-	for rw in nepal_etas_fc.catalog:
-		if rw['mag']>ms['mag']: ms=rw
-	#
-	z1 = plot_mainshock_and_aftershocks(etas=nepal_etas_fc, m0=6.0, fignum=0)
-	#
-	z2 = plot_mainshock_and_aftershocks(etas=nepal_etas_test, m0=6.0, fignum=1)
-	#
-	# now, normalize z1,z2. we can normalize a number of different ways, namely 1) normalize so that sum(z)=1, 2) normailze to max(z).
-	# nominally, if we want to compare a big catalog to a small catalog and we don't want to mess around with time dependence, we just normalize to sum(z)=1.
-	#
-	return nepal_etas_fc, nepal_etas_test
-
-def get_nepal_etas_fc():
-	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':True, 'n_contours':15})
-	#nepal_etas_fc = gep.ETAS_rtree(**np_prams)
-	#
-	#return gep.ETAS_rtree(**np_prams)
-	return gep.ETAS_mpp_handler_xyz(**np_prams)
-
-def get_nepal_etas_test(**pram_updates):
-	# pram_updates: any earthquake parameters (aka, np_prams) we might want to specify, like "q"...
-	#
-	# 
-	#
-	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':False, 'n_contours':15})
-	#
-	np_prams_test = np_prams
-	np_prams_test.update({'t_now':dtm.datetime(2015,5,21,tzinfo=tzutc), 't_0':dtm.datetime(2015,5,8,tzinfo=tzutc)})
-	np_prams_test.update(pram_updates)
-	#
-	#nepal_etas_test = gep.ETAS_rtree(**np_prams_test)
-	#
-	# there's a more proper way to do this, probably to create an inherited class of globalETAS and/or Earthquake for a "stationary" output (p=0 for calculating ETAS, but remember NOT for
-	# the initial rate calculation (which is done in the catalog construction bits) ). for now, create the ETAS object; then spin through the catalog and set p=0 for all the earthquakes.
-	# remember also that etas.catalog is a recarray, not an array of Earthquake objects.
-	#
-	#etas = gep.ETAS_rtree(**np_prams_test)
-	etas = gep.ETAS_mpp_handler_xyz(**np_prams_test)
-	for j,eq in enumerate(etas.catalog):
-		etas.catalog['p'][j] = 0.0
-		# ... and sort of a sloppy way to do this as well...
-		for key,val in pram_updates.items(): etas.catalog[key]=val
-	#
-	etas.make_etas()
-	return etas
+#
 
 class Toy_etas(object):
 	def __init__(self, etas_in, mainshock={'mag':7.3, 'lon':84.698, 'lat':28.175}):
@@ -156,59 +101,6 @@ class Toy_etas_fromxyz(object):
 	#
 		
 	#
-'''	
-def toy_etas(ETAS_array=None, lats=None, lons=None, l_lon=.1, d_lat=.1, epicenter=None, mc=None):
-	# make a toy object that contains all the necessary bits to look like an etas object.
-	#
-	# ... but actually, maybe a better way to do this is to just clone (most of) another etas objec, like:
-	# obj.update(etas_template.__dict__)
-	if ETAS_array==None:
-		ETAS_array = [[x,y] for x,y in itertools.product(numpy.arange(lats[0], lats[1]+d_lat, d_lat), numpy.arange(lons[0], lons[1]+d_lon, d_lon))]
-	#
-	epicen_lat = 28.147
-	epicen_lon = 84.708
-	#
-	for j,rw in enumerate(ETAS_array):
-		if len(rw)<3:
-			ETAS_array[j]+=[0]
-			g1=ggp.WGS84.Inverse(epicen_lat, epicen_lon, rw[1], rw[0])
-			ETAS_array[j][2] = 1.0/(g1['s12']/1000.)
-			#
-	my_etas = object()
-	my_etas.lattice_xy = ETAS_array
-	my_etas.lons=[min([rw[0] for rw in ETAS_array]), max([rw[0] for rw in ETAS_array])]
-	my_etas.lats=[min([rw[1] for rw in ETAS_array]), max([rw[1] for rw in ETAS_array])]
-	#
-'''	
-
-def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-'):
-	#
-	# make a set of ROCs.
-	plt.figure(fignum)
-	if do_clf: plt.clf()
-	ax=plt.gca()
-	FHs=[]
-	#
-	for mc in mc_rocs:
-		# ... we should probalby modify roc_normal() so we can pass a catalog (for speed optimization), but we'll probably only run this a few times.
-		print('roc for %f', mc)
-		FH = roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=mc, fignum=0)
-		ax.plot(*zip(*FH), marker='', ls=roc_ls, lw=2.5, alpha=.8, label='$m_c=%.2f$' % mc)
-		FHs += [[mc,FH]]
-		#
-	#
-	ax.plot(range(2), range(2), ls='--', marker='', lw=2.75, alpha=.7, zorder=1)
-	plt.figure(fignum)
-	ax.legend(loc=0, numpoints=1)
-	ax.set_ylim([-.1,1.15])
-	ax.set_xlim([-.1,1.15])
-	ax.set_title('ROC Analysis', size=18)
-	ax.set_xlabel('False Alarm Rate $F$', size=18)
-	ax.set_ylabel('Hit Rate $H$', size=18)
-	plt.draw()
-	#
-	return FHs
-
 #
 class ROC_base(object):
 	# a base class object for MPP ROC stuff. we'll inherit this for both the worker and handerl mpp classes.
@@ -324,22 +216,151 @@ class ROC_base(object):
 
 
 #
-class ROC_mpp_handler(ROC_base):
-	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, n_procs=None):
-		super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key!='self'})
+class ROC_mpp_handler(ROC_base, mpp.Process):
+	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, n_procs=None, pipe_r=None):
+		super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key not in ('self', 'pipe_r', 'n_procs')})
+		#
+		# return pipe:
+		self.pipe_r = pipe_r
 		#
 		if n_procs==None: n_procs = min(1, mpp.cpu_count()-1)
 		#
-		
+	def calc_ROCs(self, n_procs=None):
+		n_procs = (n_procs or self.n_procs)
+		#
+		# now, split up fc_xyz into n_procs, start each proc and pipe back the results.
+		fc_len = int(numpy.ceil(len(self.fc_xyz)/n_procs))
+		roc_workers = []
+		for j in range(n_procs):
+			# make an ROC_worker instance for each process, fc_xyz = fc_xyz[j*fc_len:(j+1)*fc_len]
+			roc_workers += [ROC_woorker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=test_catalog)]
+			pass
 	#
 class ROC_worker(ROC_base):
 	# worker class for ROC calculations.
 	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
-		super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key!='self'})
-		pass	
-
-
+		# note: the __init__ should be satisfied with fc_xyz, test_catalog. the mpp_handler or some other autonomouse form
+		# should automate catalog fetching and etas running.
+		super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key not in ('self', 'pipe_r')})
+		pass
 	
+	def run(self):
+		# we can probably speed this up a bit by eliminating some of the copies...
+		self.calc_ROCs()
+		self.calc_HF()
+		#
+		self.pipe_r.send(self.HF)
+
+
+
+#
+def nepal_etas_roc():
+	# def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15,**kwargs)
+	#
+	nepal_etas_fc = get_nepal_etas_fc()
+	nepal_etas_test = get_nepal_etas_test()
+	#
+	# get mainshock:
+	ms = nepal_etas_fc.catalog[0]
+	for rw in nepal_etas_fc.catalog:
+		if rw['mag']>ms['mag']: ms=rw
+	#
+	z1 = plot_mainshock_and_aftershocks(etas=nepal_etas_fc, m0=6.0, fignum=0)
+	#
+	z2 = plot_mainshock_and_aftershocks(etas=nepal_etas_test, m0=6.0, fignum=1)
+	#
+	# now, normalize z1,z2. we can normalize a number of different ways, namely 1) normalize so that sum(z)=1, 2) normailze to max(z).
+	# nominally, if we want to compare a big catalog to a small catalog and we don't want to mess around with time dependence, we just normalize to sum(z)=1.
+	#
+	return nepal_etas_fc, nepal_etas_test
+
+def get_nepal_etas_fc():
+	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':True, 'n_contours':15})
+	#nepal_etas_fc = gep.ETAS_rtree(**np_prams)
+	#
+	#return gep.ETAS_rtree(**np_prams)
+	return gep.ETAS_mpp_handler_xyz(**np_prams)
+
+def get_nepal_etas_test(**pram_updates):
+	# pram_updates: any earthquake parameters (aka, np_prams) we might want to specify, like "q"...
+	#
+	# 
+	#
+	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':False, 'n_contours':15})
+	#
+	np_prams_test = np_prams
+	np_prams_test.update({'t_now':dtm.datetime(2015,5,21,tzinfo=tzutc), 't_0':dtm.datetime(2015,5,8,tzinfo=tzutc)})
+	np_prams_test.update(pram_updates)
+	#
+	#nepal_etas_test = gep.ETAS_rtree(**np_prams_test)
+	#
+	# there's a more proper way to do this, probably to create an inherited class of globalETAS and/or Earthquake for a "stationary" output (p=0 for calculating ETAS, but remember NOT for
+	# the initial rate calculation (which is done in the catalog construction bits) ). for now, create the ETAS object; then spin through the catalog and set p=0 for all the earthquakes.
+	# remember also that etas.catalog is a recarray, not an array of Earthquake objects.
+	#
+	#etas = gep.ETAS_rtree(**np_prams_test)
+	etas = gep.ETAS_mpp_handler_xyz(**np_prams_test)
+	for j,eq in enumerate(etas.catalog):
+		etas.catalog['p'][j] = 0.0
+		# ... and sort of a sloppy way to do this as well...
+		for key,val in pram_updates.items(): etas.catalog[key]=val
+	#
+	etas.make_etas()
+	return etas
+'''	
+def toy_etas(ETAS_array=None, lats=None, lons=None, l_lon=.1, d_lat=.1, epicenter=None, mc=None):
+	# make a toy object that contains all the necessary bits to look like an etas object.
+	#
+	# ... but actually, maybe a better way to do this is to just clone (most of) another etas objec, like:
+	# obj.update(etas_template.__dict__)
+	if ETAS_array==None:
+		ETAS_array = [[x,y] for x,y in itertools.product(numpy.arange(lats[0], lats[1]+d_lat, d_lat), numpy.arange(lons[0], lons[1]+d_lon, d_lon))]
+	#
+	epicen_lat = 28.147
+	epicen_lon = 84.708
+	#
+	for j,rw in enumerate(ETAS_array):
+		if len(rw)<3:
+			ETAS_array[j]+=[0]
+			g1=ggp.WGS84.Inverse(epicen_lat, epicen_lon, rw[1], rw[0])
+			ETAS_array[j][2] = 1.0/(g1['s12']/1000.)
+			#
+	my_etas = object()
+	my_etas.lattice_xy = ETAS_array
+	my_etas.lons=[min([rw[0] for rw in ETAS_array]), max([rw[0] for rw in ETAS_array])]
+	my_etas.lats=[min([rw[1] for rw in ETAS_array]), max([rw[1] for rw in ETAS_array])]
+	#
+'''	
+
+def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-'):
+	#
+	# make a set of ROCs.
+	plt.figure(fignum)
+	if do_clf: plt.clf()
+	ax=plt.gca()
+	FHs=[]
+	#
+	for mc in mc_rocs:
+		# ... we should probalby modify roc_normal() so we can pass a catalog (for speed optimization), but we'll probably only run this a few times.
+		print('roc for %f', mc)
+		FH = roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=mc, fignum=0)
+		ax.plot(*zip(*FH), marker='', ls=roc_ls, lw=2.5, alpha=.8, label='$m_c=%.2f$' % mc)
+		FHs += [[mc,FH]]
+		#
+	#
+	ax.plot(range(2), range(2), ls='--', marker='', lw=2.75, alpha=.7, zorder=1)
+	plt.figure(fignum)
+	ax.legend(loc=0, numpoints=1)
+	ax.set_ylim([-.1,1.15])
+	ax.set_xlim([-.1,1.15])
+	ax.set_title('ROC Analysis', size=18)
+	ax.set_xlabel('False Alarm Rate $F$', size=18)
+	ax.set_ylabel('Hit Rate $H$', size=18)
+	plt.draw()
+	#
+	return FHs
 #
 def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, fignum=0, do_clf=True):
 	#
