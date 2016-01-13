@@ -155,8 +155,12 @@ class ROC_base(object):
 		# basic bits and pieces established. now, handler class will allocate sub-sets of Zs to workers; workers will aggregate roc.
 		#
 	#
-	def calc_ROCs(self):
-		#for j_z, z0 in enumerate(Zs['z']):
+	def calc_ROCs(self, H_denom=None, F_denom=None):
+		#
+		# might want to specify the denominators for H and F for MPP calculations.
+		H_denom = (H_denom or len(self.test_catalog))
+		F_denom = (F_denom or len(self.fc_xyz))
+		#
 		ROCs = [[0,0,0,0]]
 		for j_z, z0 in enumerate(Zs):
 			# z0 is the threshold z for predicted=True/False
@@ -191,33 +195,29 @@ class ROC_base(object):
 		#
 		# return ROCs
 	#
-	def calc_HF(self):
-		self.calc_ROCs()
+	#def calc_HF(self):
+	#	self.calc_ROCs()
 		#
 		#Hs2=[]
 		#Fs2=[]
-		# note: this migh make a nice practice problem for mpp.Array() ....
-		HF = [[float(rw[0])/float(len(test_catalog)), roc[1]/float(len(fc_xyz))] for rw in ROCs[:-1]]
+		# note: this migh make a nice practice problem for mpp.Array() ....		
+		#HF = [[float(rw[0])/H_denom, roc[1]/F_denom] for rw in ROCs[:-1]]
+		FH = [[roc[1]/F_denom, float(rw[0])/H_denom] for rw in ROCs[:-1]]
 		#
-		self.HF = HF
-		#for roc in ROCs[:-1]:
-		#	roc=[float(x) for x in roc]
-		#	#
-		#	Hs += [roc[0]/float(len(test_catalog))]
-		#	Fs += [roc[1]/float(len(fc_xyz))]
+		self.FH = FH
 	#
 	def plot_HF(self, fignum=0):
 		plt.figure(fignum)
 		if do_clf: plt.clf()
 		#plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
-		plt.plot(*zip(*self.HF), ls='-', label='ROC_approx.', lw=2., alpha=.8)
+		plt.plot(*zip(*self.FH), ls='-', label='ROC_approx.', lw=2., alpha=.8)
 		#plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
 		plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
 
 
 #
 class ROC_mpp_handler(ROC_base, mpp.Process):
-	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, n_procs=None, pipe_r=None):
+	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, n_procs=None):
 		super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key not in ('self', 'pipe_r', 'n_procs')})
 		#
 		# return pipe:
@@ -231,14 +231,24 @@ class ROC_mpp_handler(ROC_base, mpp.Process):
 		# now, split up fc_xyz into n_procs, start each proc and pipe back the results.
 		fc_len = int(numpy.ceil(len(self.fc_xyz)/n_procs))
 		roc_workers = []
+		roc_pipes = []
 		for j in range(n_procs):
 			# make an ROC_worker instance for each process, fc_xyz = fc_xyz[j*fc_len:(j+1)*fc_len]
-			roc_workers += [ROC_woorker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=test_catalog)]
-			pass
+			p1,p2 = mpp.pipe()
+			roc_workers += [ROC_woorker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=test_catalog, pipe_r=p1, H_denom = len(self.test_catalog), F_denom=len(self.fc_xyz))]
+			roc_pipes += [p2]
+			roc_workers[-1].start()
+			#
+		#
+		FH = []
+		for j,p in enumerate(roc_pipes):
+			FH += [p.recv()]
+		#
+		HF.sort(key=lambda x: x[0])
 	#
 class ROC_worker(ROC_base):
 	# worker class for ROC calculations.
-	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
+	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, pipe_r=None, H_denom=None, F_denom=None):
 		# note: the __init__ should be satisfied with fc_xyz, test_catalog. the mpp_handler or some other autonomouse form
 		# should automate catalog fetching and etas running.
 		super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key not in ('self', 'pipe_r')})
@@ -246,8 +256,8 @@ class ROC_worker(ROC_base):
 	
 	def run(self):
 		# we can probably speed this up a bit by eliminating some of the copies...
-		self.calc_ROCs()
-		self.calc_HF()
+		self.calc_ROCs(H_denom=self.H_denom, F_denom=self.F_denom)
+		#self.calc_HF()
 		#
 		self.pipe_r.send(self.HF)
 
@@ -480,6 +490,8 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	Hs2=[]
 	Fs2=[]
 	# note: this migh make a nice practice problem for mpp.Array() ....
+	len_test_cat = float(len(test_catalog))
+	len_fc       = float(len(fc_xyz))
 	for roc in ROCs[:-1]:
 		#try:
 		if True:
@@ -487,8 +499,10 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 			#h=float(len(etas_fc.ETAS_array))
 			#f=roc[1]/float(len(etas_fc.ETAS_array))
 			#
-			Hs += [roc[0]/float(len(test_catalog))]
-			Fs += [roc[1]/float(len(fc_xyz))]
+			#Hs += [roc[0]/float(len(test_catalog))]
+			#Fs += [roc[1]/float(len(fc_xyz))]
+			Hs += [roc[0]/len_test_cat]
+			Fs += [roc[1]/len_fc]
 			#
 			## diagnostic formulation:
 			#Hs2 += [roc[0]/(roc[0]+roc[2])]
@@ -599,17 +613,21 @@ def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120
 	Hs2=[]
 	Fs2=[]
 	# note: this migh make a nice practice problem for mpp.Array() ....
+	len_test_cat = float(len(test_catalog))
+	len_fc       = float(len(etas_fc.ETAS_array))
 	for roc in ROCs[:-1]:
 		#try:
 		if True:
 			roc=[float(x) for x in roc]
 			Hs2 += [roc[0]/(roc[0]+roc[2])]
-			#h=float(len(etas_fc.ETAS_array))
-			#f=roc[1]/float(len(etas_fc.ETAS_array))
-			#
-			Hs += [roc[0]/float(len(test_catalog))]
 			Fs2 += [roc[1]/(roc[1]+roc[3])]
-			Fs += [roc[1]/float(len(etas_fc.ETAS_array))]
+			#
+			#Hs += [roc[0]/float(len(test_catalog))]
+			#Fs += [roc[1]/float(len(etas_fc.ETAS_array))]
+			#
+			Hs += [roc[0]/len_test_cat]
+			Fs += [roc[1]/len_fc]
+
 			
 		#except:
 		#	print('ROC error, probably div/0: ', roc, len(test_catalog), len(etas_fc.ETAS_array), roc[0]/float(len(test_catalog)), roc[1]/float(float(len(etas_fc.ETAS_array))) )
