@@ -105,7 +105,7 @@ class Toy_etas_fromxyz(object):
 class ROC_base(object):
 	# a base class object for MPP ROC stuff. we'll inherit this for both the worker and handerl mpp classes.
 	#
-	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
+	def __init__(self, fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
 		#
 		if isinstance(fc_xyz, str):
 			# if we're given a filename...
@@ -138,34 +138,38 @@ class ROC_base(object):
 		# (maybe ought to set this as a regular class function?)
 		get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
 		#
-		
 		print("get cataog: ", lons, lats, mc, from_dt, to_dt)
 		if test_catalog==None: test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[from_dt, to_dt])
 		print("catlen: ", len(test_catalog))
 		#
 		# note: this will reduce the number of z values a bit, but what we really need to do is bin them into N bins... or maybe
 		# we do explicitly want to remove each site, one at a time to get a proper ROC...
-		#Zs = list(set(sorted(list(fc_xyz['z'].copy()))))
 		Zs = sorted(list(fc_xyz['z'].copy()))
 		ROCs = [[0,0,0,0]]
 		# nominally, we'd make a copy of the whole catalog, but for memory conservation, just index the lsit.
 		#eq_ks = [[get_site(eq['lon'], eq['lat']), eq] for eq in test_catalog]
 		eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
-		#
-		# basic bits and pieces established. now, handler class will allocate sub-sets of Zs to workers; workers will aggregate roc.
-		#
+		self.__dict__.update(locals())
 	#
 	def calc_ROCs(self, H_denom=None, F_denom=None):
 		#
+		#Zs = sorted(list(fc_xyz['z'].copy()))
+		#ROCs = [[0,0,0,0]]
+		#eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
+		Zs   = sorted(self.Zs)
+		ROCs = self.ROCs
+		eq_site_indices = self.eq_site_indices
+		fc_xyz = self.fc_xyz
+
 		# might want to specify the denominators for H and F for MPP calculations.
 		H_denom = (H_denom or len(self.test_catalog))
 		F_denom = (F_denom or len(self.fc_xyz))
 		#
-		ROCs = [[0,0,0,0]]
+		ROCs = [[0,0,0,0]]		# hits, falsies, misses, correct-non-occurrence
 		for j_z, z0 in enumerate(Zs):
 			# z0 is the threshold z for predicted=True/False
 			#
-			for j_eq, eq in enumerate(test_catalog):
+			for j_eq, eq in enumerate(self.test_catalog):
 				# TODO: and parse it up for MPP.
 				#k = get_site(eq['lon'], eq['lat'])
 				k = eq_site_indices[j_eq]
@@ -183,8 +187,12 @@ class ROC_base(object):
 					ROCs[-1][2]+=1
 					ROCs[-1][3]-=1		# an earthquake occurred in this site. it did not correctly predict non-occurrence.
 				#
-			n_gt = float(len([z for z in fc_xyz['z'] if z>=z0]))
-			n_lt = float(len([z for z in fc_xyz['z'] if z<z0]))
+			#n_gt = float(len([z for z in fc_xyz['z'] if z>=z0]))
+			#n_lt = float(len([z for z in fc_xyz['z'] if z<z0]))
+			n_gt, n_lt= 0, 0
+			for z in fc_xyz['z']:
+				n_gt += (z>=z0)
+				n_lt += (z<z0)
 			#
 			ROCs[-1][1]+=n_gt
 			ROCs[-1][3]+=n_lt
@@ -202,14 +210,14 @@ class ROC_base(object):
 		#Fs2=[]
 		# note: this migh make a nice practice problem for mpp.Array() ....		
 		#HF = [[float(rw[0])/H_denom, roc[1]/F_denom] for rw in ROCs[:-1]]
-		FH = [[roc[1]/F_denom, float(rw[0])/H_denom] for rw in ROCs[:-1]]
+		FH = [[rw[1]/F_denom, float(rw[0])/H_denom] for rw in ROCs[:-1]]
 		#
 		self.FH = FH
 	#
-	def plot_HF(self, fignum=0):
+	def plot_HF(self, fignum=0, do_clf=True):
 		plt.figure(fignum)
 		if do_clf: plt.clf()
-		#plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
+		#
 		plt.plot(*zip(*self.FH), ls='-', label='ROC_approx.', lw=2., alpha=.8)
 		#plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
 		plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
@@ -217,7 +225,10 @@ class ROC_base(object):
 
 #
 class ROC_mpp_handler(ROC_base, mpp.Process):
-	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, n_procs=None):
+	# ... or write up like:
+	# def __init__(self, n_procs, *args, **kwargs):
+	#	super().__init__(*args, **kwargs):
+	def __init__(self, fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, n_procs=None):
 		super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key not in ('self', 'pipe_r', 'n_procs')})
 		#
 		# return pipe:
@@ -261,8 +272,32 @@ class ROC_worker(ROC_base):
 		#
 		self.pipe_r.send(self.HF)
 
-
-
+#
+def roc_class_test_1():
+	# test roc etas classes.
+	# for now, just use the nepal ETAS classes:
+	#
+	etas_fc = get_nepal_etas_fc()
+	#nepal_etas_test = get_nepal_etas_test()
+	fc_date = max(etas_fc.catalog['event_date']).tolist()
+	to_dt = fc_date + dtm.timedelta(days=120)
+	test_catalog = atp.catfromANSS(lon=etas_fc.lons, lat=etas_fc.lats, minMag=etas_fc.mc, dates0=[fc_date, to_dt])
+	#
+	xyz = etas_fc.ETAS_array
+	#
+	roc = ROC_base(fc_xyz=xyz, test_catalog=test_catalog, from_dt=fc_date, to_dt=to_dt, dx=None, dy=None, cat_len=120., mc=5.0)
+	#
+	h_denom = float(len(test_catalog))
+	f_denom = float(len(xyz))
+	fh = roc.calc_ROCs(H_denom=h_denom, F_denom=f_denom)
+	roc.plot_HF()
+	#
+	ZZ = roc_normal_from_xyz(fc_xyz=xyz, test_catalog=test_catalog, from_dt=fc_date, to_dt=to_dt, dx=None, dy=None, cat_len=120., mc=5.0, fignum=2, do_clf=True)
+	
+	return roc
+	
+	
+	
 #
 def nepal_etas_roc():
 	# def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15,**kwargs)
