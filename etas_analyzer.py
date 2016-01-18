@@ -276,7 +276,7 @@ class ROC_mpp_handler(ROC_base):
 			p1,p2 = mpp.Pipe()
 			#roc_workers += [ROC_woorker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=test_catalog, pipe_r=p1, H_denom = len(self.test_catalog), F_denom=len(self.fc_xyz))]
 			roc_workers += [ROC_worker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=self.test_catalog, pipe_r=p1, H_denom = self.h_denom, F_denom=self.f_denom, z_start_index=j*fc_len)]
-			roc_workers[-1].eq_z_vals = self.eq_z_vals[j*fc_len:min(len(fc_xyz), (j+1)*fc_len)][:]	# .. and make a copy.
+			roc_workers[-1].eq_z_vals = self.eq_z_vals[j*fc_len:min(len(self.fc_xyz), (j+1)*fc_len)][:]	# .. and make a copy.
 			roc_pipes += [p2]
 			roc_workers[-1].start()
 			#
@@ -393,7 +393,7 @@ def nepal_etas_roc():
 
 def get_nepal_etas_fc(n_procs=None, cat_len=5.*365.):
 	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_procs':n_procs})
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_processes':n_procs})
 	#nepal_etas_fc = gep.ETAS_rtree(**np_prams)
 	#
 	#return gep.ETAS_rtree(**np_prams)
