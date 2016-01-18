@@ -14,6 +14,7 @@ import itertools
 import sys
 #import scipy.optimize as spo
 import os
+import operator
 #from PIL import Image as ipp
 import multiprocessing as mpp
 #
@@ -98,9 +99,6 @@ class Toy_etas_fromxyz(object):
 		self.lats = [min(self.ETAS_array['y']), max(self.ETAS_array['y'])]
 		#
 		#
-	#
-		
-	#
 #
 class ROC_base(object):
 	# a base class object for MPP ROC stuff. we'll inherit this for both the worker and handerl mpp classes.
@@ -112,12 +110,8 @@ class ROC_base(object):
 			with open(fc_xyz, 'r') as froc:
 				fc_xyz= [[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]
 		#
-		if to_dt == None:
-			to_dt = dtm.datetime.now(pytz.timezone('UTC'))
-		if from_dt == None or from_dt>to_dt:
-			from_dt = to_dt - dtm.timedelta(days=cat_len)
-	
-			#
+		if to_dt   == None: to_dt = dtm.datetime.now(pytz.timezone('UTC'))
+		if from_dt == None: from_dt = to_dt-dtm.timedelta(days=120)			# but this really doesn't make much sense for this version of ROC...
 		#
 		#return fc_xyz
 		if not hasattr(fc_xyz, 'dtype'):
@@ -127,8 +121,8 @@ class ROC_base(object):
 		lons = [min(fc_xyz['x']), max(fc_xyz['x'])]
 		#
 		#mc   = mc_roc
-		X_set = list(set(fc_xyz['x']))
-		Y_set = list(set(fc_xyz['y'])) 
+		X_set = sorted(list(set(fc_xyz['x'])))
+		Y_set = sorted(list(set(fc_xyz['y'])))
 		d_lon = (dx or abs(X_set[1] - X_set[0]))
 		d_lat = (dy or abs(Y_set[1] - Y_set[0]))
 		nx = len(X_set)
@@ -136,7 +130,7 @@ class ROC_base(object):
 		#
 		# (for this application, we can also just get nasty and to a loop-loop with geodetic distancing).
 		# (maybe ought to set this as a regular class function?)
-		get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
+		#get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
 		#
 		print("get cataog: ", lons, lats, mc, from_dt, to_dt)
 		if test_catalog==None: test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[from_dt, to_dt])
@@ -148,17 +142,31 @@ class ROC_base(object):
 		ROCs = [[0,0,0,0]]
 		# nominally, we'd make a copy of the whole catalog, but for memory conservation, just index the lsit.
 		#eq_ks = [[get_site(eq['lon'], eq['lat']), eq] for eq in test_catalog]
-		eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
+		#eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
+		#
 		self.__dict__.update(locals())
+		#
+		# ... but running this here won't work properly for mpp instances... well, it will work, but we'll have to set eq_z_vals twice.
+		# the first time, when it runs as super(), it will use the local get_site(), which we need to override in the inherited versions.
+		self.eq_z_vals = None
+		#self.eq_z_vals       = [fc_xyz[self.get_site(eq['lon'], eq['lat'])] for eq in test_catalog]	# ... but not this won't scale up
+		#
 	#
+	def get_site(self, x,y):
+		return int(round((x-self.lons[0]+.5*self.d_lon)/self.d_lon)) + int(round((y-self.lats[0]+.5*self.d_lat)/self.d_lat))*self.nx
+
 	def calc_ROCs(self, H_denom=None, F_denom=None):
+		#
+		if self.eq_z_vals == None:
+			self.eq_z_vals       = [self.fc_xyz[self.get_site(eq['lon'], eq['lat'])] for eq in self.test_catalog]	
+			#
 		#
 		#Zs = sorted(list(fc_xyz['z'].copy()))
 		#ROCs = [[0,0,0,0]]
 		#eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
 		Zs   = sorted(self.Zs)
-		ROCs = self.ROCs
-		eq_site_indices = self.eq_site_indices
+		#ROCs = self.ROCs
+		#eq_site_indices = self.eq_site_indices
 		fc_xyz = self.fc_xyz
 
 		# might want to specify the denominators for H and F for MPP calculations.
@@ -169,14 +177,25 @@ class ROC_base(object):
 		for j_z, z0 in enumerate(Zs):
 			# z0 is the threshold z for predicted=True/False
 			#
-			for j_eq, eq in enumerate(self.test_catalog):
+			#for j_eq, eq in enumerate(self.test_catalog):
+			#for k in eq_site_indices:
+			for k,z in enumerate(self.eq_z_vals):
 				# TODO: and parse it up for MPP.
-				#k = get_site(eq['lon'], eq['lat'])
-				k = eq_site_indices[j_eq]
-				#print('site: ', k)
-				z_val = fc_xyz['z'][k]
 				#
-				if z_val>=z0:
+				#k = eq_site_indices[j_eq]			# we can probably optimize this process by just looping through eq_site_indices directly.
+				#									# ...might even be able to do an all numpy mod as well. 
+				#print('site: ', k)
+				#z_val = fc_xyz['z'][k]
+				#
+				#if z_val>=z0:
+				# this whole process could (probably) be sped up by taking a different approach with vectors:
+				# hits_mask = [(fc_xyz['z'][k]>=z0) for k in eq_site_indices]
+				# hits_sum = sum(hits_mask)
+				# false_sum = n_sites - hits_sum
+				# miss_sum = n_quakes - hits_sum
+				# correct_nonoccurrences = ... dunno... or something like that.
+				#if fc_xyz['z'][k]>=z0:
+				if z>=z0:
 					# predicted!
 					ROCs[-1][0]+=1
 					#
@@ -187,29 +206,26 @@ class ROC_base(object):
 					ROCs[-1][2]+=1
 					ROCs[-1][3]-=1		# an earthquake occurred in this site. it did not correctly predict non-occurrence.
 				#
+			#
 			#n_gt = float(len([z for z in fc_xyz['z'] if z>=z0]))
 			#n_lt = float(len([z for z in fc_xyz['z'] if z<z0]))
-			n_gt, n_lt= 0, 0
+			
+			#n_gt, n_lt= 0, 0
+			# this should be a little bit faster (but it needs to be modified to add in place)...
+			#[operator.add(ROCs[-1][1],1) if z>=z0 else operator.add(ROCs[-1][3],1) for z in fc_xyz['z']]
 			for z in fc_xyz['z']:
-				n_gt += (z>=z0)
-				n_lt += (z<z0)
-			#
-			ROCs[-1][1]+=n_gt
-			ROCs[-1][3]+=n_lt
+				ROCs[-1][1]+=(z>=z0)
+				ROCs[-1][3]+=(z<z0)
+			#	n_gt += (z>=z0)
+			#	n_lt += (z<z0)
+			##
+			#ROCs[-1][1]+=n_gt
+			#ROCs[-1][3]+=n_lt
 			#
 			ROCs += [[0,0,0,0]]
 		#
 		self.ROCs=ROCs
 		#
-		# return ROCs
-	#
-	#def calc_HF(self):
-	#	self.calc_ROCs()
-		#
-		#Hs2=[]
-		#Fs2=[]
-		# note: this migh make a nice practice problem for mpp.Array() ....		
-		#HF = [[float(rw[0])/H_denom, roc[1]/F_denom] for rw in ROCs[:-1]]
 		FH = [[rw[1]/F_denom, float(rw[0])/H_denom] for rw in ROCs[:-1]]
 		#
 		self.FH = FH
@@ -221,21 +237,32 @@ class ROC_base(object):
 		plt.plot(*zip(*self.FH), ls='-', label='ROC_approx.', lw=2., alpha=.8)
 		#plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
 		plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
-
-
 #
-class ROC_mpp_handler(ROC_base, mpp.Process):
+class ROC_mpp_handler(ROC_base):
+	# you know, what we should start doing is write up these "handler" classes as mpp.Pool() subclasses...
 	# ... or write up like:
 	# def __init__(self, n_procs, *args, **kwargs):
 	#	super().__init__(*args, **kwargs):
-	def __init__(self, fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, n_procs=None):
-		super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key not in ('self', 'pipe_r', 'n_procs')})
+	#def __init__(self, fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, n_procs=None):
+	def __init__(self, n_procs=None, *args, **kwargs):
+		# note that the call signature using *args (ordered parameters) won't be identical to non-mpp subclasses; kwargs or key-word calling syntax won't change.
+		# ... should probably rewrite this to just use (*args, **kwargs)...
+		#super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key not in ('self', 'pipe_r', 'n_procs')})
+		super(ROC_mpp_handler,self).__init__(*args,**kwargs)
+		# ... also might need to call mpp.Process.__init__() explicitly.
 		#
-		# return pipe:
-		self.pipe_r = pipe_r
+		if n_procs==None: n_procs = min(1, mpp.cpu_count()-1)		# we should also catch the case n_procs==1 and defer to an spp solution.
+		self.n_procs = n_procs
 		#
-		if n_procs==None: n_procs = min(1, mpp.cpu_count()-1)
+		# hit and false-alarm denominators. we'll be distributing ROC to multiple processors, so we need to know these in advance.
+		self.h_denom = float(len(self.test_catalog))
+		self.f_denom = float(len(self.fc_xyz))
 		#
+		# for now, set the z_indices here and parse them to the workers. we'll sort out indexing to do this on the worker level later
+		# (so we'll pass less data and distribute more work, but for now just make it work.)
+		self.eq_z_vals = [self.fc_xyz[self.get_site(eq['lon'], eq['lat'])] for eq in self.test_catalog]	
+		#
+	#
 	def calc_ROCs(self, n_procs=None):
 		n_procs = (n_procs or self.n_procs)
 		#
@@ -243,58 +270,103 @@ class ROC_mpp_handler(ROC_base, mpp.Process):
 		fc_len = int(numpy.ceil(len(self.fc_xyz)/n_procs))
 		roc_workers = []
 		roc_pipes = []
+		print("calculating ROCs: %d processors" % (int(n_procs)))
 		for j in range(n_procs):
 			# make an ROC_worker instance for each process, fc_xyz = fc_xyz[j*fc_len:(j+1)*fc_len]
-			p1,p2 = mpp.pipe()
-			roc_workers += [ROC_woorker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=test_catalog, pipe_r=p1, H_denom = len(self.test_catalog), F_denom=len(self.fc_xyz))]
+			p1,p2 = mpp.Pipe()
+			#roc_workers += [ROC_woorker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=test_catalog, pipe_r=p1, H_denom = len(self.test_catalog), F_denom=len(self.fc_xyz))]
+			roc_workers += [ROC_worker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=self.test_catalog, pipe_r=p1, H_denom = self.h_denom, F_denom=self.f_denom, z_start_index=j*fc_len)]
+			roc_workers[-1].eq_z_vals = self.eq_z_vals[j*fc_len:min(len(fc_xyz), (j+1)*fc_len)][:]	# .. and make a copy.
 			roc_pipes += [p2]
 			roc_workers[-1].start()
 			#
 		#
 		FH = []
+		plt.figure(27)
+		plt.clf()
 		for j,p in enumerate(roc_pipes):
-			FH += [p.recv()]
+			# ... and i always forget if there's still any value in doing a join() loop, noting that (as i recall), the join()s must follow the recv()s.
+			# ... and we should probalby rewrite this usint Pool(), where we can still use ROC_worker() objects, but i think it handles the sequence
+			# in which workers start/finish more efficiently.
+			#ary = p.recv()
+			
+			#FH += list(roc_pipes[j].recv())
+			fh = list(roc_pipes[j].recv())
+			plt.plot(*zip(*fh), marker='.', ls='')
+			FH += fh
+			roc_pipes[j].close()
 		#
-		HF.sort(key=lambda x: x[0])
+		FH.sort(key=lambda x: x[0])
+		self.FH = FH
 	#
-class ROC_worker(ROC_base):
+class ROC_worker(ROC_base, mpp.Process):
 	# worker class for ROC calculations.
-	def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, pipe_r=None, H_denom=None, F_denom=None):
+	#def __init__(self, fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, pipe_r=None, H_denom=None, F_denom=None):
+	def __init__(self, pipe_r=None, H_denom=None, F_denom=None, z_start_index=0, *args, **kwargs):
 		# note: the __init__ should be satisfied with fc_xyz, test_catalog. the mpp_handler or some other autonomouse form
 		# should automate catalog fetching and etas running.
-		super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key not in ('self', 'pipe_r')})
-		pass
-	
+		#super(ROC_worker,self).__init__(**{key:val for key,val in locals().items() if key not in ('self', '__class__', 'pipe_r', 'H_denom', 'F_denom')})
+		super(ROC_worker,self).__init__(*args, **kwargs)
+		mpp.Process.__init__(self)
+		self.pipe_r=pipe_r
+		self.H_denom = H_denom
+		self.F_denom = F_denom
+		self.z_start_index = z_start_index
+	#
+	#def get_site(self, x,y,z_start_index=None):
+	#	# overriding base class definition to include z_start_index parameter, so indexing will translate correctly to n>0 mpp nodes.
+	#	z_start_index = int((z_start_index or self.z_start_index) or 0)
+	#	#print("z_start_index = %d " % z_start_index)
+	#	#
+	#	return int(round((x-self.lons[0]+.5*self.d_lon)/self.d_lon)) + int(round((y-self.lats[0]+.5*self.d_lat)/self.d_lat))*self.nx - z_start_index
+
 	def run(self):
 		# we can probably speed this up a bit by eliminating some of the copies...
 		self.calc_ROCs(H_denom=self.H_denom, F_denom=self.F_denom)
 		#self.calc_HF()
 		#
-		self.pipe_r.send(self.HF)
-
+		self.pipe_r.send(self.FH)
+		self.pipe_r.close()
 #
-def roc_class_test_1():
+def roc_class_test_1(n_cpus=None):
 	# test roc etas classes.
 	# for now, just use the nepal ETAS classes:
 	#
-	etas_fc = get_nepal_etas_fc()
+	if n_cpus==None: n_cpus = max(2,min(1, mpp.cpu_count()-1))
+	mc_roc = 5.0
+	#
+	etas_fc = get_nepal_etas_fc(n_procs=n_cpus)
 	#nepal_etas_test = get_nepal_etas_test()
 	fc_date = max(etas_fc.catalog['event_date']).tolist()
 	to_dt = fc_date + dtm.timedelta(days=120)
-	test_catalog = atp.catfromANSS(lon=etas_fc.lons, lat=etas_fc.lats, minMag=etas_fc.mc, dates0=[fc_date, to_dt])
+	test_catalog = atp.catfromANSS(lon=etas_fc.lons, lat=etas_fc.lats, minMag=mc_roc, dates0=[fc_date, to_dt])
 	#
-	xyz = etas_fc.ETAS_array
-	#
-	roc = ROC_base(fc_xyz=xyz, test_catalog=test_catalog, from_dt=fc_date, to_dt=to_dt, dx=None, dy=None, cat_len=120., mc=5.0)
+	xyz = etas_fc.ETAS_array.copy()	# might not need to copy, but i don't think this is usually a significant performance issue.
 	#
 	h_denom = float(len(test_catalog))
 	f_denom = float(len(xyz))
-	fh = roc.calc_ROCs(H_denom=h_denom, F_denom=f_denom)
+	'''
+	#roc = ROC_base(fc_xyz=xyz, test_catalog=test_catalog, from_dt=fc_date, to_dt=to_dt, dx=None, dy=None, cat_len=120., mc=5.0)
+	roc = ROC_base(fc_xyz=xyz, test_catalog=test_catalog)
+	#
+	fh_obj = roc.calc_ROCs(H_denom=h_denom, F_denom=f_denom)
 	roc.plot_HF()
 	#
-	ZZ = roc_normal_from_xyz(fc_xyz=xyz, test_catalog=test_catalog, from_dt=fc_date, to_dt=to_dt, dx=None, dy=None, cat_len=120., mc=5.0, fignum=2, do_clf=True)
+	#ZZ = roc_normal_from_xyz(fc_xyz=xyz, test_catalog=test_catalog, from_dt=fc_date, to_dt=to_dt, dx=None, dy=None, cat_len=120., mc=5.0, fignum=2, do_clf=True)
+	fh_fxyz = roc_normal_from_xyz(fc_xyz=xyz, test_catalog=test_catalog, fignum=2, do_clf=True)
+	#
+	fh_fetas = roc_normal(etas_fc=etas_fc, test_catalog=test_catalog, mc_roc=5.0, fignum=4, do_clf=True)
+	#
+	'''
+	#
+	roc_mpp = ROC_mpp_handler(fc_xyz=xyz, test_catalog=test_catalog, n_procs = n_cpus)
+	#fh_mpp = roc_mpp.calc_ROCs(H_denom=h_denom, F_denom=f_denom)
+	fh_mpp = roc_mpp.calc_ROCs()
+	roc_mpp.plot_HF(fignum=6)
 	
-	return roc
+	
+	#return (roc, fh_obj, fh_fxyz, fh_fetas, fh_mpp)
+	return roc_mpp, fh_mpp
 	
 	
 	
@@ -319,9 +391,9 @@ def nepal_etas_roc():
 	#
 	return nepal_etas_fc, nepal_etas_test
 
-def get_nepal_etas_fc():
+def get_nepal_etas_fc(n_procs=None, cat_len=5.*365.):
 	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':True, 'n_contours':15})
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_procs':n_procs})
 	#nepal_etas_fc = gep.ETAS_rtree(**np_prams)
 	#
 	#return gep.ETAS_rtree(**np_prams)
@@ -417,14 +489,14 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 		with open(fc_xyz, 'r') as froc:
 			fc_xyz= [[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]
 	#
-	if to_dt == None:
+	if to_dt   == None:
+		#to_dt = from_dt + dtm.timedelta(days=120)
 		to_dt = dtm.datetime.now(pytz.timezone('UTC'))
-	if from_dt == None or from_dt>to_dt:
-		from_dt = to_dt - dtm.timedelta(days=cat_len)
-	
+	if from_dt == None:
+		#from_dt = min(test_catalog['event_date']).tolist()
+		from_dt = to_dt - dtm.timedelta(days=120)
 		#
 	#
-	#return fc_xyz
 	if not hasattr(fc_xyz, 'dtype'):
 		fc_xyz = numpy.core.records.fromarrays(zip(*fc_xyz), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
 	#
@@ -432,10 +504,10 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	lons = [min(fc_xyz['x']), max(fc_xyz['x'])]
 	#
 	#mc   = mc_roc
-	X_set = list(set(fc_xyz['x']))
-	Y_set = list(set(fc_xyz['y'])) 
-	dx = (dx or abs(X_set[1] - X_set[0]))
-	dy = (dy or abs(Y_set[1] - Y_set[0]))
+	X_set = sorted(list(set(fc_xyz['x'])))
+	Y_set = sorted(list(set(fc_xyz['y'])))
+	d_lon = (dx or abs(X_set[1] - X_set[0]))
+	d_lat = (dy or abs(Y_set[1] - Y_set[0]))
 	#
 		
 	print("get cataog: ", lons, lats, mc, from_dt, to_dt)
@@ -448,8 +520,6 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	Zs = sorted(list(fc_xyz['z'].copy()))
 	#Zs.sort(order='z')
 	#
-	d_lat = dy
-	d_lon = dx
 	nx = len(X_set)
 	ny = len(Y_set)
 	#
@@ -492,14 +562,14 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	for j_z, z0 in enumerate(Zs):
 		# z0 is the threshold z for predicted=True/False
 		#
-		for j_eq, eq in enumerate(test_catalog):
-			# TODO: and parse it up for MPP.
-			#k = get_site(eq['lon'], eq['lat'])
-			k = eq_site_indices[j_eq]
+		#for j_eq, eq in enumerate(test_catalog):
+		for k in eq_site_indices:
+			#k = eq_site_indices[j_eq]
 			#print('site: ', k)
-			z_val = fc_xyz['z'][k]
+			#z_val = fc_xyz['z'][k]
 			#
-			if z_val>=z0:
+			#if z_val>=z0:
+			if fc_xyz['z'][k]>=z0:
 				# predicted!
 				ROCs[-1][0]+=1
 				#
@@ -620,7 +690,12 @@ def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120
 		for eq in test_catalog:
 			k = get_site(eq['lon'], eq['lat'])
 			#print('site: ', k)
+			# debug:
 			z_val = etas_fc.ETAS_array['z'][k]
+			#try:
+			#	z_val = etas_fc.ETAS_array['z'][k]
+			#except:
+			#	print("zval vailure: ", len(etas_fc.ETAS_array['z']), k, eq['lon'], eq['lat'])
 			#
 			if z_val>=z0:
 				# predicted!
