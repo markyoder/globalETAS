@@ -158,6 +158,7 @@ class ROC_base(object):
 	def calc_ROCs(self, H_denom=None, F_denom=None):
 		#
 		if self.eq_z_vals == None:
+			print("setting default eq_z_vals")
 			self.eq_z_vals       = [self.fc_xyz['z'][self.get_site(eq['lon'], eq['lat'])] for eq in self.test_catalog]	
 			#
 		#
@@ -269,6 +270,7 @@ class ROC_mpp_handler(ROC_base):
 	#
 	def calc_ROCs(self, n_procs=None):
 		n_procs = (n_procs or self.n_procs)
+		# ((this is still totally ****** in mpp). n>0 nodes are not getting proper indexing.
 		#
 		# now, split up fc_xyz into n_procs, start each proc and pipe back the results.
 		if self.eq_z_vals == None: self.set_eq_z_vals()
@@ -276,18 +278,26 @@ class ROC_mpp_handler(ROC_base):
 		fc_len = int(numpy.ceil(len(self.fc_xyz)/n_procs))
 		roc_workers = []
 		roc_pipes = []
+		Zs_fc = self.fc_xyz['z']
+		Zs_fc.sort()
 		print("calculating ROCs: %d processors" % (int(n_procs)))
 		for j in range(n_procs):
 			# make an ROC_worker instance for each process, fc_xyz = fc_xyz[j*fc_len:(j+1)*fc_len]
 			p1,p2 = mpp.Pipe()
 			#roc_workers += [ROC_woorker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=test_catalog, pipe_r=p1, H_denom = len(self.test_catalog), F_denom=len(self.fc_xyz))]
-			roc_workers += [ROC_worker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=self.test_catalog, pipe_r=p1, H_denom = self.h_denom, F_denom=self.f_denom, eq_z_vals=self.eq_z_vals[j*fc_len:min(len(self.fc_xyz), (j+1)*fc_len)][:])]
+			#roc_workers += [ROC_worker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=self.test_catalog, pipe_r=p1, H_denom = self.h_denom, F_denom=self.f_denom, eq_z_vals=self.eq_z_vals[j*fc_len:min(len(self.fc_xyz), (j+1)*fc_len)][:])]
+			
+			#roc_workers += [ROC_worker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=self.test_catalog, pipe_r=p1, H_denom = self.h_denom, F_denom=self.f_denom, eq_z_vals=self.eq_z_vals)]
+			roc_workers += [ROC_worker_simple(Z_fc=Zs_fc[j*fc_len:(j+1)*fc_len], Z_events=self.eq_z_vals, h_denom=len(self.eq_z_vals), f_denom=len(Zs_fc), f_start = j*fc_len, pipe_r=p1)]
+			
 			#roc_workers[-1].eq_z_vals = [x for x in self.eq_z_vals[j*fc_len:min(len(self.fc_xyz), (j+1)*fc_len)]]
 			roc_pipes += [p2]
 			roc_workers[-1].start()
 			#
 		#
 		FH = []
+		Hs=[]
+		Fs=[]
 		plt.figure(27)
 		plt.clf()
 		for j,p in enumerate(roc_pipes):
@@ -295,13 +305,19 @@ class ROC_mpp_handler(ROC_base):
 			# ... and we should probalby rewrite this usint Pool(), where we can still use ROC_worker() objects, but i think it handles the sequence
 			# in which workers start/finish more efficiently.
 			#ary = p.recv()
-			
-			#FH += list(roc_pipes[j].recv())
-			fh = list(roc_pipes[j].recv())
-			plt.plot(*zip(*fh), marker='.', ls='')
-			FH += fh
+			#
+			###
+			#fh = list(roc_pipes[j].recv())
+			#plt.plot(*zip(*fh), marker='.', ls='')
+			#FH += fh
+			###
+			# this looks right, but it needs to be verified.
+			h = list(roc_pipes[j].recv())
+			Hs += h
 			roc_pipes[j].close()
 		#
+		l_F = len(Zs_fc)
+		FH = list(zip([(l_F-float(j+1))/l_F for j in range(l_F))], Hs))
 		FH.sort(key=lambda x: x[0])
 		self.FH = FH
 	#
@@ -319,7 +335,8 @@ class ROC_worker(ROC_base, mpp.Process):
 		self.F_denom = F_denom
 		#self.z_start_index = z_start_index
 		#
-		self.set_eq_z_vals(eq_z_vals)
+		#self.set_eq_z_vals(eq_z_vals)
+		self.eq_z_vals = eq_z_vals
 	#
 	#def get_site(self, x,y,z_start_index=None):
 	#	# overriding base class definition to include z_start_index parameter, so indexing will translate correctly to n>0 mpp nodes.
@@ -341,6 +358,49 @@ class ROC_worker(ROC_base, mpp.Process):
 		self.pipe_r.send(self.FH)
 		self.pipe_r.close()
 #
+class ROC_worker_simple(mpp.Process):
+	# super lean ROC worker. i think we don't need to inherit from other ROC classes, in fact we might re-write to base from this class.
+	# next time, let's start over and just write an ROC analyzer... which we may have done in vc_parser... but either suck it up and 
+	# do the guts in C++/extension or use shared memory arrays.
+	def __init__(self, Z_fc=None, Z_events=None, h_denom=None, f_denom=None, f_start = 0., pipe_r=None):
+		super(ROC_worker_simple,self).__init__()
+		self.__dict__.update({key:val for key,val in locals().items() if not key in ('self', 'class')})
+		self.F=[]
+		self.H=[]
+		self.pipe_r=pipe_r
+		
+		#
+	#def roc_simple_sparse(Z_fc=None, Z_events=None, h_denom=None, f_denom=None, f_start = 0.):
+	def roc_simple_sparse(self, h_denom=None, f_denom=None, f_start=0):
+		# simple ROC calculator.
+		h_denom = (h_denom or self.h_denom)
+		f_denom = (f_denom or self.f_denom)
+		Z_events = self.Z_events
+		Z_fc = self.Z_fc		# these just make a reference, but it still writes a copy of a variable, so it might be a bit faster to just reff self.x, etc.
+		#
+		h_denom = (h_denom or len(Z_events))
+		f_denom = (f_denom or len(Z_fc))
+		#
+		# ... though we might modify this, or write a different version that just returns the hits, which would be faster for piping back in mpp.
+		# ... actually, this isn't quite right; it assumes that all z values are unique (which they are in some cases, but it's not an accurate assumption).
+		return [[(f_start + j)/f_denom, sum([(z_ev>=z_fc) for z_ev in Z_events])/h_denom] for j,z_fc in enumerate(Z_fc)]
+	#
+	def roc_hits_sparse(self, h_denom=None):
+		h_denom = (h_denom or self.h_denom)
+		# return just the hits. for mpp operations, this might be faster, since the Fs array is just [j/f_denom for j,x in enumerate(z_fc)] (or equivalent).
+		# it'll taka longer to pipe it back than to calc it.
+		# ... and note, this isn't quite right; it assumes that all z values are unique... which they may not be. that said, it is nominally a reasonable 
+		# approximation and it should be much faster than if we actually check z_fc like f = sum([z>=z0 for z in Z_fc]) and easier than if we have to 
+		# 'manually' check for unequal values.
+		return [sum([float(z_ev>=z_fc) for z_ev in self.Z_events])/h_denom for j,z_fc in enumerate(self.Z_fc)]
+	#
+	def run(self):
+		# note for different roc calcs (sparse, exact, hits only, etc. we can either pass a pram or create special subclasses).
+		self.pipe_r.send(self.roc_hits_sparse())
+		#self.pipe_r.send(self.roc_simple_sparse(h_denom=self.h_denom, f_denom=self.f_denom))
+		self.pipe_r.close()
+
+#
 def roc_class_test_1(n_cpus=None):
 	'''
 	# for mpp ROC calcs, make this script work. also, check spp scripts by uncommenting the SPP
@@ -352,9 +412,14 @@ def roc_class_test_1(n_cpus=None):
 	if n_cpus==None: n_cpus = max(2,min(1, mpp.cpu_count()-1))
 	mc_roc = 5.0
 	#
+
 	etas_fc = get_nepal_etas_fc(n_procs=n_cpus, cat_len=100.)
-	#nepal_etas_test = get_nepal_etas_test()
+	#etas_fc = get_nepal_etas_test()
+	# if we want to load from file, we'll need some of these data:
+	# {'bigmag': 7.0,'bigquakes': None, 'catdir': 'kml', 'catlen': 1825.0, 'cmfnum': 0, 'contour_intervals': None, 'contres': 5, 'doplot': False, 'eqeps': None,'eqtheta': None, 'fignum': 1, 'fitfactor': 5.0, 'fnameroot': 'nepal', 'gridsize': 0.1, 'kmldir': 'kml', 'lats': [23.175, 33.175], 'lons': [79.698, 89.698],'mc': 3.5, 't_now': None}
+	#
 	fc_date = max(etas_fc.catalog['event_date']).tolist()
+	fc_date = dtm.datetime(2015,5,7,tzinfo=pytz.timezone('UTC'))
 	to_dt = fc_date + dtm.timedelta(days=120)
 	test_catalog = atp.catfromANSS(lon=etas_fc.lons, lat=etas_fc.lats, minMag=mc_roc, dates0=[fc_date, to_dt])
 	#
@@ -377,6 +442,7 @@ def roc_class_test_1(n_cpus=None):
 	'''
 	#
 	roc_mpp = ROC_mpp_handler(fc_xyz=xyz, test_catalog=test_catalog, n_procs = n_cpus)
+	#roc_mpp = ROC_mpp_handler(fc_xyz='data/nepal_etas_xyz.csv', test_catalog=test_catalog, n_procs = n_cpus)
 	#fh_mpp = roc_mpp.calc_ROCs(H_denom=h_denom, F_denom=f_denom)
 	fh_mpp = roc_mpp.calc_ROCs()
 	roc_mpp.plot_HF(fignum=6)
@@ -384,9 +450,8 @@ def roc_class_test_1(n_cpus=None):
 	
 	#return (roc, fh_obj, fh_fxyz, fh_fetas, fh_mpp)
 	return roc_mpp, fh_mpp
-	
-	
-	
+#
+
 #
 def nepal_etas_roc():
 	# def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15,**kwargs)
