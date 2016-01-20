@@ -298,7 +298,6 @@ class ROC_mpp_handler(ROC_base):
 		FH = []
 		Hs=[]
 		Fs=[]
-		plt.figure(27)
 		plt.clf()
 		for j,p in enumerate(roc_pipes):
 			# ... and i always forget if there's still any value in doing a join() loop, noting that (as i recall), the join()s must follow the recv()s.
@@ -311,14 +310,20 @@ class ROC_mpp_handler(ROC_base):
 			#plt.plot(*zip(*fh), marker='.', ls='')
 			#FH += fh
 			###
-			# this looks right, but it needs to be verified.
-			h = list(roc_pipes[j].recv())
-			Hs += h
+			# this looks right, but it needs to be verified.			
+			Hs += list(roc_pipes[j].recv())
 			roc_pipes[j].close()
 		#
 		l_F = len(Zs_fc)
-		FH = list(zip([(l_F-float(j+1))/l_F for j in range(l_F))], Hs))
-		FH.sort(key=lambda x: x[0])
+		l_h = len(self.test_catalog)
+		#
+		# let's handle the two cases: 1) we return just H; 2) we return FH
+		if not hasattr(Hs[0], '__len__'):
+			#FH = list(zip([(l_F-float(j+1))/l_F for j in range(l_F)], Hs))
+			FH = list(zip([(l_F-float(j)-Hs[j]*l_h)/l_F for j in range(l_F)], Hs))
+		else:
+			FH.sort(key=lambda x: x[0])
+
 		self.FH = FH
 	#
 class ROC_worker(ROC_base, mpp.Process):
@@ -383,7 +388,17 @@ class ROC_worker_simple(mpp.Process):
 		#
 		# ... though we might modify this, or write a different version that just returns the hits, which would be faster for piping back in mpp.
 		# ... actually, this isn't quite right; it assumes that all z values are unique (which they are in some cases, but it's not an accurate assumption).
-		return [[(f_start + j)/f_denom, sum([(z_ev>=z_fc) for z_ev in Z_events])/h_denom] for j,z_fc in enumerate(Z_fc)]
+		#
+		# more precuse, but not quite as fast:
+		r_XY = []
+		for j,z_fc in enumerate(Z_fc):
+			n_f = sum([(z_ev>=z_fc) for z_ev in Z_events])
+			r_XY += [[(f_start + j - n_f)/f_denom, n_f/h_denom]]
+		#
+		return r_XY
+		#
+		# a minor approximation when not sparse:
+		#return [[(f_start + j)/f_denom, sum([(z_ev>=z_fc) for z_ev in Z_events])/h_denom] for j,z_fc in enumerate(Z_fc)]
 	#
 	def roc_hits_sparse(self, h_denom=None):
 		h_denom = (h_denom or self.h_denom)
@@ -446,6 +461,13 @@ def roc_class_test_1(n_cpus=None):
 	#fh_mpp = roc_mpp.calc_ROCs(H_denom=h_denom, F_denom=f_denom)
 	fh_mpp = roc_mpp.calc_ROCs()
 	roc_mpp.plot_HF(fignum=6)
+	#
+	FH_spp = roc_normal_from_xyz(fc_xyz=etas_fc.ETAS_array, test_catalog=test_catalog)
+	#
+	plt.figure(1)
+	plt.clf()
+	plt.plot(*zip(*roc_mpp.FH), ls='--', marker='.')
+	plt.plot(*zip(*FH_spp), ls='-', marker='o')
 	
 	
 	#return (roc, fh_obj, fh_fxyz, fh_fetas, fh_mpp)
