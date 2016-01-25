@@ -2,40 +2,18 @@
 # some generic ROC tools, and playing a bit with shared memory mpp as well.
 '''
 ###
-
-
-#import datetime as dtm
-#import matplotlib.dates as mpd
-#import pytz
-#tzutc = pytz.timezone('UTC')
-
-#import operator
-import math
+#
 import random
 import numpy
 import scipy
-#import scipy.optimize as spo
 import itertools
-#import sys
-#import scipy.optimize as spo
-#import os
-#import operator
-#from PIL import Image as ipp
 import multiprocessing as mpp
 #
-import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.mpl as mpl
+import time
 #import functools
 #
-#
-#
-#import ANSStools as atp
-#import bindex
-#import contours2kml
-#import globalETAS as gep
-#from eq_params import *
-
 class Array_test(object):
 	def __init__(self, N=1000):
 		# just a toy, test script to work with mpp.Array() and other mpp stuff.
@@ -132,7 +110,7 @@ def test_test_arrays(N=1e7):
 class ROC_generic(object):
 	def __init__(self, Z_events, Z_fc, h_denom=None, f_denom=None, f_start=0., f_stop=None):
 		#
-		print('initializing ROC_generi')
+		#print('initializing ROC_generi')
 		self.Z_events = Z_events
 		self.Z_fc     = Z_fc
 		self.h_denom = float(h_denom or len(Z_events))
@@ -192,17 +170,82 @@ class ROC_generic(object):
 		# 'manually' check for unequal values.
 		return [sum([float(z_ev>=z_fc) for z_ev in self.Z_events])/h_denom for j,z_fc in enumerate(self.Z_fc)]
 	'''
+	def plot_FH(self, fignum=0):
+		plt.figure(fignum)
+		plt.clf()
+		#
+		plt.plot(self.F, self.H, '.', lw=2.)
+		plt.plot(range(2), range(2), 'r-', lw=2.5)
+		ax=plt.gca()
+		ax.set_xlabel('False Alarm Rate $F$')
+		ax.set_ylabel('Hit Rate $H$')
 	#
 #
-class ROC_generic_mpp(ROC_generic):
+class ROC_generic_mpp_pipes(ROC_generic):
+	# an mpp ROC handler that pipes data to/from workers, instead of using shared memory mpp.Array() objects.
+	#
 	def __init__(self, n_procs=None, *args, **kwargs):
-		super(ROC_generic_mpp, self).__init__(*args,**kwargs)
+		super(ROC_generic_mpp_pipes, self).__init__(*args,**kwargs)
+		if n_procs==None: n_procs = mpp.cpu_count()
+		self.n_procs=n_procs
+		#
+		#self.H = numpy.zeros(len(self.Z_fc))
+		#self.F = numpy.zeros(len(self.Z_fc))
+		self.H = []
+		self.F = []
+		
+	#
+	def calc_roc(self):
+		workers = []
+		pipes   = []
+		d_len = int(numpy.ceil(len(self.Z_fc))/self.n_procs)
+		f_j_stop  = lambda n: min(len(self.Z_fc), (n+1)*d_len)
+		f_j_start = lambda n: n*d_len 
+		#
+		for n in range(self.n_procs):
+			#workers += [ROC_generic_worker(H=self.H, F=self.F, Z_events=self.Z_events, Z_fc=self.Z_fc, h_denom=self.h_denom, f_denom=self.f_denom, f_start = n*d_len, f_stop=min(len(self.Z_fc), (n+1)*d_len))]
+			#j_start = n*d_len
+			#j_end   = min(len(self.Z_fc), (n+1)*d_len)
+			p1, p2 = mpp.Pipe()
+			#
+			workers += [ROC_generic_worker(H=None, F=None, Z_events=self.Z_events, Z_fc=self.Z_fc[f_j_start(n):f_j_stop(n)], h_denom=self.h_denom, f_denom=self.f_denom, pipe_r=p2, f_start_index = f_j_start(n), len_fc = len(self.Z_fc))]
+			# , f_start = n*d_len, f_stop=min(len(self.Z_fc), (n+1)*d_len)
+			pipes += [p1]
+			#
+			workers[-1].start()
+		#
+		FH = []
+		for j,p in enumerate(pipes):
+			#FH += [zip(*p.recv())]
+			
+			FH = p.recv()
+			F,H = zip(*FH)
+			#
+			F  = numpy.array(F)
+			#F += (len(pipes)-j-1)*d_len/self.f_denom
+			self.F += F.tolist()
+			#self.F += ((numpy.array(F)+f_j_start(j))/self.f_denom).tolist()
+			#self.F += (numpy.array(F)).tolist()
+			self.H += H
+			
+			#F = numpy.array(F)
+			#F += f_j_stop(j)/self.f_denom
+			#FH = zip(F,H)
+			p.close()
+		for j,w in enumerate(workers):
+			w.join()
+			
+#
+class ROC_generic_mpp_shared(ROC_generic):
+	def __init__(self, n_procs=None, *args, **kwargs):
+		super(ROC_generic_mpp_shared, self).__init__(*args,**kwargs)
 		if n_procs==None: n_procs = mpp.cpu_count()
 		self.n_procs=n_procs
 		#
 		lk = mpp.Lock()
-		self.Z_events = mpp.Array('d', self.Z_events, lock=lk)
-		self.Z_fc     = mpp.Array('d', self.Z_fc, lock=lk)
+		# so i think that since we're only reading Z_events and Z_fc, we can set lock=False (that might not be the right syntax).
+		self.Z_events = mpp.Array('d', self.Z_events, lock=False)
+		self.Z_fc     = mpp.Array('d', self.Z_fc, lock=False)
 		self.H        = mpp.Array('d', len(self.Z_fc), lock=lk)
 		self.F        = mpp.Array('d', len(self.Z_fc), lock=lk)
 
@@ -218,45 +261,67 @@ class ROC_generic_mpp(ROC_generic):
 		for j,w in enumerate(workers):
 			w.join()
 		#
-	def plot_FH(self, fignum=0):
-		plt.figure(fignum)
-		plt.clf()
+#
+#
+class ROC_mpp(ROC_generic_mpp_pipes):
+	# a name-wrapper for the "standard" ROC_mpp handler:
+	def __init__(self, *args, **kwargs):
+		super(ROC_mpp, self).__init__(*args, **kwargs)
 		#
-		plt.plot(self.F, self.H, '.', lw=2.)
-		plt.plot(range(2), range(2), 'r-', lw=2.5)
- 
-	
 	#
+
+#
 class ROC_generic_worker(ROC_generic, mpp.Process):
-	def __init__(self, H=None, F=None, pipe_r=None, *args, **kwargs):
+	def __init__(self, H=None, F=None, pipe_r=None, f_start_index = None, len_fc=None, *args, **kwargs):
 		'''
+
 		# worker for generic ROC mpp operations. for shared memory mpp.Array(), pass mpp.Array() objects (addresses) for H,F.
 		# for piping approach, pass one end of a Pipe() into pipe_r. we'll check for pipe_r when we finish calculating and
 		# send back if it exists.
+		#
+		# in this version of the worker, we can typically pass H,F as None values.
 		'''
 		super(ROC_generic_worker, self).__init__(*args, **kwargs)
 		mpp.Process.__init__(self)
-		self.H = (H or [])
-		self.F = (F or [])	# can we set these like self.F = F[f_start:f_stop] ? will this assign by reference?
+		#self.H = (H or [])		# ... and we might change these defaults to be the length of the Z_fc array.
+		#self.F = (F or [])	# can we set these like self.F = F[f_start:f_stop] ? will this assign by reference?
 							# then, we can use f_start to augment f_denom and assign to F[j] instead of F[j+f_start].
+		#
+		# (this "if none" sytax might not work because H,F are arrays).
+		self.H = (H or numpy.zeros(len(self.Z_fc)))
+		self.F = (F or numpy.zeros(len(self.Z_fc)))
+		self.f_start_index = (f_start_index or self.f_start)
+		self.len_fc = (len_fc or len(self.Z_fc))
 							
 		self.pipe_r = pipe_r
 	def run(self):
 		self.roc_simple_sparse()
 		if self.pipe_r!=None:
-			# ... but actually, this will be a little more complicated. the f_start/f_stop parameters get a bit confused here.
+			# ... but actually, this will be a little more complicated. the f_start/f_stop parameters (indices) get a bit confused here.
 			# 
-			self.pipe_r.send(zip(self.F, self.H)
+			self.pipe_r.send(zip(self.F, self.H))
 			self.pipe_r.close()
 	#
-	def roc_simple_sparse(self, h_denom=None, f_denom=None, f_start=0, f_stop=None):
+	def roc_simple_sparse(self, h_denom=None, f_denom=None, f_start=0, f_stop=None, f_start_index=None, len_fc=None):
 		# simple ROC calculator.
-		print('calcingn roc...')
+		#print('calcingn roc..., f_start_index = ', f_start_index, self.f_start_index)
+		# @f_start_index: the F starting index, which might be different than f_start. f_start is the actual starting index
+		# for the local array, typically as used by a shared memory (mpp.Array() ) approach. f_start_index indicates the starting
+		# index, from the parent list, of the list passed to this object (so for the first half of X, f_start_index=0, for the second
+		# half, f_start_index = len(X)/2
+		#
 		h_denom = (h_denom or self.h_denom)
 		f_denom = (f_denom or self.f_denom)
 		f_start = (f_start or self.f_start)
+		f_start = (f_start or 0)
 		f_stop  = (f_stop  or self.f_stop)
-		print('calcingn roc...', f_start, f_stop)
+		f_stop  = (f_stop  or len(self.Z_fc))
+		#
+		f_start_index = (f_start_index or self.f_start_index)
+		f_start_index = (f_start_index or f_start)
+		len_fc = (len_fc or self.len_fc)
+		len_fc = (len_fc or len(self.Z_fc))
+		#print('calcing roc...', f_start, f_stop, f_start_index, ' **', len_fc)
 		#
 		Z_events = self.Z_events
 		Z_fc = self.Z_fc		# these just make a reference, but it still writes a copy of a variable, so it might be a bit faster to just reff self.x, etc.
@@ -265,30 +330,87 @@ class ROC_generic_worker(ROC_generic, mpp.Process):
 		f_denom = (f_denom or len(Z_fc))
 		#
 		# more precuse, but not quite as fast:
-		
 		# direct calc. approach. there's a loop, so maybe a bit slow.
-		
+		#
 		r_XY = []
 		# direct way, but with a regular for-loop...
-		n_total = len(self.Z_fc)
+		#n_total = len(self.Z_fc)
 		for j,z_fc in enumerate(Z_fc[f_start:f_stop]):
-			n_h = sum([(z_ev>=z_fc) for z_ev in Z_events])
+			#n_h = sum([(z_ev>=z_fc) for z_ev in Z_events])
 			# falsies: approximately number of sites>z0-n_hits. for large, sparse maps, f~sum((z_fc>z0)), but this is a simple correction.
 			#r_XY += [[(f_start + j - n_h)/f_denom, n_h/h_denom]]
 			#
 			n_h = sum([(z_ev>=z_fc) for z_ev in Z_events])
 			self.H[j+f_start] = n_h/h_denom
-			self.F[j+f_start] = (n_total - f_start - j - n_h)/f_denom
-		
-
+			self.F[j+f_start] = (len_fc - f_start_index - j + n_h)/f_denom
+			#self.F[j+f_start] = (n_total + f_start_index - j - n_h)/f_denom
 		#
 def ROC_test1(N1=100, N2=10000, n_procs=None):
 	R=random.Random()
-	A=ROC_generic_mpp(n_procs=n_procs, Z_events=[R.random() for j in range(N1)], Z_fc=sorted([R.random() for j in range(N2)]))
+	#
+	# so based on this test, it looks like the piped approach is much, much faster (2-3 times faster) than using mpp.Array(),
+	# even having made a holy mess of the final handling of the F array. so we'll want to clean up the return sequences (maybe
+	# pass an additinal variable to properly normalize the F array in the child processes.
+	#
+	Z_events=[R.random() for j in range(N1)]
+	Z_fc=sorted([R.random() for j in range(N2)])
+	#
+	t0=time.time()
+	print('starting: ', t0)
+	A=ROC_generic_mpp_shared(n_procs=n_procs, Z_events=Z_events, Z_fc=Z_fc)
 	roc=A.calc_roc()
-	A.plot_FH()
+	t1=time.time()
+	#A.plot_FH(fignum=0)
+	#
 	
-	return A
+	print('finished 1: ', t1, " :: ", t1-t0)
+	
+	t2=time.time()
+	B = ROC_generic_mpp_pipes(n_procs=n_procs, Z_events=Z_events, Z_fc=Z_fc)
+	roc = B.calc_roc()
+	t3=time.time()
+	B.plot_FH(fignum=1)
+	
+	
+	print("finished 2: ", t2, " :: ", t3, " :: ", t3-t2)
+	
+	t4 = time.time()
+	C = ROC_mpp(n_procs=n_procs+1, Z_events=Z_events, Z_fc=Z_fc)
+	roc = C.calc_roc()
+	t5 = time.time()
+	C.plot_FH(fignum=2)
+	
+	print("finished 3: ", t4, " :: ", t5, " :: ", t5-t4)
+	#
+	
+	#return A
+
+def roc_bench_1(n_cycles=10, cpu_range=[2,10],N1=100, N2=10000):
+	#
+	R=random.Random()
+	XY = []
+	for j,k in itertools.product(range(n_cycles), range(cpu_range[0],cpu_range[1]+1)):
+		Z_events=[R.random() for j in range(N1)]
+		Z_fc=sorted([R.random() for j in range(N2)])
+		t0 = time.time()
+		C = ROC_mpp(n_procs=k, Z_events=Z_events, Z_fc=Z_fc)
+		roc = C.calc_roc()
+		t1 = time.time()
+		#
+		dt = t1-t0
+		print("completed (%d,%d), dt = %f" % (j,k,dt))
+		XY += [[k,dt]]
+	#
+	plt.figure(0)
+	plt.clf()
+	plt.plot(*zip(*XY), marker='o', ls='')
+	plt.ylabel('Time interval $\\Delta t$', size=18)
+	plt.xlabel('N_threads, $n$', size=18)
+	plt.title('n_cpu bench test, actual n_cpu()=%d' % mpp.cpu_count())
+	#
+	return XY
+	
+
 
 def ROC_test_n_bench(N1=1000, N2=100000, n_tests=10):
 	# TODO: run a handfull of test and benchmarks:
