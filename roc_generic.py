@@ -111,8 +111,8 @@ class ROC_generic(object):
 	def __init__(self, Z_events, Z_fc, h_denom=None, f_denom=None, f_start=0., f_stop=None):
 		#
 		#print('initializing ROC_generi')
-		self.Z_events = Z_events
-		self.Z_fc     = Z_fc
+		self.Z_events = sorted(Z_events)
+		self.Z_fc     = numpy.array(sorted(list(set(Z_fc))))
 		self.h_denom = float(h_denom or len(Z_events))
 		self.f_denom = float(f_denom or len(Z_fc))
 		self.f_stop  = (f_stop or len(Z_fc))
