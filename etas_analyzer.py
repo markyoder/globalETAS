@@ -940,6 +940,8 @@ def etas_roc_geospatial_set(etas_fc=None, etas_test=None, do_log=True, q_test_mi
 #		
 #
 def roc_plots_from_gsroc(FH, fignum=0):
+	# some figures for geospatial type ROC.
+	#
 	if len(FH[0])==4: cols = {key:val for key,val in zip(['q_fc', 'q_t', 'F', 'H'], range(4))}
 	if len(FH[0])==3: cols = {key:val for key,val in zip(['q_t', 'F', 'H'], range(3))}
 	#

@@ -281,6 +281,7 @@ class Global_ETAS_model(object):
 		plt.colorbar()
 		#
 		self.cm=cm
+		self.etas_contours = etas_contours
 		#
 		return cm
 		#
@@ -303,6 +304,7 @@ class Global_ETAS_model(object):
 	#
 	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
+		# (and these calc_contours schemes need to be cleaned up a bit. there is a bit of redundancy and disorganization)
 		#
 		n_contours = (n_contours or self.n_contours)
 		#
@@ -336,6 +338,19 @@ class Global_ETAS_model(object):
 			#pass
 			#
 		return self.etas_contours
+	#
+	def kml_from_contours(self, contours=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
+		if contours==None: contours = self.etas_contours
+		if (contours==None or refresh_etas): contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), n_contours)
+		#
+		self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=contour_kml_file)
+		p_name, f_name = os.path.split(contour_kml_file)
+		if not os.path.isdir(p_name): os.makedirs(p_name)
+		with open(contour_kml_file, 'w') as f_kml:
+			f_kml.write(self.contours_kml_str)
+		return contours_kml_str
+	
+		
 	#
 	def make_etas_rtree(self):
 		# use the same basic framework as etas_all (aka, instantiate a lattice), but map an rtree index to the lattice, then use a delta_lat, delta_lon
@@ -1513,7 +1528,9 @@ def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 	# get pca for the input catalog. if center_lat/lon=None, then subtrac these values as the 'mean' (standard PCA). otherwis,
 	# subtract the actual mean.
 	# if xy_transform, then transform from lat/lon to x,y
-	
+	# we really need to find a good PCA library or write an extension for this. maybe a good D project?
+	# ... or maybe since most of the work gets done in numpy, it's ok speed-wise, but it would still make a nice D project.
+	#
 	xy_factor=1.0
 	if xy_transform:
 		xy_factor = deg2km
