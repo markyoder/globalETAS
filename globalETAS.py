@@ -339,6 +339,10 @@ class Global_ETAS_model(object):
 			#
 		return self.etas_contours
 	#
+	def export_kml(self, fout='etas_contours.kml'):
+		open(fout,'w').write(self.contorus_kml_str)
+		#
+	#
 	def kml_from_contours(self, contours=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		if contours==None: contours = self.etas_contours
 		if (contours==None or refresh_etas): contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), n_contours)
@@ -349,7 +353,15 @@ class Global_ETAS_model(object):
 		with open(contour_kml_file, 'w') as f_kml:
 			f_kml.write(self.contours_kml_str)
 		return contours_kml_str
-	
+	#
+	def export_xyz(self, fout='etas_xyz.xyz'):
+		#
+		# export ETAS_array as xyx format.
+		#
+		with open(fout, 'w') as f:
+			[f.write('\t'.join(rw) + '\n') for rw in self.ETAS_array.tolist()]
+		#
+		
 		
 	#
 	def make_etas_rtree(self):
