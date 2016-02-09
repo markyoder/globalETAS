@@ -2,8 +2,12 @@ import pylab as plt
 import numpy
 import matplotlib as mpl
 from mpl_toolkits.basemap import Basemap
+import random
+import multiprocessing as mpp
+import sys
 
 import globalETAS
+import etas_analyzer
 import roc_generic
 import contours2kml
 
@@ -87,6 +91,58 @@ def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_co
 	#
 	plt.figure(fignum)
 	plt.contourf(lns, lts, Zs, n_conts, alpha=.5, zorder=11, cmap=plt.cm.coolwarm)
+
+def roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=None, n_bins=100, line_color='m', shade_color='m'):
+	R=random.Random()
+	n_cpus = (n_cpus or mpp.cpu_count())
+	#
+	if ax==None:
+		plt.figure()
+		plt.clf()
+		ax=plt.gca()
+	#
+	dx=1./n_bins
+	j_bin = lambda x: int(x/dx)
+	x_min_max = [[(j+1.)/float(n_bins), 1., 0.] for j in range(n_bins)]
+	#
+	for j in range(n_rocs):
+		Z_events=[R.random() for j in range(n_events)]
+		Z_fc=sorted([R.random() for j in range(n_fc)])
+		#
+		C = roc_generic.ROC_mpp(n_procs=n_cpus, Z_events=Z_events, Z_fc=Z_fc)
+		roc = C.calc_roc()
+		#
+		ax=plt.plot(C.F, C.H, '-', lw=2.0, alpha=.5)
+		#
+		for k,(f,h) in enumerate(zip(C.F, C.H)):
+			bin = j_bin(f)
+			while bin>=len(x_min_max): x_min_max += [[x_min_max[-1][0]+dx, 0.,0.]]	# sometimes we get a little integer overhang
+			#print('bin: ', bin, f)
+			x_min_max[bin][1]=min(x_min_max[bin][1], h)
+			x_min_max[bin][2]=max(x_min_max[bin][2], h)
+		#
+	#
+	X,mn, mx = zip(*x_min_max)
+	#return X,mn,mx
+	plt.plot(X,mn, color=line_color, ls='-', lw=2., alpha=.7)
+	plt.plot(X,mx, color=line_color, ls='-', lw=2., alpha=.7)
+	plt.fill_between(X,mn,mx, color=shade_color, alpha=.3)
+	#
+	return X,mn,mx
 	
+
+def nepal_roc_script():
+	#
+	etas_fc = etas_analyzer.get_nepal_etas_fc()
+	#nepal_etas_test = get_nepal_etas_test()
+	Xs = sorted(list(set(etas_fc.etas_array['x'])))
+	Ys = sorted(list(set(etas_fc.etas_array['y'])))
+	get_site = lambda x,y: int(numpy.floor((x-lons[0])/d_lon)) + int(numpy.floor((y-lats[0])/d_lat))*nx
 	
-	
+	A=etas_analyzer.roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-')
+	#
+	# now, get roc for a 1/r map (i think there's a script for that)
+	#
+	#
+	# and draw in roc for random...
+	bins, mins, maxes = roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=plt.figure(1).gca(), n_bins=100, line_color='m', shade_color='m')

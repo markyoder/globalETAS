@@ -77,7 +77,8 @@ class  Toy_etas_invr(Toy_etas):
 #
 class Toy_etas_random(Toy_etas):
 	def __init__(self, *args, **kwargs):
-		super(Toy_etas_random, self).__init__(None,*args, **kwargs)
+		#super(Toy_etas_random, self).__init__(None,*args, **kwargs)
+		super(Toy_etas_random, self).__init__(*args, **kwargs)
 		R=random.Random()
 		for j,rw in enumerate(self.ETAS_array):
 			self.ETAS_array['z'][j] = R.random()
@@ -565,7 +566,7 @@ def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=
 	#
 	for mc in mc_rocs:
 		# ... we should probalby modify roc_normal() so we can pass a catalog (for speed optimization), but we'll probably only run this a few times.
-		print('roc for %f', mc)
+		print('roc for %f' % mc)
 		FH = roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=mc, fignum=0)
 		ax.plot(*zip(*FH), marker='', ls=roc_ls, lw=2.5, alpha=.8, label='$m_c=%.2f$' % mc)
 		FHs += [[mc,FH]]
@@ -757,7 +758,9 @@ def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120
 	#lon0 = min(etas_fc.ETAS_array['x'])
 	#
 	# (for this application, we can also just get nasty and to a loop-loop with geodetic distancing).
-	get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
+	#get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
+	get_site = lambda x,y: int(numpy.floor((x-lons[0])/d_lon)) + int(numpy.floor((y-lats[0])/d_lat))*nx
+	
 	#get_site = lambda x,y: int(round(x-lons[0])/d_lon) + int((y-lats[0])/d_lat)*nx
 	#
 	'''

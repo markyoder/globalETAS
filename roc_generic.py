@@ -342,7 +342,7 @@ class ROC_generic_worker(ROC_generic, mpp.Process):
 			#
 			n_h = sum([(z_ev>=z_fc) for z_ev in Z_events])
 			self.H[j+f_start] = n_h/h_denom
-			self.F[j+f_start] = (len_fc - f_start_index - j + n_h)/f_denom
+			self.F[j+f_start] = (len_fc - f_start_index - j - n_h)/f_denom
 			#self.F[j+f_start] = (n_total + f_start_index - j - n_h)/f_denom
 		#
 def ROC_test1(N1=100, N2=10000, n_procs=None):
@@ -395,6 +395,7 @@ def roc_bench_1(n_cycles=10, cpu_range=[2,10],N1=100, N2=10000):
 		t0 = time.time()
 		C = ROC_mpp(n_procs=k, Z_events=Z_events, Z_fc=Z_fc)
 		roc = C.calc_roc()
+		print('max,min(F,H): ', min(C.F), max(C.F), min(C.H), max(C.H))
 		t1 = time.time()
 		#
 		dt = t1-t0
