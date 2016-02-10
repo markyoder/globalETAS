@@ -172,5 +172,6 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0):
 	roc=etas_analyzer.ROC_mpp_handler(n_procs=n_cpu, fc_xyz=fc_xyz, from_dt = etas_end_date, to_dt=etas_end_date + dtm.timedelta(days=120), mc=5.5)
 	X=roc.calc_ROCs(n_procs=n_cpu, m_c=6.0)
 	roc.plot_HF(fignum=fnum)
+	#
 	return roc
 	
