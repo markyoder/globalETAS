@@ -114,7 +114,7 @@ def roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=None, n_bin
 		C = roc_generic.ROC_mpp(n_procs=n_cpus, Z_events=Z_events, Z_fc=Z_fc)
 		roc = C.calc_roc()
 		#
-		ax=plt.plot(C.F, C.H, '-', lw=2.0, alpha=.5)
+		#ax=plt.plot(C.F, C.H, '-', lw=2.0, alpha=.5)
 		#
 		for k,(f,h) in enumerate(zip(C.F, C.H)):
 			bin = j_bin(f)
@@ -137,17 +137,26 @@ def nepal_roc_script():
 	#
 	etas_fc = etas_analyzer.get_nepal_etas_fc()
 	#nepal_etas_test = get_nepal_etas_test()
-	Xs = sorted(list(set(etas_fc.etas_array['x'])))
-	Ys = sorted(list(set(etas_fc.etas_array['y'])))
+	Xs = sorted(list(set(etas_fc.ETAS_array['x'])))
+	Ys = sorted(list(set(etas_fc.ETAS_array['y'])))
 	get_site = lambda x,y: int(numpy.floor((x-lons[0])/d_lon)) + int(numpy.floor((y-lats[0])/d_lat))*nx
 	
 	A=etas_analyzer.roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-')
 	#
+	ax=plt.gca()
 	# now, get roc for a 1/r map (i think there's a script for that)
+	etas_toy = etas_analyzer.Toy_etas_invr(etas_in=etas_fc, mainshock={'mag':7.8, 'lon':84.708, 'lat':28.147})
+	B=etas_analyzer.roc_normalses(etas_toy, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=False, roc_ls='--') 
 	#
 	#
 	# and draw in roc for random...
-	bins, mins, maxes = roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=plt.figure(1).gca(), n_bins=100, line_color='m', shade_color='m')
+	bins, mins, maxes = roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=ax, n_bins=100, line_color='m', shade_color='m')
+#
+def global_roc():
+	roc_global = etas_analyzer.roc_normal_from_xyz(fc_xyz='data/global_xyz_20151129.xyz', test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, fignum=0, do_clf=True)
+	return roc_global
+
+
 #
 def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0):
 	# a global ROC script; we may have some competing candidates for this right now. this seems to work. can we duplicate it with generic_roc?
@@ -165,4 +174,3 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0):
 	roc.plot_HF(fignum=fnum)
 	return roc
 	
-
