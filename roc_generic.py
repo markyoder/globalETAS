@@ -343,7 +343,6 @@ class ROC_generic_worker(ROC_generic, mpp.Process):
 			n_h = sum([(z_ev>=z_fc) for z_ev in Z_events])
 			self.H[j+f_start] = n_h/h_denom
 			self.F[j+f_start] = (len_fc - f_start_index - j - n_h)/f_denom
-			#self.F[j+f_start] = (n_total + f_start_index - j - n_h)/f_denom
 		#
 def ROC_test1(N1=100, N2=10000, n_procs=None):
 	R=random.Random()

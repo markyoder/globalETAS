@@ -35,6 +35,7 @@ import ANSStools as atp
 import contours2kml
 import globalETAS as gep
 from eq_params import *
+import roc_generic
 import random
 #
 #import rtree
@@ -47,9 +48,11 @@ sischuan_prams['to_dt'] = dtm.datetime.now(pytz.timezone('UTC'))
 #
 
 class Toy_etas(object):
-	def __init__(self, etas_in, mainshock={'mag':7.3, 'lon':84.698, 'lat':28.175}):
+	def __init__(self, etas_in, mainshock={'mag':7.8, 'lon':84.708, 'lat':28.147}):
 		# nepal_epi_lon = 84.698
 		# nepal_epi_lat = 28.175
+		# gorkah:
+		# 28.147°N 84.708°ECoordinates: 28.147°N 84.708°E[1]
 		self.__dict__.update(etas_in.__dict__)
 		self.__dict__.update(locals())
 		self.lattice_sites = etas_in.lattice_sites
@@ -584,11 +587,12 @@ def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=
 	#
 	return FHs
 #
-def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, fignum=0, do_clf=True):
+def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, fignum=0, do_clf=True, n_cpus=None):
 	#
 	# roc from an xyz forecast input. eventually, convolve this with roc_normal() which takes etas_fc, an etas type, object as an input.
 	# dx, dy are grid-sizes in the x,y direction. if none, we'll figure them out.
 	#
+	if n_cpus==None: n_cpus = mpp.cpu_count()+1
 	if isinstance(fc_xyz, str):
 		# if we're given a filename...
 		with open(fc_xyz, 'r') as froc:
@@ -656,13 +660,20 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	roc_D = [0]
 	'''
 	#
-	ROCs = [[0,0,0,0]]
 	# nominally, we'd make a copy of the whole catalog, but for memory conservation, just index the lsit.
 	#eq_ks = [[get_site(eq['lon'], eq['lat']), eq] for eq in test_catalog]
-	eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
+	#
+	#eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
+	eq_site_zs = [Zs[get_site(eq['lon'], eq['lat'])] for eq in test_catalog]
+	#
+	roc_obj = roc_generic.ROC_mpp(n_procs=n_cpus, Z_events=eq_site_zs, Z_fc=Zs, h_denom=None, f_denom=None, f_start=0., f_stop=None)
+	roc = roc_obj.calc_roc()
+	Fs, Hs = roc_obj.F, roc_obj.H
 	#print("eZs: ", etas_fc.ETAS_array['z'][0:10], len(etas_fc.ETAS_array['z']))
 	#
-	# (and here, we really need to figure out how to MPP this).
+	'''
+	ROCs = [[0,0,0,0]]
+	# (and here, we really need to figure out how to MPP this)
 	#for j_z, z0 in enumerate(Zs['z']):
 	for j_z, z0 in enumerate(Zs):
 		# z0 is the threshold z for predicted=True/False
@@ -721,6 +732,8 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 		#except:
 		#	print('ROC error, probably div/0: ', roc, len(test_catalog), len(etas_fc.ETAS_array), roc[0]/float(len(test_catalog)), roc[1]/float(float(len(etas_fc.ETAS_array))) )
 		#	
+	#
+	'''
 	#
 	if fignum!=None:
 		plt.figure(fignum)
