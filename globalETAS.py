@@ -339,8 +339,12 @@ class Global_ETAS_model(object):
 			#
 		return self.etas_contours
 	#
-	def export_kml(self, fout='etas_contours.kml'):
-		open(fout,'w').write(self.contorus_kml_str)
+	def export_kml(self, fout='etas_contours.kml', kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5):
+		#
+		self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=fout)
+		p_name, f_name = os.path.split(fout)
+		if not os.path.isdir(p_name): os.makedirs(p_name)
+		open(fout,'w').write(self.contours_kml_str)
 		#
 	#
 	def kml_from_contours(self, contours=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
@@ -359,7 +363,7 @@ class Global_ETAS_model(object):
 		# export ETAS_array as xyx format.
 		#
 		with open(fout, 'w') as f:
-			[f.write('\t'.join(rw) + '\n') for rw in self.ETAS_array.tolist()]
+			[f.write('\t'.join([str(x) for x in rw]) + '\n') for rw in self.ETAS_array.tolist()]
 		#
 		
 		

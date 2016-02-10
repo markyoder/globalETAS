@@ -5,6 +5,8 @@ from mpl_toolkits.basemap import Basemap
 import random
 import multiprocessing as mpp
 import sys
+import datetime as dtm
+import pytz
 
 import globalETAS
 import etas_analyzer
@@ -146,3 +148,21 @@ def nepal_roc_script():
 	#
 	# and draw in roc for random...
 	bins, mins, maxes = roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=plt.figure(1).gca(), n_bins=100, line_color='m', shade_color='m')
+#
+def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0):
+	# a global ROC script; we may have some competing candidates for this right now. this seems to work. can we duplicate it with generic_roc?
+	#
+	# this script produced a really nice ROC, so let's clean it up a bit.
+	#A=etas_analyzer.ROC_mpp_handler(n_procs=8, fc_xyz='global/global_xyz_20151129.xyz', from_dt = eap.dtm.datetime(2015, 11, 30, tzinfo=eap.pytz.timezone('UTC')), to_dt=dtm.datetime.now(eap.pytz.timezone('UTC')), mc=5.5)
+	#
+	n_cpu = (n_cpu or mpp.cpu_count())
+	#
+	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
+	fc_len=120	# test period is 120 days.
+	#
+	roc=etas_analyzer.ROC_mpp_handler(n_procs=n_cpu, fc_xyz=fc_xyz, from_dt = etas_end_date, to_dt=etas_end_date + dtm.timedelta(days=120), mc=5.5)
+	X=roc.calc_ROCs(n_procs=n_cpu, m_c=6.0)
+	roc.plot_HF(fignum=fnum)
+	return roc
+	
+

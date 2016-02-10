@@ -156,11 +156,14 @@ class ROC_base(object):
 	def get_site(self, x,y):
 		return int(round((x-self.lons[0]+.5*self.d_lon)/self.d_lon)) + int(round((y-self.lats[0]+.5*self.d_lat)/self.d_lat))*self.nx
 
-	def calc_ROCs(self, H_denom=None, F_denom=None):
+	def calc_ROCs(self, H_denom=None, F_denom=None, m_c=None):
+		#
+		if m_c == None:
+			m_c = min(self.test_catalog['mag'])
 		#
 		if self.eq_z_vals == None:
 			print("setting default eq_z_vals")
-			self.eq_z_vals       = [self.fc_xyz['z'][self.get_site(eq['lon'], eq['lat'])] for eq in self.test_catalog]	
+			self.eq_z_vals       = [self.fc_xyz['z'][self.get_site(eq['lon'], eq['lat'])] for eq in self.test_catalog if eq['mag']>=m_c]	
 			#
 		#
 		#Zs = sorted(list(fc_xyz['z'].copy()))
@@ -237,6 +240,9 @@ class ROC_base(object):
 		plt.figure(fignum)
 		if do_clf: plt.clf()
 		#
+		if 'FH' not in self.__dict__.keys():
+			self.calc_ROCs()
+		#
 		plt.plot(*zip(*self.FH), ls='-', label='ROC_approx.', lw=2., alpha=.8)
 		#plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
 		plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
@@ -249,8 +255,10 @@ class ROC_mpp_handler(ROC_base):
 	#def __init__(self, fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, n_procs=None):
 	def __init__(self, n_procs=None, *args, **kwargs):
 		# note that the call signature using *args (ordered parameters) won't be identical to non-mpp subclasses; kwargs or key-word calling syntax won't change.
-		# ... should probably rewrite this to just use (*args, **kwargs)...
-		#super(ROC_mpp_handler,self).__init__(**{key:val for key,val in locals().items() if key not in ('self', 'pipe_r', 'n_procs')})
+		# call signature will be like:
+		# ROC_mpp_handler(n_procs, fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0)
+		# (all prams after n_procs are from ROC_base)
+		#
 		super(ROC_mpp_handler,self).__init__(*args,**kwargs)
 		# ... also might need to call mpp.Process.__init__() explicitly.
 		#
