@@ -175,7 +175,8 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	#
 	# now, make a 1/r forecast. we'll need to specify a mainshock (or in general, center) lat,lon.
 	x0,y0,m0 = nepal_mainshock['lon'], nepal_mainshock['lat'], nepal_mainshock['mag']
-	xyz = numpy.array([(float(x) for x in rw) for rw in open(fc_xyz,'r') if rw[0]!='#'], dtype=[('x','double'), ('y','double'), ('z','double')])	# 'double' = '<f8'
+	xyz = [(float(x) for x in rw) for rw in open(fc_xyz,'r') if rw[0]!='#']
+	xyz = numpy.array(xyz, dtype=[('x','double'), ('y','double'), ('z','double')])	# 'double' = '<f8'
 	#xyz = numpy.array(xyz, dtype=[('x','double'), ('y','double'), ('z','double')])
 	# 
 	L_r = 10**(.5*m0-1.76)
