@@ -610,10 +610,12 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	#
 	if to_dt   == None:
 		#to_dt = from_dt + dtm.timedelta(days=120)
-		to_dt = dtm.datetime.now(pytz.timezone('UTC'))
+		if from_dt==None:
+			to_dt = dtm.datetime.now(pytz.timezone('UTC'))
+			to_dt = from_dt + dtm.timedelta(days=(cat_len or 120))
 	if from_dt == None:
 		#from_dt = min(test_catalog['event_date']).tolist()
-		from_dt = to_dt - dtm.timedelta(days=120)
+		from_dt = to_dt - dtm.timedelta(days=(cat_len or 120))
 		#
 	#
 	if not hasattr(fc_xyz, 'dtype'):

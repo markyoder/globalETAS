@@ -7,12 +7,14 @@ import multiprocessing as mpp
 import sys
 import datetime as dtm
 import pytz
+from geographiclib.geodesic import Geodesic as ggp
 
 import globalETAS
 import etas_analyzer
 import roc_generic
 import contours2kml
 
+nepal_mainshock = {'mag':7.8, 'lon':84.708, 'lat':28.147}
 
 class Map_drawer(object):
 	# container class to draw maps and stuff like that.
@@ -145,7 +147,7 @@ def nepal_roc_script():
 	#
 	ax=plt.gca()
 	# now, get roc for a 1/r map (i think there's a script for that)
-	etas_toy = etas_analyzer.Toy_etas_invr(etas_in=etas_fc, mainshock={'mag':7.8, 'lon':84.708, 'lat':28.147})
+	etas_toy = etas_analyzer.Toy_etas_invr(etas_in=etas_fc, mainshock=nepal_mainshock)
 	B=etas_analyzer.roc_normalses(etas_toy, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=False, roc_ls='--') 
 	#
 	#
@@ -158,7 +160,7 @@ def global_roc():
 
 
 #
-def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0):
+def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 5.0, 6.0, 7.0]):
 	# a global ROC script; we may have some competing candidates for this right now. this seems to work. can we duplicate it with generic_roc?
 	#
 	# this script produced a really nice ROC, so let's clean it up a bit.
@@ -169,9 +171,29 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0):
 	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
 	fc_len=120	# test period is 120 days.
 	#
-	roc=etas_analyzer.ROC_mpp_handler(n_procs=n_cpu, fc_xyz=fc_xyz, from_dt = etas_end_date, to_dt=etas_end_date + dtm.timedelta(days=120), mc=5.5)
-	X=roc.calc_ROCs(n_procs=n_cpu, m_c=6.0)
-	roc.plot_HF(fignum=fnum)
+	roc=etas_analyzer.ROC_mpp_handler(n_procs=n_cpu, fc_xyz=fc_xyz, from_dt = etas_end_date, to_dt=etas_end_date + dtm.timedelta(days=120), mc=min(m_cs))
+	#
+	# now, make a 1/r forecast. we'll need to specify a mainshock (or in general, center) lat,lon.
+	x0,y0,m0 = nepal_mainshock['lon'], nepal_mainshock['lat'], nepal_mainshock['mag']
+	xyz = numpy.array([(float(x) for x in rw) for rw in open(fc_xyz,'r') if rw[0]!='#'], dtype=[('x','double'), ('y','double'), ('z','double')])	# 'double' = '<f8'
+	#xyz = numpy.array(xyz, dtype=[('x','double'), ('y','double'), ('z','double')])
+	# 
+	L_r = 10**(.5*m0-1.76)
+	for j,rw in enumerate(xyz):
+		g1=ggp.WGS84.Inverse(y0, x0, rw['y'], rw['x'])
+		#r_prime = (g1['s12']/1000.) + .5*L_r
+		xyz['z'][j] = 1./((g1['s12']/1000.) + .5*self.L_r)
+	#
+	roc_r=etas_analyzer.ROC_mpp_handler(n_procs=n_cpu, fc_xyz=xyz, from_dt = etas_end_date, to_dt=etas_end_date + dtm.timedelta(days=120), mc=min(m_cs))
+	#
+	plt.figure(fnum)
+	plt.clf()
+	for j,mc in enumerate(m_cs):
+		X=roc.calc_ROCs(n_procs=n_cpu, m_c=mc)
+		roc.plot_HF(fignum=fnum, do_clf=False)
+		#
+		X2 = roc_r.calc_ROCs(n_procs=n_cpu, m_c=mc)
+		roc_r.plot_HF(fignum=fnum, do_clf=False, ls='--')
 	#
 	return roc
 	

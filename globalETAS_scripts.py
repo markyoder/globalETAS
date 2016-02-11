@@ -22,6 +22,8 @@ color_map = 'spectral'
 #
 def etas_outputs(n_processes = None, output_path='etas_outputs/', kml_file='etas_kml.kml', png_file=None, xyz_file=None, fignum=0, *args, **kwargs):
 	#
+	# standard set of output files for ETAS, including kml, .png, and .xyz files.
+	#
 	if not os.path.isdir(output_path): os.makedirs(output_path)
 	#
 	n_processes = (n_processes or mpp.cpu_count())
