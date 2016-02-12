@@ -167,6 +167,7 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	#A=etas_analyzer.ROC_mpp_handler(n_procs=8, fc_xyz='global/global_xyz_20151129.xyz', from_dt = eap.dtm.datetime(2015, 11, 30, tzinfo=eap.pytz.timezone('UTC')), to_dt=dtm.datetime.now(eap.pytz.timezone('UTC')), mc=5.5)
 	#
 	n_cpu = (n_cpu or mpp.cpu_count())
+	print('cpu_count: ', n_cpu)
 	#
 	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
 	fc_len=120	# test period is 120 days.
@@ -174,28 +175,62 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	roc=etas_analyzer.ROC_mpp_handler(n_procs=n_cpu, fc_xyz=fc_xyz, from_dt = etas_end_date, to_dt=etas_end_date + dtm.timedelta(days=120), mc=min(m_cs))
 	#
 	# now, make a 1/r forecast. we'll need to specify a mainshock (or in general, center) lat,lon.
+	# (note: for the sake of conserving memory (of which this can use a lot), we should do the regualr roc then the 1/r roc afterwards. we might also use a
+	# faster distance algorithm. .Inverse() can take an option to use a simple spherical solution -- i think. we might also parallelize the loop through the array.
+	print('creating 1/r forecast...')
 	x0,y0,m0 = nepal_mainshock['lon'], nepal_mainshock['lat'], nepal_mainshock['mag']
-	with open(fc_xyz,'r') as f:
-		xyz = [(float(x) for x in rw) for rw in f if rw[0]!='#']
-	#
-	xyz = numpy.array(xyz, dtype=[('x','double'), ('y','double'), ('z','double')])	# 'double' = '<f8'a
-	# 
 	L_r = 10**(.5*m0-1.76)
-	for j,rw in enumerate(xyz):
-		g1=ggp.WGS84.Inverse(y0, x0, rw['y'], rw['x'])
-		#r_prime = (g1['s12']/1000.) + .5*L_r
-		xyz['z'][j] = 1./((g1['s12']/1000.) + .5*self.L_r)
+	xyz=[]
+	with open(fc_xyz,'r') as f:
+		for rw in f:
+			if rw[0]==['#']: continue
+			#
+			xyz += [[float(x) for x in rw]]
+			g1=ggp.WGS84.Inverse(y0, x0, rw[1], rw[0])
+			xyz[-1][-1] = 1./1./((g1['s12']/1000.) + .5*L_r)
+		#xyz = numpy.core.records.fromarrays(zip(*[(float(x) for x in rw.split()) for rw in f if rw[0]!='#']), dtype=[('x','<f8'), ('y', '<f8'), ('z','<f8')])
+		xyz = numpy.core.records.fromarrays(zip(*xyz), dtype=[('x','<f8'), ('y', '<f8'), ('z','<f8')])
 	#
+	#xyz = numpy.core.records.fromarrays(zip(*xyz), dtype=[('x','double'), ('y','double'), ('z','double')])	# 'double' = '<f8'a
+	# 
+	
+	#for j,rw in enumerate(xyz):
+	#	g1=ggp.WGS84.Inverse(y0, x0, rw['y'], rw['x'])
+	#	#r_prime = (g1['s12']/1000.) + .5*L_r
+	#	xyz['z'][j] = 1./((g1['s12']/1000.) + .5*L_r)
+	#
+	print('1/r forecast created. now make 1/r roc object.')
 	roc_r=etas_analyzer.ROC_mpp_handler(n_procs=n_cpu, fc_xyz=xyz, from_dt = etas_end_date, to_dt=etas_end_date + dtm.timedelta(days=120), mc=min(m_cs))
+	#
+	print('... and start doing roc calcs...')
 	#
 	plt.figure(fnum)
 	plt.clf()
 	for j,mc in enumerate(m_cs):
+		print('calcing roc for m_c=%f' % mc)
 		X=roc.calc_ROCs(n_procs=n_cpu, m_c=mc)
 		roc.plot_HF(fignum=fnum, do_clf=False)
 		#
 		X2 = roc_r.calc_ROCs(n_procs=n_cpu, m_c=mc)
 		roc_r.plot_HF(fignum=fnum, do_clf=False, ls='--')
+	#
+	return roc
+
+#
+def global_roc1_single(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0):
+	# a global ROC script; we may have some competing candidates for this right now. this seems to work. can we duplicate it with generic_roc?
+	#
+	# this script produced a really nice ROC, so let's clean it up a bit.
+	#A=etas_analyzer.ROC_mpp_handler(n_procs=8, fc_xyz='global/global_xyz_20151129.xyz', from_dt = eap.dtm.datetime(2015, 11, 30, tzinfo=eap.pytz.timezone('UTC')), to_dt=dtm.datetime.now(eap.pytz.timezone('UTC')), mc=5.5)
+	#
+	n_cpu = (n_cpu or mpp.cpu_count())
+	#
+	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
+	fc_len=120	# test period is 120 days.
+	#
+	roc=etas_analyzer.ROC_mpp_handler(n_procs=n_cpu, fc_xyz=fc_xyz, from_dt = etas_end_date, to_dt=etas_end_date + dtm.timedelta(days=120), mc=5.5)
+	X=roc.calc_ROCs(n_procs=n_cpu, m_c=6.0)
+	roc.plot_HF(fignum=fnum)
 	#
 	return roc
 	
