@@ -178,7 +178,7 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	with open(fc_xyz,'r') as f:
 		xyz = [(float(x) for x in rw) for rw in f if rw[0]!='#']
 	#
-	xyz = numpy.array(xyz, dtype=[('x','double'), ('y','double'), ('z','double')])	# 'double' = '<f8'
+	xyz = numpy.array(xyz, dtype=[('x','double'), ('y','double'), ('z','double')])	# 'double' = '<f8'a
 	# 
 	L_r = 10**(.5*m0-1.76)
 	for j,rw in enumerate(xyz):
