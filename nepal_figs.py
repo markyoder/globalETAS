@@ -14,6 +14,8 @@ import etas_analyzer
 import roc_generic
 import contours2kml
 
+colors_ =  mpl.rcParams['axes.color_cycle']
+
 nepal_mainshock = {'mag':7.8, 'lon':84.708, 'lat':28.147}
 
 class Map_drawer(object):
@@ -189,7 +191,8 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 		P_results = [P.apply_async(inv_dist_to, kwds={'xy':xyz[j:int(numpy.ceil(len(xyz)/n_cpu))], 'x0':x0, 'y0':y0}) for j in range(n_cpu)]
 		P.close()
 		xyz=[]
-		[numpy.append(xyz,r.get()) for r in P_results]
+		for r in P_results:
+			xyz += r.get()
 		P.join()
 		#
 		xyz.sort(key=lambda rw: (rw[0], rw[1]))
@@ -202,12 +205,14 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 				if rw[0]=='#': continue
 				#rws = [float(x) for x in rw.split()]
 				#
-				xyz += [float(x) for x in rw.split()]
+				xyz += [[float(x) for x in rw.split()]]
+				# this geodessic  method is CRAZY slow. for global catalogs, definitely use the spherical. geodesic maybe if we can get parallel working...
 				#g1=ggp.WGS84.Inverse(y0, x0, rw[1], rw[0])
 				#xyz[-1][-1] = 1./1./((g1['s12']/1000.) + .5*L_r)
 				xyz[-1][-1] = 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[xyz[-1][0], xyz[-1][1]], Rearth = 6378.1) + .5*L_r)
 			
 			#xyz = numpy.core.records.fromarrays(zip(*[(float(x) for x in rw.split()) for rw in f if rw[0]!='#']), dtype=[('x','<f8'), ('y', '<f8'), ('z','<f8')])
+	print('xyz[0:5]: ', xyz[0:5])
 	xyz = numpy.core.records.fromarrays(zip(*xyz), dtype=[('x','<f8'), ('y', '<f8'), ('z','<f8')])
 	#
 	#xyz = numpy.core.records.fromarrays(zip(*xyz), dtype=[('x','double'), ('y','double'), ('z','double')])	# 'double' = '<f8'a
@@ -227,11 +232,14 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	plt.clf()
 	for j,mc in enumerate(m_cs):
 		print('calcing roc for m_c=%f' % mc)
+		clr = colors_[j%len(colors_)]
 		X=roc.calc_ROCs(n_procs=n_cpu, m_c=mc)
-		roc.plot_HF(fignum=fnum, do_clf=False)
+		#roc.plot_HF(fignum=fnum, do_clf=False)
+		plt.plot(*zip(*roc.HF), ls='-', marker='', lw=3., color=clr)
 		#
 		X2 = roc_r.calc_ROCs(n_procs=n_cpu, m_c=mc)
-		roc_r.plot_HF(fignum=fnum, do_clf=False, ls='--')
+		#roc_r.plot_HF(fignum=fnum, do_clf=False, ls='--')
+		plt.plot(*zip(*roc_r.HF), ls='--', marker='', lw=3., color=clr)
 	#
 	return roc
 #
