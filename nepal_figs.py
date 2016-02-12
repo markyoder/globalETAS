@@ -181,15 +181,34 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	x0,y0,m0 = nepal_mainshock['lon'], nepal_mainshock['lat'], nepal_mainshock['mag']
 	L_r = 10**(.5*m0-1.76)
 	xyz=[]
-	with open(fc_xyz,'r') as f:
-		for rw in f:
-			if rw[0]==['#']: continue
-			#
-			xyz += [[float(x) for x in rw]]
-			g1=ggp.WGS84.Inverse(y0, x0, rw[1], rw[0])
-			xyz[-1][-1] = 1./1./((g1['s12']/1000.) + .5*L_r)
-		#xyz = numpy.core.records.fromarrays(zip(*[(float(x) for x in rw.split()) for rw in f if rw[0]!='#']), dtype=[('x','<f8'), ('y', '<f8'), ('z','<f8')])
-		xyz = numpy.core.records.fromarrays(zip(*xyz), dtype=[('x','<f8'), ('y', '<f8'), ('z','<f8')])
+	# ... (eventually) design this to first read the xyz array, then split it up to a special function (here) which returns [[x,y,1/r]]
+	if n_cpu>1 and False:
+		with open(fc_xyz,'r') as f:
+			xy = [[float(x) for x in rw.split()[0:2]] for rw in f if rw[0]!='#']
+		P=mpp.Pool(processes=n_cpu)
+		P_results = [P.apply_async(inv_dist_to, kwds={'xy':xyz[j:int(numpy.ceil(len(xyz)/n_cpu))], 'x0':x0, 'y0':y0}) for j in range(n_cpu)]
+		P.close()
+		xyz=[]
+		[numpy.append(xyz,r.get()) for r in P_results]
+		P.join()
+		#
+		xyz.sort(key=lambda rw: (rw[0], rw[1]))
+		#
+	else:
+		# do spp
+		xyz=[]
+		with open(fc_xyz,'r') as f:
+			for rw in f:
+				if rw[0]=='#': continue
+				#rws = [float(x) for x in rw.split()]
+				#
+				xyz += [float(x) for x in rw.split()]
+				#g1=ggp.WGS84.Inverse(y0, x0, rw[1], rw[0])
+				#xyz[-1][-1] = 1./1./((g1['s12']/1000.) + .5*L_r)
+				xyz[-1][-1] = 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[xyz[-1][0], xyz[-1][1]], Rearth = 6378.1) + .5*L_r)
+			
+			#xyz = numpy.core.records.fromarrays(zip(*[(float(x) for x in rw.split()) for rw in f if rw[0]!='#']), dtype=[('x','<f8'), ('y', '<f8'), ('z','<f8')])
+	xyz = numpy.core.records.fromarrays(zip(*xyz), dtype=[('x','<f8'), ('y', '<f8'), ('z','<f8')])
 	#
 	#xyz = numpy.core.records.fromarrays(zip(*xyz), dtype=[('x','double'), ('y','double'), ('z','double')])	# 'double' = '<f8'a
 	# 
@@ -215,6 +234,9 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 		roc_r.plot_HF(fignum=fnum, do_clf=False, ls='--')
 	#
 	return roc
+#
+def inv_dist_to(xy,x0,y0):
+	return [[x,y, 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1) + .5*L_r)] for x,y in xy]
 
 #
 def global_roc1_single(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0):
