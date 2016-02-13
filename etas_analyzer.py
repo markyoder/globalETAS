@@ -279,7 +279,7 @@ class ROC_mpp_handler(ROC_base):
 	def set_eq_z_vals(self, m_c=None):
 		if m_c==None:
 			m_c = min(self.test_catalog['mag'])
-		self.eq_z_vals = [self.fc_xyz['z'][self.get_site(eq['lon'], eq['lat'])] for eq in self.test_catalog if eq['mag']>m_c]	
+		self.eq_z_vals = [self.fc_xyz['z'][self.get_site(eq['lon'], eq['lat'])] for eq in self.test_catalog if eq['mag']>=m_c]	
 		#
 	#
 	def calc_ROCs(self, n_procs=None, m_c=None):
@@ -287,7 +287,12 @@ class ROC_mpp_handler(ROC_base):
 		# ((this is still totally ****** in mpp). n>0 nodes are not getting proper indexing.
 		#
 		# now, split up fc_xyz into n_procs, start each proc and pipe back the results.
-		if self.eq_z_vals == None: self.set_eq_z_vals(m_c=m_c)
+		# (this logic tree needs some work. we want to be able to change the eq_z_values, but maybe not all the time?)
+		# this approach (if m_c!=None) potentially produces some undesirable behavior; if m_c hasn't changed, we re-calc eq_z_vals, which
+		# might take some time
+		if self.eq_z_vals == None or m_c!=None:
+			print('re-calculating eq_z_vals for m_c=%f' % m_c)
+			self.set_eq_z_vals(m_c=m_c)
 		#
 		fc_len = int(numpy.ceil(len(self.fc_xyz)/n_procs))
 		roc_workers = []

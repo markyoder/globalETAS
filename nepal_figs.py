@@ -179,14 +179,19 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	# now, make a 1/r forecast. we'll need to specify a mainshock (or in general, center) lat,lon.
 	# (note: for the sake of conserving memory (of which this can use a lot), we should do the regualr roc then the 1/r roc afterwards. we might also use a
 	# faster distance algorithm. .Inverse() can take an option to use a simple spherical solution -- i think. we might also parallelize the loop through the array.
+	# ... of course, unless we can come up with a more general 1/r (aka, not 1/r from gorkah, this is all nonesense. so what this basically will amount to 
+	# (if we do it correctly) is comparing a bunch of time-dependent global (or other) fc to a static fc (with p=0)... so save it for another paper.
+	'''
 	print('creating 1/r forecast...')
 	x0,y0,m0 = nepal_mainshock['lon'], nepal_mainshock['lat'], nepal_mainshock['mag']
 	L_r = 10**(.5*m0-1.76)
 	xyz=[]
 	# ... (eventually) design this to first read the xyz array, then split it up to a special function (here) which returns [[x,y,1/r]]
 	if n_cpu>1 and False:
-		with open(fc_xyz,'r') as f:
-			xy = [[float(x) for x in rw.split()[0:2]] for rw in f if rw[0]!='#']
+		# ... eventually, make the mpp work...
+		#with open(fc_xyz,'r') as f:
+		#	xy = [[float(x) for x in rw.split()[0:2]] for rw in f if rw[0]!='#']
+		xy = listt(zip(roc.fc_xyz['x'].tolist(), roc.fc_xyz['y'].tolist()))
 		P=mpp.Pool(processes=n_cpu)
 		P_results = [P.apply_async(inv_dist_to, kwds={'xy':xyz[j:int(numpy.ceil(len(xyz)/n_cpu))], 'x0':x0, 'y0':y0}) for j in range(n_cpu)]
 		P.close()
@@ -199,48 +204,56 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 		#
 	else:
 		# do spp
-		xyz=[]
+		# a little slower than a .tolist(), or something, but we explicitly get list-o-lists.
+		xyz = [[rw[0], rw[1], 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[rw[0], rw[1]], Rearth = 6378.1) + .5*L_r)] for rw in roc.fc_xyz]
+		'''	
+		xyz=[]	
 		with open(fc_xyz,'r') as f:
 			for rw in f:
 				if rw[0]=='#': continue
 				#rws = [float(x) for x in rw.split()]
 				#
 				xyz += [[float(x) for x in rw.split()]]
+				
 				# this geodessic  method is CRAZY slow. for global catalogs, definitely use the spherical. geodesic maybe if we can get parallel working...
 				#g1=ggp.WGS84.Inverse(y0, x0, rw[1], rw[0])
 				#xyz[-1][-1] = 1./1./((g1['s12']/1000.) + .5*L_r)
 				xyz[-1][-1] = 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[xyz[-1][0], xyz[-1][1]], Rearth = 6378.1) + .5*L_r)
 			
 			#xyz = numpy.core.records.fromarrays(zip(*[(float(x) for x in rw.split()) for rw in f if rw[0]!='#']), dtype=[('x','<f8'), ('y', '<f8'), ('z','<f8')])
+		'''
 	print('xyz[0:5]: ', xyz[0:5])
 	xyz = numpy.core.records.fromarrays(zip(*xyz), dtype=[('x','<f8'), ('y', '<f8'), ('z','<f8')])
 	#
-	#xyz = numpy.core.records.fromarrays(zip(*xyz), dtype=[('x','double'), ('y','double'), ('z','double')])	# 'double' = '<f8'a
-	# 
-	
-	#for j,rw in enumerate(xyz):
-	#	g1=ggp.WGS84.Inverse(y0, x0, rw['y'], rw['x'])
-	#	#r_prime = (g1['s12']/1000.) + .5*L_r
-	#	xyz['z'][j] = 1./((g1['s12']/1000.) + .5*L_r)
-	#
 	print('1/r forecast created. now make 1/r roc object.')
 	roc_r=etas_analyzer.ROC_mpp_handler(n_procs=n_cpu, fc_xyz=xyz, from_dt = etas_end_date, to_dt=etas_end_date + dtm.timedelta(days=120), mc=min(m_cs))
+	'''
 	#
 	print('... and start doing roc calcs...')
 	#
-	plt.figure(fnum)
+	fg1=plt.figure(fnum)
 	plt.clf()
+	ax1=plt.gca()
+	#fg2=plt.figure(fnum+1)
+	#plt.clf()
+	#ax2=plt.gca()
+	#plt.figure(fnum)
 	for j,mc in enumerate(m_cs):
 		print('calcing roc for m_c=%f' % mc)
 		clr = colors_[j%len(colors_)]
 		X=roc.calc_ROCs(n_procs=n_cpu, m_c=mc)
 		#roc.plot_HF(fignum=fnum, do_clf=False)
-		plt.plot(*zip(*roc.HF), ls='-', marker='', lw=3., color=clr)
+		ax1.plot(*zip(*roc.FH), ls='-', marker='', lw=3., color=clr, label='m_c=%f' % mc)
+		#ax2.plot(*zip(*roc.FH), ls='-', marker='', lw=3., color=clr, label='m_c=%f' % mc)
 		#
-		X2 = roc_r.calc_ROCs(n_procs=n_cpu, m_c=mc)
-		#roc_r.plot_HF(fignum=fnum, do_clf=False, ls='--')
-		plt.plot(*zip(*roc_r.HF), ls='--', marker='', lw=3., color=clr)
+		#X2 = roc_r.calc_ROCs(n_procs=n_cpu, m_c=mc)
+		#ax1.plot(*zip(*roc_r.FH), ls='--', marker='', lw=3., color=clr, label='m_c=%f' % mc)
+		#ax2.plot(*zip(*roc_r.FH), ls='--', marker='', lw=3., color=clr, label='m_c=%f' % mc)
 	#
+	ax1.plot(range(2),range(2), 'r--', alpha=.7, lw=2.5)
+	#ax2.plot(range(2),range(2), 'r--', alpha=.7, lw=2.5)
+	ax1.legend(loc=0, numpoints=1)
+	#ax2.legend(loc=0, numpoints=1)
 	return roc
 #
 def inv_dist_to(xy,x0,y0):
