@@ -164,7 +164,7 @@ class ROC_base(object):
 		if m_c == None:
 			m_c = min(self.test_catalog['mag'])
 		#
-		if self.eq_z_vals == None:
+		if self.eq_z_vals == None or m_c!=None:
 			print("setting default eq_z_vals")
 			self.eq_z_vals       = [self.fc_xyz['z'][self.get_site(eq['lon'], eq['lat'])] for eq in self.test_catalog if eq['mag']>=m_c]	
 			#
@@ -294,6 +294,7 @@ class ROC_mpp_handler(ROC_base):
 			print('re-calculating eq_z_vals for m_c=%f' % m_c)
 			self.set_eq_z_vals(m_c=m_c)
 		#
+		self.FH=[]
 		fc_len = int(numpy.ceil(len(self.fc_xyz)/n_procs))
 		roc_workers = []
 		roc_pipes = []
@@ -303,13 +304,10 @@ class ROC_mpp_handler(ROC_base):
 		for j in range(n_procs):
 			# make an ROC_worker instance for each process, fc_xyz = fc_xyz[j*fc_len:(j+1)*fc_len]
 			p1,p2 = mpp.Pipe()
-			#roc_workers += [ROC_woorker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=test_catalog, pipe_r=p1, H_denom = len(self.test_catalog), F_denom=len(self.fc_xyz))]
-			#roc_workers += [ROC_worker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=self.test_catalog, pipe_r=p1, H_denom = self.h_denom, F_denom=self.f_denom, eq_z_vals=self.eq_z_vals[j*fc_len:min(len(self.fc_xyz), (j+1)*fc_len)][:])]
-			
-			#roc_workers += [ROC_worker(fc_xyz=self.fc_xyz[j*fc_len:(j+1)*fc_len], test_catalog=self.test_catalog, pipe_r=p1, H_denom = self.h_denom, F_denom=self.f_denom, eq_z_vals=self.eq_z_vals)]
+			#
 			roc_workers += [ROC_worker_simple(Z_fc=Zs_fc[j*fc_len:(j+1)*fc_len], Z_events=self.eq_z_vals, h_denom=len(self.eq_z_vals), f_denom=len(Zs_fc), f_start = j*fc_len, pipe_r=p1)]
 			
-			#roc_workers[-1].eq_z_vals = [x for x in self.eq_z_vals[j*fc_len:min(len(self.fc_xyz), (j+1)*fc_len)]]
+			#
 			roc_pipes += [p2]
 			roc_workers[-1].start()
 			#
@@ -581,11 +579,23 @@ def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=
 	if do_clf: plt.clf()
 	ax=plt.gca()
 	FHs=[]
+	
+	f_roc = roc_normal
+	if isinstance(etas_fc, str) or hasattr(etas_fc, '__len__'):
+		# an array or a filename...
+		f_roc = roc_normal_from_xyz
+	
+	if isinstance(etas_fc, str):
+		# if we're given a filename...
+		with open(etas_fc, 'r') as froc:
+			#fc_xyz= numpy.core.records.fromarrays(zip(*[[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
+			etas_fc= numpy.core.records.fromarrays(zip(*[[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
 	#
 	for mc in mc_rocs:
 		# ... we should probalby modify roc_normal() so we can pass a catalog (for speed optimization), but we'll probably only run this a few times.
 		print('roc for %f' % mc)
-		FH = roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=mc, fignum=0)
+		#FH = roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=mc, fignum=0)
+		FH = f_roc(etas_fc, test_catalog=None, to_dt=to_dt, cat_len=cat_len, mc_roc=mc, fignum=0)
 		ax.plot(*zip(*FH), marker='', ls=roc_ls, lw=2.5, alpha=.8, label='$m_c=%.2f$' % mc)
 		FHs += [[mc,FH]]
 		#
@@ -602,11 +612,12 @@ def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=
 	#
 	return FHs
 #
-def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, fignum=0, do_clf=True, n_cpus=None):
+def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., fignum=0, do_clf=True, n_cpus=None, mc_roc=5.0):
 	#
 	# roc from an xyz forecast input. eventually, convolve this with roc_normal() which takes etas_fc, an etas type, object as an input.
 	# dx, dy are grid-sizes in the x,y direction. if none, we'll figure them out.
 	#
+	mc = mc_roc
 	if n_cpus==None: n_cpus = mpp.cpu_count()+1
 	if isinstance(fc_xyz, str):
 		# if we're given a filename...
@@ -788,10 +799,8 @@ def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120
 	#lon0 = min(etas_fc.ETAS_array['x'])
 	#
 	# (for this application, we can also just get nasty and to a loop-loop with geodetic distancing).
-	#get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
-	get_site = lambda x,y: int(numpy.floor((x-lons[0])/d_lon)) + int(numpy.floor((y-lats[0])/d_lat))*nx
-	
-	#get_site = lambda x,y: int(round(x-lons[0])/d_lon) + int((y-lats[0])/d_lat)*nx
+	get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
+	#get_site = lambda x,y: int(numpy.floor((x-lons[0])/d_lon)) + int(numpy.floor((y-lats[0])/d_lat))*nx
 	#
 	'''
 	#test:
