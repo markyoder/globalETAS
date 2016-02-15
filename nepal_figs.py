@@ -162,8 +162,6 @@ def nepal_roc_script():
 def global_roc():
 	roc_global = etas_analyzer.roc_normal_from_xyz(fc_xyz='data/global_xyz_20151129.xyz', test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, fignum=0, do_clf=True)
 	return roc_global
-
-
 #
 def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 4.5, 5.0, 6.0, 7.0]):
 	# a global ROC script; we may have some competing candidates for this right now. this seems to work. can we duplicate it with generic_roc?
@@ -268,8 +266,9 @@ def global_roc2(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	etas_analyzer.roc_normalses(etas_fc=fc_xyz, test_catalog=None, to_dt=fc_end_date, cat_len=120., mc_rocs=m_cs, fignum=0, do_clf=True, roc_ls='-')
 	plt.savefig('roc_global2.png')
 #
-def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 4.5, 5.0, 6.0, 7.0], test_catalog=None, fc_start_date=None, fc_end_date=None):
+def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 4.5, 5.0, 6.0, 7.0], test_catalog=None, fc_start_date=None, fc_end_date=None, fc_frac=1.0):
 	# ok, so all of this is a mess. the roc bits need to be consolidated, cleaned up, and better modularized. we'll do some of that here, at lest by example.
+	# @fc_frac: fraction of fc sites to use (aka, skip the first (1-frac)*N (low z) sites.
 	# fetch teh fc_xyz, generate a test catalog, then use generic_roc tools (mpp implementations) to do the roc.
 	# with the test catalog: 1) get the test catalog for the region, time domain (maybe write  script to do this)
 	# then, get the fc_z-values, but keep those as pairs like [[z, mag], ...]. this way, we can quickly make z_events lists.
@@ -293,18 +292,12 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	#lats=[-89., 89.]
 	mc=min(m_cs)
 	#
-	#lats = [min(fc_xyz['y']), max(fc_xyz['y'])]
-	#lons = [min(fc_xyz['x']), max(fc_xyz['x'])]
-	#
-	#mc   = mc_roc
 	X_set = sorted(list(set(fc_xyz['x'])))
 	Y_set = sorted(list(set(fc_xyz['y'])))
 	nx = len(X_set)
 	ny = len(Y_set)
 	lons = [min(X_set), max(X_set)]
 	lats = [min(Y_set), max(Y_set)]
-	#d_lon = (dx or abs(X_set[1] - X_set[0]))
-	#d_lat = (dy or abs(Y_set[1] - Y_set[0]))
 	d_lon = abs(X_set[1] - X_set[0])
 	d_lat = abs(Y_set[1] - Y_set[0])
 	get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
@@ -319,7 +312,7 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	Zs = sorted(list(fc_xyz['z']))
 	#
 	# now, get both the eq magnitudes and site_z values, so we can change the mc threshold later.
-	eq_site_zs = [[Zs[get_site(eq['lon'], eq['lat'])], eq['mag']] for eq in test_catalog]
+	eq_site_zs = [[fc_xyz['z'][get_site(eq['lon'], eq['lat'])], eq['mag']] for eq in test_catalog]
 	#eq_site_zs.sort(key=lambda x: x[1])
 	#
 	plt.figure(fnum)
@@ -348,6 +341,66 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	#
 	#
 	return FHs
+#
+def global_roc_comparison(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, mc=6.0, roc_fracs=[1.0, .8, .5], test_catalog=None, fc_start_date=None, fc_end_date=None, fc_frac=1.0):
+	#
+	n_cpu = (n_cpu or mpp.cpu_count())
+	#
+	# for now, with this script, we're assuming that we are using this specific file, but we might pre-load it.
+	if isinstance(fc_xyz, str):
+		with open(fc_xyz, 'r') as froc:
+			fc_xyz= [[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]
+		#
+	#
+	fc_start_date = (fc_start_date or dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC')))
+	fc_end_date   = (fc_end_date or fc_start_date + dtm.timedelta(days=120))
+	#
+	if not hasattr(fc_xyz, 'dtype'):
+		fc_xyz = numpy.core.records.fromarrays(zip(*fc_xyz), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
+	#
+	X_set = sorted(list(set(fc_xyz['x'])))
+	Y_set = sorted(list(set(fc_xyz['y'])))
+	nx = len(X_set)
+	ny = len(Y_set)
+	lons = [min(X_set), max(X_set)]
+	lats = [min(Y_set), max(Y_set)]
+	d_lon = abs(X_set[1] - X_set[0])
+	d_lat = abs(Y_set[1] - Y_set[0])
+	get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
+	#	
+	print("get cataog: ", lons, lats, mc, fc_start_date, fc_end_date)
+	if test_catalog==None:
+		test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[fc_start_date, fc_end_date])
+	print("catlen: ", len(test_catalog))
+	#
+	# forecast z-values.
+	#Zs = sorted(list(fc_xyz['z'].copy()))
+	Zs = sorted(list(fc_xyz['z']))
+	#
+	# now, get both the eq magnitudes and site_z values, so we can change the mc threshold later.
+	#eq_site_zs = [[Zs[get_site(eq['lon'], eq['lat'])], eq['mag']] for eq in test_catalog if eq['mag']>=mc]
+	eq_site_zs = [fc_xyz['z'][get_site(eq['lon'], eq['lat'])] for eq in test_catalog if eq['mag']>=mc]
+	#eq_site_zs.sort(key=lambda x: x[1])
+	#
+	plt.figure(fnum)
+	plt.clf()
+	plt.plot(range(2), range(2), ls='--', color='r', lw=3., alpha=.75, zorder=2)
+	#
+	for j,frac in enumerate(roc_fracs):
+		#
+		print('calcing roc for mc=%f, frac=%f' % (mc, frac))
+		j_roc = int(len(fc_xyz)*(1.-frac))
+		Zs = sorted(list(fc_xyz['z'][j_roc:].copy()))
+		#
+		# n_procs,Z_events, Z_fc, h_denom=None, f_denom=None, f_start=0., f_stop=None
+		roc = roc_generic.ROC_mpp(n_procs=n_cpu, Z_events=eq_site_zs, Z_fc=Zs, h_denom=None, f_denom=None, f_start=0, f_stop=None)
+		a=roc.calc_roc()		# no parameters, and in fact no return value, but it's never a bad idea to leave a place-holder for one.
+		#
+		plt.plot(roc.F, roc.H, ls='-', label='$m_c=%f, frac=%f' % (mc, frac))
+	#
+	plt.title('ROC Comparison')
+	plt.xlabel('False Alarm Rate $F$')
+	plt.ylabel('Hit Rate $H$')
 #
 def inv_dist_to(xy,x0,y0):
 	return [[x,y, 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1) + .5*L_r)] for x,y in xy]

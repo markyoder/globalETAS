@@ -333,6 +333,7 @@ class ROC_generic_worker(ROC_generic, mpp.Process):
 		#print('calcing roc...', f_start, f_stop, f_start_index, ' **', len_fc)
 		#
 		Z_events = self.Z_events
+		Z_events.sort()
 		Z_fc = self.Z_fc		# these just make a reference, but it still writes a copy of a variable, so it might be a bit faster to just reff self.x, etc.
 		#
 		h_denom = (h_denom or len(Z_events))
@@ -352,10 +353,10 @@ class ROC_generic_worker(ROC_generic, mpp.Process):
 			#r_XY += [[(f_start + j - n_h)/f_denom, n_h/h_denom]]
 			#
 			#n_h = sum([(z_ev>=z_fc) for z_ev in Z_events])
-			#n_h = len([z_ev for z_ev in Z_events if z_ev>=z_fc])	# this should be faster. we might also look into dropping th part of z_ev that we know is <z_fc.
-			# ... and this should be much faster than both... but needs testing.
-			while z_ev[j_events]<z_fc: j_events+=1
-			n_h = len_ev-j_events
+			n_h = len([z_ev for z_ev in Z_events if z_ev>=z_fc])	# this should be faster. we might also look into dropping th part of z_ev that we know is <z_fc.
+			# ... and this should be much faster than both... but needs testing. (... dunno)
+			#while Z_events[j_events]<z_fc and j_events<(len_ev-1): j_events+=1
+			#n_h = len_ev-j_events
 			#
 			self.H[j+f_start] = n_h/h_denom
 			self.F[j+f_start] = (len_fc - f_start_index - j - n_h)/f_denom
