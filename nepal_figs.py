@@ -133,9 +133,9 @@ def roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=None, n_bin
 	#
 	X,mn, mx = zip(*x_min_max)
 	#return X,mn,mx
-	plt.plot(X,mn, color=line_color, ls='-', lw=2., alpha=.7)
-	plt.plot(X,mx, color=line_color, ls='-', lw=2., alpha=.7)
-	plt.fill_between(X,mn,mx, color=shade_color, alpha=.3)
+	ax.plot(X,mn, color=line_color, ls='-', lw=2., alpha=.7)
+	ax.plot(X,mx, color=line_color, ls='-', lw=2., alpha=.7)
+	ax.fill_between(X,mn,mx, color=shade_color, alpha=.3)
 	#
 	return X,mn,mx
 	
@@ -266,7 +266,7 @@ def global_roc2(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	etas_analyzer.roc_normalses(etas_fc=fc_xyz, test_catalog=None, to_dt=fc_end_date, cat_len=120., mc_rocs=m_cs, fignum=0, do_clf=True, roc_ls='-')
 	plt.savefig('roc_global2.png')
 #
-def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 4.5, 5.0, 6.0, 7.0], test_catalog=None, fc_start_date=None, fc_end_date=None, fc_frac=1.0):
+def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 5.0, 6.0, 6.5], test_catalog=None, fc_start_date=None, fc_end_date=None, fc_frac=1.0):
 	# ok, so all of this is a mess. the roc bits need to be consolidated, cleaned up, and better modularized. we'll do some of that here, at lest by example.
 	# @fc_frac: fraction of fc sites to use (aka, skip the first (1-frac)*N (low z) sites.
 	# fetch teh fc_xyz, generate a test catalog, then use generic_roc tools (mpp implementations) to do the roc.
@@ -317,7 +317,7 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	#
 	plt.figure(fnum)
 	plt.clf()
-	plt.plot(range(2), range(2), ls='--', color='r', lw=3., alpha=.75, zorder=2)
+	plt.plot(range(2), range(2), ls='--', color='m', lw=3., alpha=.75, zorder=2)
 	FHs = {}		# we'll use mc as a key, FH as a val: {mc:[FH]...}
 	#				# it won't key well because of floating point error (aka, FHs[5.5] will not be reliable. but it will make a decent container.
 	#
@@ -333,6 +333,10 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 		#FHs[mc]=[[f,h] for f,h in zip(roc.F, roc.H)]
 		#
 		plt.show()	# just in case...
+	bins, mins, maxes = roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=plt.gca(), n_bins=100, line_color='m', shade_color='m')
+	#plt.fill_between(bins, mins, maxes, color='m', alpha=.3)
+	#plt.plot(bins, mins, '-', lw=1.5, alpha=.8)
+	#plt.plot(bins, maxes, '-', lw=1.5, alpha=.8)
 	plt.legend(loc=0, numpoints=1)
 	plt.title('Global ROC', size=18)
 	plt.xlabel('False Alarm Rate $F$', size=18)
@@ -344,6 +348,8 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 #
 def global_roc_comparison(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, mc=6.0, roc_fracs=[1.0, .8, .5], test_catalog=None, fc_start_date=None, fc_end_date=None, fc_frac=1.0):
 	#
+	# (turns out that i don't think we really need this script. its apparent value appears to have resulted from an error
+	# in the global_roc scripts.
 	n_cpu = (n_cpu or mpp.cpu_count())
 	#
 	# for now, with this script, we're assuming that we are using this specific file, but we might pre-load it.
@@ -423,4 +429,32 @@ def global_roc1_single(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum
 	roc.plot_HF(fignum=fnum)
 	#
 	return roc
+
+def global_etas_and_roc(fc_len=120, fout_xyz='data/global_etas.xyz', fnum=0, m_cs=[4.0, 5.0, 6.0, 6.5]):
+	# a soup-to-nuts global ETAS and roc bit. calculate a global ETAS up to fc_len days ago (fc_len+1?); then do ROC on that data set.
+	#
+	if not os.path.isdir(os.path.split(fout_xyz)[0]): os.makedirs(os.path.split(fout_xyz)[0])
+	#
+	lats=[-89., 89.]
+	lons=[-180., 180.]
+	mc=3.0
+	d_lon=.1
+	d_lat=.1
+	etas_range_factor=15.
+	etas_range_padding=.5
+	etas_fit_factor=1.5
+	t_now=dtm.datetime.now(globalETAS.tzutc)-dtm.timedelta(days-fc_len-1)
+	cat_len=3650.
+	#
+	etas = globalETAS(lats=lats, lons=lons, mc=mc, d_lon=d_lon, d_lat=d_lat, etas_range_factor=etas_range_factor, etas_range_padding=etas_range_padding, etas_fit_factor=etas_fit_factor, t_now=t_now, cat_len=cat_len)
+	#
+	with open(fout_xyz,'w') as fout:
+		fout.write('#global ETAS\n#lats={lats!s}\tlons={lons!s}\tmc={mc!s}\td_lon={dlon!s}\td_lat={dlat!s}\tetas_range_factor={erf!s}\tetas_range_padding={erp!s}\tetas_fit_factor={eff!s}\tt_now={tnow!s}\tcat_len={catlen!s}\n'.format(lats=lats, lons=lons, mc=mc, dlon=d_lon, dlat=d_lat, erf=etas_range_factor, erp=etas_range_padding, eff=etas_fit_factor,tnow=t_now,catlen=cat_len))
+		#
+		[fout.write('\t'.join([str(x) for x in rw])+'\n') for j,rw in enumerate(etas.ETAS_array)]
+		#
+	#
+	roc_glob = global_roc3(fc_xyz=etas.ETAS_array, n_cpu=None, fnum=fnum, m_cs=m_cs, test_catalog=None, fc_start_date=t_now+dtm.timedelta(days=1), fc_end_date=t_now+dtm.timedelta(days=121))
+	
+	
 	
