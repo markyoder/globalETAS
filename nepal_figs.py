@@ -330,7 +330,7 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 		#
 		clr = colors_[j%len(colors_)]
 		plt.plot(roc.F, roc.H, ls='-', color=clr, marker='', lw=2.5, label='$m_c=%.2f$' % mc)
-		FHs[mx]=[[f,h] for f,h in zip(roc.F, roc.H)]
+		FHs[mc]=[[f,h] for f,h in zip(roc.F, roc.H)]
 		#
 		plt.show()	# just in case...
 	plt.legend(loc=0, numpoints=1)
