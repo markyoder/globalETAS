@@ -5,6 +5,7 @@ from mpl_toolkits.basemap import Basemap
 import random
 import multiprocessing as mpp
 import sys
+import os
 import datetime as dtm
 import pytz
 from geographiclib.geodesic import Geodesic as ggp
@@ -430,7 +431,7 @@ def global_roc1_single(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum
 	#
 	return roc
 
-def global_etas_and_roc(fc_len=120, fout_xyz='data/global_etas.xyz', fnum=0, m_cs=[4.0, 5.0, 6.0, 6.5]):
+def global_etas_and_roc(fc_len=120, fout_xyz='figs/global_etas.xyz', fnum=0, m_cs=[4.0, 5.0, 6.0, 6.5]):
 	# a soup-to-nuts global ETAS and roc bit. calculate a global ETAS up to fc_len days ago (fc_len+1?); then do ROC on that data set.
 	#
 	if not os.path.isdir(os.path.split(fout_xyz)[0]): os.makedirs(os.path.split(fout_xyz)[0])
@@ -443,10 +444,12 @@ def global_etas_and_roc(fc_len=120, fout_xyz='data/global_etas.xyz', fnum=0, m_c
 	etas_range_factor=15.
 	etas_range_padding=.5
 	etas_fit_factor=1.5
-	t_now=dtm.datetime.now(globalETAS.tzutc)-dtm.timedelta(days-fc_len-1)
+	t_now=dtm.datetime.now(globalETAS.tzutc)-dtm.timedelta(days=fc_len-1)
 	cat_len=3650.
 	#
-	etas = globalETAS(lats=lats, lons=lons, mc=mc, d_lon=d_lon, d_lat=d_lat, etas_range_factor=etas_range_factor, etas_range_padding=etas_range_padding, etas_fit_factor=etas_fit_factor, t_now=t_now, cat_len=cat_len)
+	etas = globalETAS.ETAS_mpp(lats=lats, lons=lons, mc=mc, d_lon=d_lon, d_lat=d_lat, etas_range_factor=etas_range_factor, etas_range_padding=etas_range_padding, etas_fit_factor=etas_fit_factor, t_now=t_now, cat_len=cat_len)
+	mp = etas.make_etas_contour_map(fignum=fnum, map_resolution='f')
+	plt.savefig('%s/etas_contours_%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
 	#
 	with open(fout_xyz,'w') as fout:
 		fout.write('#global ETAS\n#lats={lats!s}\tlons={lons!s}\tmc={mc!s}\td_lon={dlon!s}\td_lat={dlat!s}\tetas_range_factor={erf!s}\tetas_range_padding={erp!s}\tetas_fit_factor={eff!s}\tt_now={tnow!s}\tcat_len={catlen!s}\n'.format(lats=lats, lons=lons, mc=mc, dlon=d_lon, dlat=d_lat, erf=etas_range_factor, erp=etas_range_padding, eff=etas_fit_factor,tnow=t_now,catlen=cat_len))
@@ -454,7 +457,9 @@ def global_etas_and_roc(fc_len=120, fout_xyz='data/global_etas.xyz', fnum=0, m_c
 		[fout.write('\t'.join([str(x) for x in rw])+'\n') for j,rw in enumerate(etas.ETAS_array)]
 		#
 	#
-	roc_glob = global_roc3(fc_xyz=etas.ETAS_array, n_cpu=None, fnum=fnum, m_cs=m_cs, test_catalog=None, fc_start_date=t_now+dtm.timedelta(days=1), fc_end_date=t_now+dtm.timedelta(days=121))
-	
+	roc_glob = global_roc3(fc_xyz=etas.ETAS_array, n_cpu=None, fnum=fnum+1, m_cs=m_cs, test_catalog=None, fc_start_date=t_now+dtm.timedelta(days=1), fc_end_date=t_now+dtm.timedelta(days=121))
+	plt.savefig('%s/etas_global_roc_a__%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
+	#
+	return{'etas':etas, 'roc':roc_glob}
 	
 	
