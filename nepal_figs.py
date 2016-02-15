@@ -344,6 +344,8 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 #
 def global_roc_comparison(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, mc=6.0, roc_fracs=[1.0, .8, .5], test_catalog=None, fc_start_date=None, fc_end_date=None, fc_frac=1.0):
 	#
+	# (turns out that i don't think we really need this script. its apparent value appears to have resulted from an error
+	# in the global_roc scripts.
 	n_cpu = (n_cpu or mpp.cpu_count())
 	#
 	# for now, with this script, we're assuming that we are using this specific file, but we might pre-load it.
