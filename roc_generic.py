@@ -108,6 +108,7 @@ def test_test_arrays(N=1e7):
 	return T	
 #
 class ROC_generic(object):
+	#def __init__(self, Z_events, Z_fc, h_denom=None, f_denom=None, f_start=0., f_stop=None, do_normalize=True):
 	def __init__(self, Z_events, Z_fc, h_denom=None, f_denom=None, f_start=0., f_stop=None):
 		#
 		#print('initializing ROC_generi')
@@ -117,6 +118,7 @@ class ROC_generic(object):
 		self.f_denom = float(f_denom or len(Z_fc))
 		self.f_stop  = (f_stop or len(Z_fc))
 		self.f_start = (f_start or 0)
+		#self.do_normalziation = (do_normalize or True)
 		#
 		# separating H,F arrays to facilitate easier mpp.Array() access... though we CAN count to 2, and i think
 		# mpp.Array() can use a Point() data type, which appears to be a 2D array or array-dict.
@@ -126,8 +128,10 @@ class ROC_generic(object):
 	#	
 	
 	# there are lots of ways to calc ROC; lots of shortcuts and approximations for speed optimization. here are a few...
+	#def roc_simple_sparse(self, h_denom=None, f_denom=None, f_start=0, f_stop=None, do_normalize=None):
 	def roc_simple_sparse(self, h_denom=None, f_denom=None, f_start=0, f_stop=None):
 		# simple ROC calculator.
+		#@do_normalize: normalise F,H. for mpp calculations, it might be simpler to return the total sums and normalize in the parent class/calling funct.
 		h_denom = (h_denom or self.h_denom)
 		f_denom = (f_denom or self.f_denom)
 		f_start = (f_start or self.f_start)
@@ -137,6 +141,13 @@ class ROC_generic(object):
 		#
 		h_denom = (h_denom or len(Z_events))
 		f_denom = (f_denom or len(Z_fc))
+		#
+		# this is an attempt to simplify the roc process a bit, but i'm not sure it's the right approach.
+		#do_normalize=(do_normalize or self.do_normalize)
+		#do_normalize=(do_normalize or True)
+		#if do_normalize:
+		#	h_denom = 1.0
+		#	f_denom = 1.0
 		#
 		# more precuse, but not quite as fast:
 		
@@ -183,6 +194,7 @@ class ROC_generic(object):
 #
 class ROC_generic_mpp_pipes(ROC_generic):
 	# an mpp ROC handler that pipes data to/from workers, instead of using shared memory mpp.Array() objects.
+	# this will most likely be the default ROC handler; as it turns out, it is much faster than its shared memory counterpart.
 	#
 	def __init__(self, n_procs=None, *args, **kwargs):
 		super(ROC_generic_mpp_pipes, self).__init__(*args,**kwargs)
@@ -222,10 +234,7 @@ class ROC_generic_mpp_pipes(ROC_generic):
 			F,H = zip(*FH)
 			#
 			F  = numpy.array(F)
-			#F += (len(pipes)-j-1)*d_len/self.f_denom
 			self.F += F.tolist()
-			#self.F += ((numpy.array(F)+f_j_start(j))/self.f_denom).tolist()
-			#self.F += (numpy.array(F)).tolist()
 			self.H += H
 			
 			#F = numpy.array(F)
@@ -333,6 +342,8 @@ class ROC_generic_worker(ROC_generic, mpp.Process):
 		# direct calc. approach. there's a loop, so maybe a bit slow.
 		#
 		r_XY = []
+		j_events = 0
+		len_ev = len(Z_events)
 		# direct way, but with a regular for-loop...
 		#n_total = len(self.Z_fc)
 		for j,z_fc in enumerate(Z_fc[f_start:f_stop]):
@@ -340,7 +351,12 @@ class ROC_generic_worker(ROC_generic, mpp.Process):
 			# falsies: approximately number of sites>z0-n_hits. for large, sparse maps, f~sum((z_fc>z0)), but this is a simple correction.
 			#r_XY += [[(f_start + j - n_h)/f_denom, n_h/h_denom]]
 			#
-			n_h = sum([(z_ev>=z_fc) for z_ev in Z_events])
+			#n_h = sum([(z_ev>=z_fc) for z_ev in Z_events])
+			#n_h = len([z_ev for z_ev in Z_events if z_ev>=z_fc])	# this should be faster. we might also look into dropping th part of z_ev that we know is <z_fc.
+			# ... and this should be much faster than both... but needs testing.
+			while z_ev[j_events]<z_fc: j_events+=1
+			n_h = len_ev-j_events
+			#
 			self.H[j+f_start] = n_h/h_denom
 			self.F[j+f_start] = (len_fc - f_start_index - j - n_h)/f_denom
 		#
