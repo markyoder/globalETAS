@@ -355,7 +355,8 @@ class ROC_generic_worker(ROC_generic, mpp.Process):
 			#n_h = sum([(z_ev>=z_fc) for z_ev in Z_events])
 			
 			#n_h = len([z_ev for z_ev in Z_events if z_ev>=z_fc])	# this should be faster. we might also look into dropping th part of z_ev that we know is <z_fc.
-			# ... and this should be much faster than both... but needs testing. (... dunno)
+			# ... and this should be much faster than both... but needs testing. need to compare output from this method to the summation type methods.
+			# (looks about right, compared to len() method.
 			while Z_events[j_events]<z_fc and j_events<(len_ev-1): j_events+=1
 			n_h = len_ev-j_events
 			#
