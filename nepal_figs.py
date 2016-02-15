@@ -429,4 +429,32 @@ def global_roc1_single(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum
 	roc.plot_HF(fignum=fnum)
 	#
 	return roc
+
+def global_etas_and_roc(fc_len=120, fout_xyz='data/global_etas.xyz', fnum=0, m_cs=[4.0, 5.0, 6.0, 6.5]):
+	# a soup-to-nuts global ETAS and roc bit. calculate a global ETAS up to fc_len days ago (fc_len+1?); then do ROC on that data set.
+	#
+	if not os.path.isdir(os.path.split(fout_xyz)[0]): os.makedirs(os.path.split(fout_xyz)[0])
+	#
+	lats=[-89., 89.]
+	lons=[-180., 180.]
+	mc=3.0
+	d_lon=.1
+	d_lat=.1
+	etas_range_factor=15.
+	etas_range_padding=.5
+	etas_fit_factor=1.5
+	t_now=dtm.datetime.now(globalETAS.tzutc)-dtm.timedelta(days-fc_len-1)
+	cat_len=3650.
+	#
+	etas = globalETAS(lats=lats, lons=lons, mc=mc, d_lon=d_lon, d_lat=d_lat, etas_range_factor=etas_range_factor, etas_range_padding=etas_range_padding, etas_fit_factor=etas_fit_factor, t_now=t_now, cat_len=cat_len)
+	#
+	with open(fout_xyz,'w') as fout:
+		fout.write('#global ETAS\n#lats={lats!s}\tlons={lons!s}\tmc={mc!s}\td_lon={dlon!s}\td_lat={dlat!s}\tetas_range_factor={erf!s}\tetas_range_padding={erp!s}\tetas_fit_factor={eff!s}\tt_now={tnow!s}\tcat_len={catlen!s}\n'.format(lats=lats, lons=lons, mc=mc, dlon=d_lon, dlat=d_lat, erf=etas_range_factor, erp=etas_range_padding, eff=etas_fit_factor,tnow=t_now,catlen=cat_len))
+		#
+		[fout.write('\t'.join([str(x) for x in rw])+'\n') for j,rw in enumerate(etas.ETAS_array)]
+		#
+	#
+	roc_glob = global_roc3(fc_xyz=etas.ETAS_array, n_cpu=None, fnum=fnum, m_cs=m_cs, test_catalog=None, fc_start_date=t_now+dtm.timedelta(days=1), fc_end_date=t_now+dtm.timedelta(days=121))
+	
+	
 	
