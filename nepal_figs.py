@@ -323,8 +323,10 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	plt.figure(fnum)
 	plt.clf()
 	plt.plot(range(2), range(2), ls='--', color='r', lw=3., alpha=.75, zorder=2)
+	FHs = {}		# we'll use mc as a key, FH as a val: {mc:[FH]...}
+	#				# it won't key well because of floating point error (aka, FHs[5.5] will not be reliable. but it will make a decent container.
 	#
-	for mc in m_cs:
+	for j,mc in enumerate(m_cs):
 		print('doing ROC for mc=%f' % mc)
 		#
 		# n_procs,Z_events, Z_fc, h_denom=None, f_denom=None, f_start=0., f_stop=None
@@ -332,7 +334,8 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 		a=roc.calc_roc()		# no parameters, and in fact no return value, but it's never a bad idea to leave a place-holder for one.
 		#
 		clr = colors_[j%len(colors_)]
-		plt.plot(roc.F, roc.H, ls='-', color=clr, marker='', label='$m_c=%.2f$' % mc)
+		plt.plot(roc.F, roc.H, ls='-', color=clr, marker='', lw=2.5, label='$m_c=%.2f$' % mc)
+		FHs[mx]=[[f,h] for f,h in zip(roc.F, roc.H)]
 		#
 		plt.show()	# just in case...
 	plt.legend(loc=0, numpoints=1)
@@ -342,7 +345,7 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	plt.savefig('global_roc1.png')
 	#
 	#
-	
+	return FHs
 #
 def inv_dist_to(xy,x0,y0):
 	return [[x,y, 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1) + .5*L_r)] for x,y in xy]
