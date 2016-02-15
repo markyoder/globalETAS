@@ -342,6 +342,8 @@ class ROC_generic_worker(ROC_generic, mpp.Process):
 		# direct calc. approach. there's a loop, so maybe a bit slow.
 		#
 		r_XY = []
+		j_events = 0
+		len_ev = len(Z_events)
 		# direct way, but with a regular for-loop...
 		#n_total = len(self.Z_fc)
 		for j,z_fc in enumerate(Z_fc[f_start:f_stop]):
@@ -349,7 +351,12 @@ class ROC_generic_worker(ROC_generic, mpp.Process):
 			# falsies: approximately number of sites>z0-n_hits. for large, sparse maps, f~sum((z_fc>z0)), but this is a simple correction.
 			#r_XY += [[(f_start + j - n_h)/f_denom, n_h/h_denom]]
 			#
-			n_h = sum([(z_ev>=z_fc) for z_ev in Z_events])
+			#n_h = sum([(z_ev>=z_fc) for z_ev in Z_events])
+			#n_h = len([z_ev for z_ev in Z_events if z_ev>=z_fc])	# this should be faster. we might also look into dropping th part of z_ev that we know is <z_fc.
+			# ... and this should be much faster than both... but needs testing.
+			while z_ev[j_events]<z_fc: j_events+=1
+			n_h = len_ev-j_events
+			#
 			self.H[j+f_start] = n_h/h_denom
 			self.F[j+f_start] = (len_fc - f_start_index - j - n_h)/f_denom
 		#
