@@ -15,6 +15,8 @@ import roc_generic
 import contours2kml
 import ANSStools as atp
 
+from eq_params import *
+
 colors_ =  mpl.rcParams['axes.color_cycle']
 
 nepal_mainshock = {'mag':7.8, 'lon':84.708, 'lat':28.147}
@@ -87,7 +89,7 @@ class Map_drawer(object):
 		return cm
 		#
 
-def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_conts=12):
+def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_conts=15):
 	mm = Map_drawer(xyz=xyz)
 	mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=0)
 	#return mm
@@ -98,7 +100,7 @@ def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_co
 	#
 	plt.figure(fignum)
 	# plt.cm.coolwarm
-	plt.contourf(lns, lts, Zs, n_conts, alpha=.65, zorder=11, cmap=plt.cm.jet)
+	plt.contourf(lns, lts, Zs, n_conts, alpha=.65, zorder=11, cmap=plt.cm.hot)
 	plt.colorbar()
 
 def roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=None, n_bins=100, line_color='m', shade_color='m'):
@@ -243,30 +245,8 @@ def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	plt.savefig('global_roc1.png')
 	#
 	return roc
-#
-def global_roc2(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 4.5, 5.0, 6.0, 7.0]):
-	# a global ROC script; we may have some competing candidates for this right now. this seems to work. can we duplicate it with generic_roc?
-	#
-	# this script produced a really nice ROC, so let's clean it up a bit.
-	#A=etas_analyzer.ROC_mpp_handler(n_procs=8, fc_xyz='global/global_xyz_20151129.xyz', from_dt = eap.dtm.datetime(2015, 11, 30, tzinfo=eap.pytz.timezone('UTC')), to_dt=dtm.datetime.now(eap.pytz.timezone('UTC')), mc=5.5)
-	#
-	n_cpu = (n_cpu or mpp.cpu_count())
-	print('cpu_count: ', n_cpu)
-	
-	with open(fc_xyz, 'r') as froc:
-		fc_xyz= [[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]
-	#
-	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
-	fc_len=120	# test period is 120 days.
-	fc_end_date = etas_end_date + dtm.timedelta(days=fc_len)
-	#
-	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
-	fc_len=120	# test period is 120 days.
-	
-	etas_analyzer.roc_normalses(etas_fc=fc_xyz, test_catalog=None, to_dt=fc_end_date, cat_len=120., mc_rocs=m_cs, fignum=0, do_clf=True, roc_ls='-')
-	plt.savefig('roc_global2.png')
-#
-def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 5.0, 6.0, 6.5], test_catalog=None, fc_start_date=None, fc_end_date=None, fc_frac=1.0):
+
+def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 5.0, 6.0, 6.5], test_catalog=None, fc_start_date=None, fc_end_date=None, cat_len=120, fc_frac=1.0, fout='global_roc3.png'):
 	# ok, so all of this is a mess. the roc bits need to be consolidated, cleaned up, and better modularized. we'll do some of that here, at lest by example.
 	# @fc_frac: fraction of fc sites to use (aka, skip the first (1-frac)*N (low z) sites.
 	# fetch teh fc_xyz, generate a test catalog, then use generic_roc tools (mpp implementations) to do the roc.
@@ -283,7 +263,7 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	#
 	#return fc_xyz
 	fc_start_date = (fc_start_date or dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC')))
-	fc_end_date   = (fc_end_date or fc_start_date + dtm.timedelta(days=120))
+	fc_end_date   = (fc_end_date or fc_start_date + dtm.timedelta(days=cat_len))
 	#
 	if not hasattr(fc_xyz, 'dtype'):
 		fc_xyz = numpy.core.records.fromarrays(zip(*fc_xyz), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
@@ -341,7 +321,7 @@ def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_c
 	plt.title('Global ROC', size=18)
 	plt.xlabel('False Alarm Rate $F$', size=18)
 	plt.ylabel('Hit Rate $H$', size=18)
-	plt.savefig('global_roc1.png')
+	plt.savefig(fout)
 	#
 	#
 	return FHs
@@ -408,8 +388,73 @@ def global_roc_comparison(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, f
 	plt.xlabel('False Alarm Rate $F$')
 	plt.ylabel('Hit Rate $H$')
 #
+def nepal_roc_script(fignum=0, mcs = [4., 5., 6., 7.]):
+	# this needs to be rewritten a bit to:
+	# 1) use the same color for each magnitude
+	# 2) should probably use the roc_generic class; see _rocs3()
+	#
+	# full, one stop shopping script for nepal ROC analysis.
+	#
+	# first, get nepal ETAS objects:
+	etas_fc, etas_test = etas_analyzer.nepal_etas_roc()
+	test_catalog = etas_analyzer.test_catalog
+	#
+	x0 = nepal_epi_lon
+	y0 = nepal_epi_lat
+	xyz = etas_fc.ETAS_array
+	#
+	X_set = sorted(list(set(xyz['x'])))
+	Y_set = sorted(list(set(xyz['y'])))
+	nx = len(X_set)
+	ny = len(Y_set)
+	get_site = lambda x,y: int(round((x-etas_fc.lons[0]+.5*etas_fc.d_lon)/etas_fc.d_lon)) + int(round((y-etas_fc.lats[0]+.5*etas_fc.d_lat)/etas_fc.d_lat))*nx
+	#
+	xyz_r = xyz.copy()
+	for j,(x,y,z) in enumerate(xyz_r):
+		rw['z']=1./dist_to(x,y,x0,y0)
+	#
+	Zs = sorted(list(fc_xyz['z'].copy()))
+	Zs_r = sorted(list(fc_xyz_r['z'].copy()))
+	#
+	eq_site_zs = [[fc_xyz['z'][get_site(eq['lon'], eq['lat'])], eq['mag']] for eq in test_catalog]
+	#
+	plt.figure(fnum)
+	plt.clf()
+	plt.plot(range(2), range(2), ls='--', color='m', lw=3., alpha=.75, zorder=2)
+	FHs = {}		# we'll use mc as a key, FH as a val: {mc:[FH]...}
+	for j,mc in enumerate(mcs):
+		clr = colors_[j%len(colors_)]
+		roc = roc_generic.ROC_mpp(n_procs=n_cpu, Z_events=[z for z,m in eq_site_zs if m>=mc], Z_fc=Zs, h_denom=None, f_denom=None, f_start=0, f_stop=None)
+		a=roc.calc_roc()		# no parameters, and in fact no return value, but it's never a bad idea to leave a place-holder for one.
+		#
+		plt.plot(roc.F, roc.H, ls='-', color=clr, marker='', lw=2.5, label='$m_c=%.2f$' % mc)
+		#FHs[mc]=[[f,h] for f,h in zip(roc.F, roc.H)]
+		#
+		roc = roc_generic.ROC_mpp(n_procs=n_cpu, Z_events=[z for z,m in eq_site_zs if m>=mc], Z_fc=Zs_r, h_denom=None, f_denom=None, f_start=0, f_stop=None)
+		roc.calc_roc()
+		plt.plot(roc.F, roc.H, ls='--', color=clr, marker='', lw=2.5, label='$m_c=%.2f$' % mc)
+		#
+		plt.show()	# just in case...
+	
+	
+	#ROC_n = roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.5, 5.0, 6.0, 7.0], fignum=fignum, do_clf=True)
+	#
+	# now, make a toy catalog:
+	#etas_toy = Toy_etas_invr(etas_in=etas_fc, mainshock={'mag':7.3, 'lon':84.698, 'lat':28.175})
+	#
+	#ROC_t = roc_normalses(etas_toy, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.5, 5.0, 6.0, 7.0], fignum=fignum, do_clf=False, roc_ls='--')
+	#
+	# now, some random catalogs:
+	for j in range(25):
+		this_etas = Toy_etas_random(etas_in=etas_fc)
+		FH = roc_normal(this_etas, fignum=None)
+		plt.plot(*zip(*FH), marker='.', ls='', alpha=.6)
+
+#
 def inv_dist_to(xy,x0,y0):
 	return [[x,y, 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1) + .5*L_r)] for x,y in xy]
+def dist_to(x,y,x0,y0):
+	return globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1) + .5*L_r
 
 #
 def global_roc1_single(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, mc=6.0):

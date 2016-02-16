@@ -574,7 +574,7 @@ def toy_etas(ETAS_array=None, lats=None, lons=None, l_lon=.1, d_lat=.1, epicente
 
 def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-'):
 	#
-	# make a set of ROCs.
+	# make a set of "normal" ROCs.
 	plt.figure(fignum)
 	if do_clf: plt.clf()
 	ax=plt.gca()
@@ -902,6 +902,10 @@ def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120
 	return list(zip(Fs,Hs))
 
 def nepal_roc_normal_script(fignum=0):
+	# this needs to be rewritten a bit to:
+	# 1) use the same color for each magnitude
+	# 2) should probably use the roc_generic class; see _rocs3()
+	#
 	# full, one stop shopping script for nepal ROC analysis.
 	#
 	# first, get nepal ETAS objects:
