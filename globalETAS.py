@@ -265,7 +265,7 @@ class Global_ETAS_model(object):
 		cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
 		#
 		return cm
-	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='spectral'):
+	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet'):
 		n_contours = (n_contours or self.n_contours)
 		#
 		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
@@ -804,7 +804,11 @@ class ETAS_mpp_handler_xyz(Global_ETAS_model):
 		#	p.join()
 		#
 		del etas_workers			
-
+class ETAS_mpp(ETAS_mpp_handler_xyz):
+	# container for default mpp handler.
+	def __init__(self, *args, **kwargs):
+		super(ETAS_mpp,self).__init__(*args, **kwargs)
+		# in other words, just be the parent class.
 #
 class Earthquake(object):
 	# an Earthquake object for global ETAS. in parallel operations, treat this more like a bag of member functions than a data container.
