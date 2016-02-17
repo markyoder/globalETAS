@@ -153,10 +153,15 @@ def nepal_roc_script():
 	
 	A=etas_analyzer.roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-')
 	#
-	ax=plt.gca()
+	
 	# now, get roc for a 1/r map (i think there's a script for that)
-	etas_toy = etas_analyzer.Toy_etas_invr(etas_in=etas_fc, mainshock=nepal_mainshock)
-	B=etas_analyzer.roc_normalses(etas_toy, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=False, roc_ls='--') 
+	#etas_toy = etas_analyzer.Toy_etas_invr(etas_in=etas_fc, mainshock=nepal_mainshock)
+	r0 = 10.**(.5*7.8-1.76)
+	x0=nepal_epi_lon
+	y0=nepal_epi_lat
+	for j,(x,y,z) in enumerate(etas_fc.ETAS_array): ETAS_array['z'][j]=1/(dist_to(x,y,x0,y0) + r0)
+	B=etas_analyzer.roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=False, roc_ls='--') 
+	ax=plt.gca()
 	#
 	#
 	# and draw in roc for random...
@@ -389,7 +394,7 @@ def global_roc_comparison(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, f
 	plt.xlabel('False Alarm Rate $F$')
 	plt.ylabel('Hit Rate $H$')
 #
-def nepal_roc_script(fignum=0, mcs = [4., 5., 6., 7.]):
+def nepal_roc_script(fignum=0, mcs = [4., 5., 6., 7.], n_cpu=None):
 	# this needs to be rewritten a bit to:
 	# 1) use the same color for each magnitude
 	# 2) should probably use the roc_generic class; see _rocs3()
@@ -402,7 +407,8 @@ def nepal_roc_script(fignum=0, mcs = [4., 5., 6., 7.]):
 	#
 	x0 = nepal_epi_lon
 	y0 = nepal_epi_lat
-	L_r = .5*10**(.5*nepal_ETAS_prams['mag'] - 1.76)
+	mag=7.8
+	L_r = .5*10**(.5*mag - 1.76)
 	xyz = etas_fc.ETAS_array
 	#
 	X_set = sorted(list(set(xyz['x'])))
@@ -413,14 +419,14 @@ def nepal_roc_script(fignum=0, mcs = [4., 5., 6., 7.]):
 	#
 	xyz_r = xyz.copy()
 	for j,(x,y,z) in enumerate(xyz_r):
-		rw['z']=1./dist_to(x,y,x0,y0,.5*L_r)
+		xyz_r['z'][j]=1./(dist_to(x,y,x0,y0) + .5*L_r)
 	#
-	Zs = sorted(list(fc_xyz['z'].copy()))
-	Zs_r = sorted(list(fc_xyz_r['z'].copy()))
+	Zs = sorted(list(xyz['z'].copy()))
+	Zs_r = sorted(list(xyz_r['z'].copy()))
 	#
-	eq_site_zs = [[fc_xyz['z'][get_site(eq['lon'], eq['lat'])], eq['mag']] for eq in test_catalog]
+	eq_site_zs = [[xyz['z'][get_site(eq['lon'], eq['lat'])], eq['mag']] for eq in test_catalog]
 	#
-	plt.figure(fnum)
+	plt.figure(fignum)
 	plt.clf()
 	plt.plot(range(2), range(2), ls='--', color='m', lw=3., alpha=.75, zorder=2)
 	FHs = {}		# we'll use mc as a key, FH as a val: {mc:[FH]...}
@@ -448,15 +454,15 @@ def nepal_roc_script(fignum=0, mcs = [4., 5., 6., 7.]):
 	#
 	# now, some random catalogs:
 	for j in range(25):
-		this_etas = Toy_etas_random(etas_in=etas_fc)
-		FH = roc_normal(this_etas, fignum=None)
+		this_etas = etas_analyzer.Toy_etas_random(etas_in=etas_fc)
+		FH = etas_analyzer.roc_normal(this_etas, fignum=None)
 		plt.plot(*zip(*FH), marker='.', ls='', alpha=.6)
 
 #
 def inv_dist_to(xy,x0,y0,r0):
 	return [[x,y, 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1) + r0)] for x,y in xy]
-def dist_to(x,y,x0,y0,r0):
-	return globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1) + r0
+def dist_to(x,y,x0,y0):
+	return globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1)
 
 #
 def global_roc1_single(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, mc=6.0):
