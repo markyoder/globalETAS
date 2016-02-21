@@ -21,6 +21,7 @@ import multiprocessing as mpp
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.mpl as mpl
+from mpl_toolkits.mplot3d import Axes3D
 #import functools
 #
 #import shapely.geometry as sgp
@@ -38,8 +39,7 @@ from eq_params import *
 import roc_generic
 import random
 #
-#import rtree
-#from rtree import index
+colors_ =  mpl.rcParams['axes.color_cycle']
 #
 
 sischuan_prams = {'to_dt':dtm.datetime(2008,6,12, tzinfo=pytz.timezone('UTC')), 'mainshock_dt':dtm.datetime(2008,5,13, tzinfo=pytz.timezone('UTC')), 'lat_center':31.021, 'lon_center':103.367, 'Lr_map_factor':4.0, 'mc':4.0, 'mc_0':None, 'dm_cat':2.0, 'gridsize':.1, 'fnameroot':'etas_auto_sichuan', 'catlen':10.0*365., 'd_lambda':1.76, 'doplot':True}
@@ -162,7 +162,7 @@ class ROC_base(object):
 	def calc_ROCs(self, H_denom=None, F_denom=None, m_c=None):
 		#
 		if m_c == None:
-			m_c = min(self.test_catalog['mag'])
+			m_c = min(self.catalog['mag'])
 		#
 		if self.eq_z_vals == None or m_c!=None:
 			print("setting default eq_z_vals")
@@ -512,15 +512,15 @@ def nepal_etas_roc():
 	#
 	return nepal_etas_fc, nepal_etas_test
 
-def get_nepal_etas_fc(n_procs=None, cat_len=5.*365.):
+def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5):
 	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_processes':n_procs})
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_processes':n_procs, 'p_cat':p_cat, 'q_cat':q_cat})
 	#nepal_etas_fc = gep.ETAS_rtree(**np_prams)
 	#
 	#return gep.ETAS_rtree(**np_prams)
 	return gep.ETAS_mpp_handler_xyz(**np_prams)
 
-def get_nepal_etas_test(**pram_updates):
+def get_nepal_etas_test(p_cat=1.1, q_cat=1.5,**pram_updates):
 	# pram_updates: any earthquake parameters (aka, np_prams) we might want to specify, like "q"...
 	#
 	# 
@@ -539,7 +539,7 @@ def get_nepal_etas_test(**pram_updates):
 	# remember also that etas.catalog is a recarray, not an array of Earthquake objects.
 	#
 	#etas = gep.ETAS_rtree(**np_prams_test)
-	etas = gep.ETAS_mpp_handler_xyz(**np_prams_test)
+	etas = gep.ETAS_mpp_handler_xyz(p_cat=p_cat, q_cat=q_cat, **np_prams_test)
 	for j,eq in enumerate(etas.catalog):
 		etas.catalog['p'][j] = 0.0
 		# ... and sort of a sloppy way to do this as well...
@@ -591,12 +591,12 @@ def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=
 			#fc_xyz= numpy.core.records.fromarrays(zip(*[[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
 			etas_fc= numpy.core.records.fromarrays(zip(*[[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
 	#
-	for mc in mc_rocs:
+	for j_mc, mc in enumerate(mc_rocs):
 		# ... we should probalby modify roc_normal() so we can pass a catalog (for speed optimization), but we'll probably only run this a few times.
 		print('roc for %f' % mc)
 		#FH = roc_normal(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_roc=mc, fignum=0)
 		FH = f_roc(etas_fc, test_catalog=None, to_dt=to_dt, cat_len=cat_len, mc_roc=mc, fignum=0)
-		ax.plot(*zip(*FH), marker='', ls=roc_ls, lw=2.5, alpha=.8, label='$m_c=%.2f$' % mc)
+		ax.plot(*zip(*FH), marker='', ls=roc_ls, lw=2.5, alpha=.8, label='$m_c=%.2f$' % mc, color=colors_[j_mc%len(colors_)])
 		FHs += [[mc,FH]]
 		#
 	#
@@ -781,7 +781,7 @@ def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120
 		to_dt = from_dt + dtm.timedelta(days=cat_len)
 		#
 	#
-	lats = etas_fc.lats
+	lats = etas_fc.lats	# maybe the thing to do here is to expand lats/lons by .5*d_lat/lon here, then skip the .5*d_lat/lon in get_sites()
 	lons = etas_fc.lons
 	mc   = etas_fc.mc
 	print("get cataog: ", lons, lats, mc_roc, from_dt, to_dt)
@@ -799,8 +799,8 @@ def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120
 	#lon0 = min(etas_fc.ETAS_array['x'])
 	#
 	# (for this application, we can also just get nasty and to a loop-loop with geodetic distancing).
-	get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
-	#get_site = lambda x,y: int(numpy.floor((x-lons[0])/d_lon)) + int(numpy.floor((y-lats[0])/d_lat))*nx
+	get_site = lambda x,y: int(numpy.floor((x-lons[0]+.5*d_lon)/d_lon)) + int(numpy.floor((y-lats[0]+.5*d_lat)/d_lat))*nx
+	#get_site = lambda x,y: int(round((x-lons[0])/d_lon)) + int(round((y-lats[0])/d_lat))*nx
 	#
 	'''
 	#test:
@@ -837,6 +837,7 @@ def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120
 			k = get_site(eq['lon'], eq['lat'])
 			#print('site: ', k)
 			# debug:
+			if k>=len(etas_fc.ETAS_array['z']): print('this is about to break: {}/{}'.format(k,len(etas_fc.ETAS_array['z'])))
 			z_val = etas_fc.ETAS_array['z'][k]
 			#try:
 			#	z_val = etas_fc.ETAS_array['z'][k]
@@ -926,16 +927,47 @@ def nepal_roc_normal_script(fignum=0):
 		
 	
 	#
-def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=2.5, q_test_min=1.1, q_test_max=2.5, do_log=True, dq_fc=.1, dq_test=.1, fignum=0):
+def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5, dq_fc=.1, dq_t=.1, fignum=0, fout='data/roc_geospatial_raw.csv'):
+	# this will be bruatl, but just calc the etas from scratch for each value.
+	# unfortunetely, i don't think we have enought memory to calc all ~20 of them into memory and then iterate, so there will
+	# be some redundancy.
+	#
+	FH=[]
+	for q_fc in numpy.arange(q_fc_min,q_fc_max+dq_fc,dq_fc):
+		etas_fc=get_nepal_etas_fc(q_cat=q_fc)
+		for q_t in numpy.arange(q_t_min,q_t_max+dq_t,dq_t):
+			etas_test = get_nepal_etas_test(q_cat=q_t)
+			#
+			FH += [[q_fc, q_t] + list(analyze_etas_roc_geospatial(etas_fc=etas_fc, etas_test=etas_test, do_log=True))]
+			#
+		#
+	#
+	plt.figure(fignum)
+	plt.clf()
+	plt.plot([rw[2] for rw in FH], [rw[3] for rw in FH], 'o')
+	#
+	with open(fout, 'w') as fout:
+		fout.write('#roc output.\n#q_fc\tq_test\tF\tH\n')
+		for rw in FH:
+			fout.write('%s\n' % '\t'.join([str(x) for x in rw]))
+			#
+		#
+	#
+	return FH
+			
+def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=3.5, q_test_min=1.1, q_test_max=2.5, do_log=True, dq_fc=.1, dq_test=.1, fignum=0, fout='roc_geospatial.csv'):
 	#
 	#if etas_fc==None: 
 	etas_fc=get_nepal_etas_fc()
 	#if etas_test==None: 
 	etas_test = get_nepal_etas_test() #... and we don't really need to calc eatas here, so later on maybe clean this up.
-	
+	#
 	FH=[]
 	#
 	for q_fc in numpy.arange(q_fc_min, q_fc_max, dq_fc):
+		# this might not be quit right. this will compute the catalog parameters (intensities, r0, etc.) based on one q, then ETAS on another.
+		# let's spend a little bit more time and just do a fresh ETAS every time... except that we're doing the same thing for the
+		# subroutine (etas_roc_geospatial_set() )...
 		for j,rw in enumerate(etas_fc.catalog): etas_fc.catalog['q'][j] = q_fc
 		etas_fc.make_etas()
 		#
@@ -946,7 +978,7 @@ def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=2.5, q_test_min=1.1, q_test
 	plt.clf()
 	plt.plot([rw[2] for rw in FH], [rw[3] for rw in FH], 'o')
 	#
-	with open('roc_geospatial.csv', 'w') as fout:
+	with open(fout, 'w') as fout:
 		fout.write('#roc output.\n#q_fc\tq_test\tF\tH\n')
 		for rw in FH:
 			fout.write('%s\n' % '\t'.join([str(x) for x in rw]))
@@ -954,6 +986,7 @@ def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=2.5, q_test_min=1.1, q_test
 		#
 	#
 	return FH
+#
 #
 def etas_roc_geospatial_set(etas_fc=None, etas_test=None, do_log=True, q_test_min=1.1, q_test_max=2.0, dq=.1, fignum=0):
 	# compare ETAS for a bunch of different q. right now this is just the "test" q. we'll probably want to vary the forecast as well, but of course taht will be expensive.
@@ -1043,9 +1076,19 @@ def roc_plots_from_gsroc(FH, fignum=0):
 #
 def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=False):
 #def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
+	# do_log should pretty much always be True.
+	# this script draws a bunch of geospatial ROC figures. we'll use this script to draw a quad-figure with
+	# z_fc, z_test, hits, falsies.
 	#
 	if etas_fc   == None: etas_fc   = get_nepal_etas_fc()
 	if etas_test == None: etas_test = get_nepal_etas_test()
+	#
+	f_quad = plt.figure(42)
+	plt.clf()
+	ax0 = f_quad.add_axes([.05, .05, .4, .4])
+	ax1 = f_quad.add_axes([.05, .55, .4, .4], sharex=ax0, sharey=ax0)
+	ax2 = f_quad.add_axes([.55, .05, .4, .4], sharex=ax0, sharey=ax0)
+	ax3 = f_quad.add_axes([.55, .55, .4, .4], sharex=ax0, sharey=ax0)		
 	#
 	etas_fc.make_etas_contour_map(fignum=0)
 	etas_test.make_etas_contour_map(fignum=1)
@@ -1083,7 +1126,9 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	#diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
 	#
 	# so we can test this properly, we'll want to move diffs offline to a function call (eventually)...
-	diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z1, z2)]
+	
+	#diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z1, z2)]
+	diffs = get_gs_diffs(z1,z2)
 	diffs_lbls = ['z_fc', 'z_test', 'z1-z2', 'hits: min(z1,z2)','misses:min(z2-z1,0)', 'falsie: min(z1-z2,0)']
 	diffs_lbl_basic = ['z_fc', 'z_test', 'z1-z2', 'hits','misses', 'falsie']
 	#
@@ -1102,6 +1147,7 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	F = sum(f)/sum(z1)
 	#
 	#for z in [zs_diff, h, m, f]:
+	# plot the varous roc_gs contous (z1, z2, z2-z2, hits, etc.)
 	for j,z in enumerate(list(zip(*diffs))):
 		plt.figure(j+2)
 		plt.clf()
@@ -1113,12 +1159,26 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 		plt.contourf(lon_vals, lat_vals, zz, 25)
 		plt.title(diffs_lbls[j])
 		plt.colorbar()
-	#plt.figure(j+3)
-	#plt.clf()
-	#gzintas.shape=sh1
-	#fgz = plt.contourf(lon_vals, lat_vals, numpy.log10(gzintas), 15)
-	#plt.title('z_fc/z_cat')
-	#plt.colorbar()
+		#
+		# ... and make our quad-plot too:
+		if j==0:
+			ax1.contourf(lon_vals, lat_vals, zz, 25)
+			ax1.set_title('Forecast ETAS')
+			#ax1.colorbar()
+		if j==1:
+			ax3.contourf(lon_vals, lat_vals, zz, 25)
+			ax3.set_title('Test ETAS')
+			#ax3.colorbar()
+		if j==3:
+			ax0.contourf(lon_vals, lat_vals, zz, 25)
+			ax0.set_title('Hit Rate')
+			#ax0.colorbar()
+		if j==5:
+			ax2.contourf(lon_vals, lat_vals, zz, 25)
+			ax2.set_title('False Alarm Rate')
+			#ax2.colorbar()
+
+
 	#
 	if diagnostic:
 		return [diffs_lbls] + diffs
@@ -1127,15 +1187,19 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	#return F,H
 	#
 #
+def get_gs_diffs(z1,z2):
+	return numpy.core.records.fromarrays(zip(*[[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z1, z2)]), names=['z_fc', 'z_test', 'z1-z2', 'hits','misses', 'falsie'], formats=['double' for j in range(6)])
+#
 def nepal_linear_roc():
 	# production figure script (almost... just script ranges).
 	diffs = analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=True)
-	AA=eap.roc_gs_linear_figs(diffs)
+	AA=roc_gs_linear_figs(diffs)
 #
 def roc_gs_linear_figs(diffs, fignum=0):
 	# test the roc_gs bit. basically, take two xyz arrays, do the gs_roc thing;
 	# plot out the various arrays like time-series. show the various H,F, etc. in time series.
-	#pass
+	# (i think this is basically a diagnostic plot at this point).
+	#
 	cols = diffs[0]
 	diffs = diffs[1:]
 	print('cols: ', cols)
@@ -1152,7 +1216,6 @@ def roc_gs_linear_figs(diffs, fignum=0):
 	plt.figure(fignum+1)
 	plt.clf()
 	ax_main=plt.gca()
-	
 	#
 	X=numpy.arange(len(diffs))
 	#
@@ -1182,7 +1245,6 @@ def roc_gs_linear_figs(diffs, fignum=0):
 	ax3.fill_between(X, y1=diffs['z_fc'],y2=diffs['z_test'], where=[True if zfc<ztest else False for zfc,ztest in zip(diffs['z_fc'],diffs['z_test'])], label='misses', color='r')
 	ax3.set_title('Misses')
 	ax3.legend(loc=0, numpoints=1)
-	
 #
 def plot_mainshock_and_aftershocks(etas, m0=6.0, mainshock=None, fignum=0):
 	
