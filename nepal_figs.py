@@ -101,7 +101,7 @@ def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_co
 	#
 	plt.figure(fignum)
 	# plt.cm.coolwarm
-	plt.contourf(lns, lts, Zs, n_conts, alpha=.65, zorder=11, cmap=plt.cm.hot)
+	plt.contourf(lns, lts, Zs, n_conts, alpha=.65, zorder=11, cmap=plt.cm.jet)
 	plt.colorbar()
 
 def roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=None, n_bins=100, line_color='m', shade_color='m'):
