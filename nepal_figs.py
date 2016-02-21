@@ -143,7 +143,7 @@ def roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=None, n_bin
 	return X,mn,mx
 	
 
-def nepal_roc_script():
+def nepal_roc_script_a():
 	#
 	etas_fc = etas_analyzer.get_nepal_etas_fc()
 	#nepal_etas_test = get_nepal_etas_test()
@@ -151,22 +151,53 @@ def nepal_roc_script():
 	Ys = sorted(list(set(etas_fc.ETAS_array['y'])))
 	get_site = lambda x,y: int(numpy.floor((x-lons[0])/d_lon)) + int(numpy.floor((y-lats[0])/d_lat))*nx
 	
+	print('do real nepal roc')
 	A=etas_analyzer.roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-')
 	#
 	
 	# now, get roc for a 1/r map (i think there's a script for that)
-	#etas_toy = etas_analyzer.Toy_etas_invr(etas_in=etas_fc, mainshock=nepal_mainshock)
+	etas_toy = etas_analyzer.Toy_etas_invr(etas_in=etas_fc, mainshock=nepal_mainshock)
 	r0 = 10.**(.5*7.8-1.76)
 	x0=nepal_epi_lon
 	y0=nepal_epi_lat
-	for j,(x,y,z) in enumerate(etas_fc.ETAS_array): ETAS_array['z'][j]=1/(dist_to(x,y,x0,y0) + r0)
-	B=etas_analyzer.roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=False, roc_ls='--') 
+	#for j,(x,y,z) in enumerate(etas_fc.ETAS_array): ETAS_array['z'][j]=1/(dist_to(x,y,x0,y0) + r0)
+	etas_toy.d_lat=etas_fc.d_lat
+	etas_toy.d_lon=etas_fc.d_lon
+	B=etas_analyzer.roc_normalses(etas_toy, test_catalog=etas_fc.catalog, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=False, roc_ls='--') 
 	ax=plt.gca()
 	#
 	#
 	# and draw in roc for random...
+	print('do toy, 1/r roc')
 	bins, mins, maxes = roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=ax, n_bins=100, line_color='m', shade_color='m')
+	plt.draw()
 #
+def toy_gs_roc(fignum=0):
+	z1=list(range(10))
+	z2=reversed(list(range(10)))
+	diffs = etas_analyzer.get_gs_diffs(z1,z2)
+	#
+	X=list(range(len(diffs)))
+	plt.figure(fignum)
+	plt.clf()
+	#plt.plot(*zip(*stepify(list(zip(X, diffs['z_fc'])))), marker='.', ls='-', label='foreccast')
+	#plt.plot(*zip(*stepify(list(zip(X, diffs['z_test'])))), marker='.', ls='-', label='test_cat')
+	plt.plot(X, diffs['z_fc'], marker='.', ls='-', label='foreccast')
+	plt.plot(X, diffs['z_test'], marker='.', ls='-', label='test_cat')
+	#
+	plt.plot(X, diffs['hits'], '--', label='hits')
+	plt.plot(X, diffs['misses'], '--', label='misses')
+	plt.plot(X, diffs['falsie'], '--', label='falsies')
+	plt.legend(loc=0, numpoints=1)
+	#
+	return diffs
+#
+def stepify(xy):
+	xy_prime = [[x,y] for x,y in xy] + [[xy[j][0],y] for j,(x,y) in enumerate(xy[1:])]
+	
+	xy_prime.sort(key=lambda rw:rw[0])
+	return xy_prime
+	
 def global_roc():
 	roc_global = etas_analyzer.roc_normal_from_xyz(fc_xyz='data/global_xyz_20151129.xyz', test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0, fignum=0, do_clf=True)
 	return roc_global
@@ -513,5 +544,54 @@ def global_etas_and_roc(fc_len=120, fout_xyz='figs/global_etas.xyz', fnum=0, m_c
 	plt.savefig('%s/etas_global_roc_a__%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
 	#
 	return{'etas':etas, 'roc':roc_glob}
+
+def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv'):
+	# make some figures for geospatial roc
+	#
+	with open(data,'r') as f:
+		#X = [[x,y, h-f] for x,y,f,h in rw.split() for rw in f if rw[0]!='#']
+		X = []
+		for rw in f:
+			if rw[0]=='#': continue
+			x,y,f,h=[float(x) for x in rw.split()]
+			X += [[x,y,h-f]]
+	#
+	#
+	fg = plt.figure(0)
+	plt.clf()
+	ax = fg.add_subplot(111, projection='3d')
+	ax.set_xlabel('$q_{fc}$', size=18)
+	ax.set_ylabel('$q_{test}$', size=18)
+	ax.set_zlabel('skill = $H-F$', size=18)
+	#
+	ax.scatter(*zip(*X), marker='.')
+	#
+	Xs = list(set([rw[0] for rw in X]))
+	Ys = list(set([rw[1] for rw in X]))
+	n_x=len(Xs)
+	n_y=len(Ys)
+	Z=numpy.array([rw[2] for rw in X])
+	Z.shape=(n_x, n_y)
+	#plt.clf()
+	xx = numpy.array([rw[0] for rw in X])
+	yy = numpy.array([rw[1] for rw in X])
+	xx.shape = Z.shape
+	yy.shape = Z.shape
+			
+	#ax.plot_wireframe(xx,yy,Z)
+	ax.plot_surface(xx,yy,Z, cmap='jet')
+	ax.plot_trisurf(*zip(*X), cmap='coolwarm', lw=.5)
+	cset=ax.contourf(Xs, Ys, list(zip(*Z)), 25, zdir='z', offset=.67, cmap=mpl.cm.coolwarm)
+	#
+	plt.figure(1)
+	plt.clf()
+	plt.contourf(Xs,Ys,list(zip(*Z)), 25, cmap=mpl.cm.coolwarm)
+	#plt.contourf(Xs,Ys,Z, 25, cmap=mpl.cm.coolwarm)
+	plt.xlabel('$q_{fc}$', size=18)
+	plt.ylabel('$q_{test}$', size=18)
+	plt.title('Continuum ROC Skill, $H-F$')
+	plt.colorbar()
+	
+	return X
 	
 	
