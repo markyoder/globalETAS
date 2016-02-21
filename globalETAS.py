@@ -268,19 +268,17 @@ class Global_ETAS_model(object):
 		cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
 		#
 		return cm
-	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet'):
+	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None):
 		n_contours = (n_contours or self.n_contours)
 		#
-		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
+		# mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=0)
+		#cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
+		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection, d_lon_range=lon_interval, d_lat_range=lat_interval)
+		#
 		X,Y = cm(numpy.array(self.lonses), numpy.array(self.latses))
 		#print("xylen: ", len(X), len(Y))
-		
-		#plt.figure(42)
-		#plt.clf()
-		#self.etas_contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), n_contours)
-		#plt.colorbar()
-		
-		etas_contours = plt.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=alpha)
+		#
+		etas_contours = plt.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
 		plt.colorbar()
 		#
 		self.cm=cm
@@ -289,7 +287,7 @@ class Global_ETAS_model(object):
 		return cm
 		#
 	#
-	def make_etas_boxy_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='spectral'):
+	def make_etas_boxy_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet'):
 		#
 		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
 		c_map = plt.get_cmap(map_cmap)

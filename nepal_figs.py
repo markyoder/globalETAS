@@ -90,7 +90,9 @@ class Map_drawer(object):
 		return cm
 		#
 
-def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_conts=15):
+def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_conts=15, cmap=plt.cm.jet):
+	plt.figure(fignum)
+	plt.clf()
 	mm = Map_drawer(xyz=xyz)
 	mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=0)
 	#return mm
@@ -101,7 +103,8 @@ def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_co
 	#
 	plt.figure(fignum)
 	# plt.cm.coolwarm
-	plt.contourf(lns, lts, Zs, n_conts, alpha=.65, zorder=11, cmap=plt.cm.jet)
+	print('cmap: ', cmap)
+	plt.contourf(lns, lts, Zs, n_conts, alpha=.65, zorder=11, cmap=cmap)
 	plt.colorbar()
 
 def roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=None, n_bins=100, line_color='m', shade_color='m'):
