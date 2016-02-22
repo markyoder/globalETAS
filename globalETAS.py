@@ -237,7 +237,7 @@ class Global_ETAS_model(object):
 		X.shape=(len(self.latses), len(self.lonses))
 		return X
 	#
-	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl'):
+	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=None, d_lat_range=None ):
 		'''
 		# plot contours over a map.
 		'''
@@ -246,6 +246,9 @@ class Global_ETAS_model(object):
 		#etas_contours = self.calc_etas_contours(n_contours=n_contours, fignum=fignum, contour_fig_file=contour_fig_file, contour_kml_file=contour_kml_file, kml_contours_bottom=kml_contours_bottom, kml_contours_top=kml_contours_top, alpha_kml=alpha_kml, refresh_etas=refresh_etas)
 		#
 		# now, clear away the figure and set up the basemap...
+		#
+		d_lon_range = (d_lon_range or 1.)
+		d_lat_range = (d_lat_range or 1.)
 		#		
 		plt.figure(fignum, fig_size)
 		plt.clf()
@@ -264,8 +267,10 @@ class Global_ETAS_model(object):
 		#cm.drawlsmask(land_color='0.8', ocean_color='c', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution=self.mapres, grid=5)
 		#
 		#
-		cm.drawmeridians(range(int(lons[0]), int(lons[1])), color='k', labels=[0,0,1,1])
-		cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
+		#cm.drawmeridians(range(int(lons[0]), int(lons[1])), color='k', labels=[0,0,1,1])
+		#cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
+		cm.drawmeridians(numpy.arange(int(lons[0]/d_lon_range)*d_lon_range, lons[1], d_lon_range), color='k', labels=[0,0,1,1])
+		cm.drawparallels(numpy.arange(int(lats[0]/d_lat_range)*d_lat_range, lats[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
 		#
 		return cm
 	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None):
@@ -303,7 +308,7 @@ class Global_ETAS_model(object):
 		#
 		
 	#
-	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
+	def calc_etas_codntours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
 		# (and these calc_contours schemes need to be cleaned up a bit. there is a bit of redundancy and disorganization)
 		#
