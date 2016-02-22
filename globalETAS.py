@@ -1241,7 +1241,17 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 			date_range[j] = mpd.num2date(mpd.datestr2num(dt))
 	#
 	if incat==None or (hasattr(incat, '__len__') and len(incat)==0):
-		incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
+		# try to catch network errors:
+		n_tries_max = 10
+		t_sleep = 5
+		n_tries=0
+		while n_tries<=n_tries_max:
+			try:
+				incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
+				n_tries = n_tries_max + 1
+			except:
+				print("network failed, or something. trying again (%d)" % n_tries)
+				n_tries+=1
 	#
 	etas_prams['incat']=incat
 	if n_cpus==None:
