@@ -597,4 +597,45 @@ def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv'):
 	
 	return X
 	
+def roc_fig_geospatial_fast_raw():
+	# roc figure for q/q range(s).use pre-compiled data.
+	#
+	FH_fast = []
+	FH_raw  = []
+	qfc_max=2.4
+	qtest_max=2.4
+	#
+	with open('data/roc_geospatial_nepal_raw.csv', 'r') as f:
+		for rw in f:
+			if rw[0]=='#': continue
+			qfc,qtest,f,h = [float(x) for x in rw[:-1].split()]
+			if qfc>qfc_max or qtest>qtest_max: continue
+			FH_raw += [qfc,qtest,f,h,h-f]
+			#
+		#
+	#
+	with open('data/roc_geospatial_nepal_q11_24_11_24.csv', 'r') as f:
+		for rw in f:
+			if rw[0]=='#': continue
+			qfc,qtest,f,h = [float(x) for x in rw[:-1].split()]
+			if qfc>qfc_max or qtest>qtest_max: continue
+			FH_raw += [qfc,qtest,f,h,h-f]
+	#
+	plt.figure(0)
+	plt.clf()
+	plt.plot(range(2), range(2), ls='--', lw=3.5, alpha=.8, color='r', marker='', label='Random')
+	plt.plot(*zip(*[[rw[2], rw[4]] for rw in FH_raw]), marker='o', color='b', ls='',label='ROC (raw)', zorder=4)
+	plt.plot(*zip(*[[rw[2], rw[4]] for rw in FH_fast]), marker='s', color='g', ls='',label='ROC (raw)', zorder=5)
+	plt.legend(loc=0, numpoints=1)
+	plt.title('Nepal ROC-geospatial Analysis')
+	plt.xlabel('False Alarm Rate $F$', size=18)
+	plt.ylabel('Hit Rate $H$', size=18)
+	#
+	FH_raw.sort(key = lambda rw: rw[-1])
+	FH_fast.sort(key=lambda rw: rw[-1])
+	#
+	print('fast:')
+	print(FH_fast[-4:])
+	print('raw:')
+	print(FH_raw[-4:])
 	

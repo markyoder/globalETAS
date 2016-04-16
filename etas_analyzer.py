@@ -955,7 +955,7 @@ def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5
 	#
 	return FH
 			
-def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=3.5, q_test_min=1.1, q_test_max=2.5, do_log=True, dq_fc=.1, dq_test=.1, fignum=0, fout='roc_geospatial.csv'):
+def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=3.5, q_test_min=1.1, q_test_max=3.5, do_log=True, dq_fc=.1, dq_test=.1, fignum=0, fout='roc_geospatial_fast.csv'):
 	#
 	#if etas_fc==None: 
 	etas_fc=get_nepal_etas_fc()
