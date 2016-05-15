@@ -435,7 +435,7 @@ class Global_ETAS_model(object):
 			#
 			#print('rtree indexing: ', quake, lon_min, lat_min, lon_max, lat_max, self.lons, self.lats, delta_lon, delta_lat)
 			#
-			site_indices = lattice_index.intersection((lon_min, lat_min, lon_max, lat_max))
+			site_indices = list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max)))
 			# ... and if we wrap around the other side of the world...
 			# there's probably a smarter way to do this...
 			if lon_min<-180.:
