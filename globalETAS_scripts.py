@@ -48,7 +48,7 @@ def etas_outputs(n_processes = None, output_path='etas_outputs/', kml_file='etas
 	#
 	ETAS = gep.ETAS_mpp_handler_xyz(n_processes = n_processes, *args, **kwargs)
 	#
-	ETAS.make_etas_contour_map(n_contours=n_contours, fignum=fignum, fig_size=fig_size, contour_fig_file=png_file, contour_kml_file=kml_file, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap=color_map)
+	ETAS.make_etas_contour_map(n_contours=n_contours, fignum=fignum, fig_size=fig_size, contour_fig_file=png_file, contour_kml_file=kml_file, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.6, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap=color_map)
 	#
 	plt.figure(fignum)
 	plt.title('ETAS: \n%s\n' % str(kwargs.get('t_now', dtm.datetime.now(pytz.timezone('UTC')))))
