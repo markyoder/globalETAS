@@ -45,9 +45,8 @@ import os
 #from PIL import Image as ipp
 import multiprocessing as mpp
 #
-import matplotlib
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-import matplotlib.mpl as mpl
 import functools
 #
 #import shapely.geometry as sgp
@@ -114,7 +113,7 @@ class Global_ETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, p_etas=None,**kwargs):
+	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, p_etas=None,**kwargs):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -147,10 +146,13 @@ class Global_ETAS_model(object):
 			t0=t_now - dtm.timedelta(days=cat_len)
 			print("Overriding t0 for ETAS calculations. using catalog start, t0 = t_now - catlen (%f) = %s" % (cat_len, t0))
 		#
-		#lats = (lats or [-89.9, 89.9])
-		#lons = (lons or [-180., 180.])
-		if lats == None: lats = [-89.9, 89.9]
-		if lons == None: lons = [-180., 180.]
+		if lats == None and catalog == None: lats = [-89.9, 89.9]
+		if lons == None and catalog == None: lons = [-180., 180.]
+		#
+		# for now, assume the catalog is string-indexed -- aka, recarray, PANDAS,etc.
+		if lats == None and not (catalog == None or len(catalog) == 0): lats = [min(catalog['lat']), max(catalog['lat'])]
+		if lons == None and not (catalog == None or len(catalog) == 0): lons = [min(catalog['lon']), max(catalog['lon'])]
+		if mc   == None and not (catalog == None or len(catalog) == 0): mc = min(catalog['mag'])
 		#
 		# and handle some specific cases...
 		if isinstance(t_now, float):
@@ -308,7 +310,7 @@ class Global_ETAS_model(object):
 		#
 		
 	#
-	def calc_etas_codntours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
+	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
 		# (and these calc_contours schemes need to be cleaned up a bit. there is a bit of redundancy and disorganization)
 		#
@@ -411,6 +413,8 @@ class Global_ETAS_model(object):
 		for quake in self.catalog[self.etas_cat_range[0]:self.etas_cat_range[1]]:
 			if quake['mag']<self.mc_etas: continue
 			#
+			if quake['event_date_float']>self.t_forecast: continue
+			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
 			#
 			# get lat/lon range:
@@ -422,8 +426,12 @@ class Global_ETAS_model(object):
 			#
 			# and let's also assume we want to limit our ETAS map to the input lat/lon:
 			# this formulation can get confused if lons, lats, and a catalog are provided separately. look for a smarter way...
-			lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
-			lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
+			#lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
+			#lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
+			# for now, just let the space be big.
+			lon_min, lon_max = eq.lon - delta_lon, eq.lon + delta_lon
+			lat_min, lat_max = eq.lat - delta_lat, eq.lat + delta_lat
+			
 			#
 			#print('rtree indexing: ', quake, lon_min, lat_min, lon_max, lat_max, self.lons, self.lats, delta_lon, delta_lat)
 			#
@@ -468,6 +476,7 @@ class Global_ETAS_model(object):
 				self.ETAS_array[site_index][2] += local_intensity
 				#
 		#
+		print('finished calculateing ETAS (rtree). wrap up in recarray and return.')
 		# this conversion to the 2d array should probably be moved to a function or @property in the main class scope.
 		
 		#self.lattice_sites = numpy.array([rw[2] for rw in self.ETAS_array])
@@ -1271,7 +1280,7 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 		etas_prams['catalog_range']=[k*n, min((k+1)*n, cat_len)]
 		#print("parameters: ", etas_prams)
 		#pool_handlers += [P.apply_async(make_ETAS_catalog), kwds=etas_prams]
-		pool_handlers += [P.apply_async(make_ETAS_catalog,args=[None, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n, cat_len)]])]
+		pool_handlers += [P.apply_async(make_ETAS_catalog,args=[incat, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n, cat_len)]])]
 		# i think this version, where we pass incat to the child processes, works properly, though it should be checked.
 		 # ... or maybe it doesn't; maybe the recarrays don't pickle (i may have pickled one somewhere else... or maybe not). probably need to build in some smart header handlers for mpp.
 		 #
@@ -1767,7 +1776,7 @@ def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 	xi = numpy.linspace(min_x-abs(min_x)*padding, max_x + abs(max_x)*padding, n_x)
 	yi = numpy.linspace(min_y-abs(min_x)*padding, max_y + abs(max_x)*padding, n_y)
 	#
-	zi = matplotlib.mlab.griddata(xyz['x'], xyz['y'], numpy.log10(xyz['z']), xi, yi, interp='nn')
+	zi = mpl.mlab.griddata(xyz['x'], xyz['y'], numpy.log10(xyz['z']), xi, yi, interp='nn')
 	#
 	plt.figure(0)
 	plt.clf()
