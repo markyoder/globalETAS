@@ -57,3 +57,4 @@ def etas_outputs(n_processes = None, output_path='etas_outputs/', kml_file='etas
 	ETAS.export_xyz(xyz_file)
 	ETAS.export_kml(kml_file)
 	#
+	return ETAS
