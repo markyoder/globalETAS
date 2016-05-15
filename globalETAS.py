@@ -24,6 +24,19 @@
 # 4) eventually add temporal indexing as well?
 # 5) we're also interested in convolving ETAS with finite source models (aka, map ETAS to faults or some other
 #    irregular geometry). we may do something with that here.
+#
+# TODO notes:
+# 1: revisit Bindex model; i think it will be faster, simpler, and lower memory footprint than rtree, and i think the main obstacles to making it work properly
+#    have actually been resolved.
+# 2: revise the boundary selection framework for rtree. basically, there is a problem constraining the boundaries when lat/lon parameters are provided to ETAS.
+# 3: implement (or confirm implementation of) the brute-force version of ETAS, where we loop-loop over all events,locations. for small ETAS, we probably
+#    want to do this anyway and it will be faster because we forego calculating indices.
+# 4: revise the spatial limits: instead of just using n*L_r for spatial extetns, actually calculate the distance for z -> x*z0, aka the distance for 90% reduction.
+#    this will be similar to the L_r approach, bit will account for proper scaling and should improve the output appearance.
+# 5: modify the MPP handler(s) to inherit from Pool() and actually work like a Pool(), rather than explicitly handling Process() objects. the problem is that when
+#    we divide up the job, we inevitably give one processor a light job and one processor a heavy job, so we spend a lot of time waiting for one process to finish.
+#    yes, there is a bit of overhead in running with n_processes > n_processors, but it is minor in comparison. also, by dividing the job into lots of small little
+#    jobs, we can probably also reduce the real-time memory footprint, so we can run on smaller systems.
 '''
 #
 import datetime as dtm
