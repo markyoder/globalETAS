@@ -58,3 +58,8 @@ def etas_outputs(n_processes = None, output_path='etas_outputs/', kml_file='etas
 	ETAS.export_kml(kml_file)
 	#
 	return ETAS
+#
+# we need a full diagnostic script here for the radial distributions. not sure if the local intensitis, particularly spatial distributions,
+# are being calculated correctly... or what the consequence of that is. namely, we need to see spatial distributions...
+#
+

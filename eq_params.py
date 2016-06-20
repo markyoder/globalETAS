@@ -1,3 +1,5 @@
+# this needs to be rewritten as a .json file, and imported accordingly...
+
 import math
 import datetime as dtm
 import pytz
