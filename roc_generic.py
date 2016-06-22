@@ -1,5 +1,12 @@
 '''
 # some generic ROC tools, and playing a bit with shared memory mpp as well.
+# (eventually, this needs to be moved into a general-tools repository). also,
+# lets see if we can't @numba.jit  compile some of these bits...
+#
+# also, it might be smarter to write the ROC processes just as procedural functions,
+# namely because 1) they don't depend on class-scope variables (input-output),
+# 2) we can compile them with @numba.jit, and 3) as per 1,2, they may be more
+# portable that way.
 '''
 ###
 #
@@ -13,6 +20,14 @@ import matplotlib.pyplot as plt
 import matplotlib.mpl as mpl
 import time
 #import functools
+try:
+	import numba
+	have_numba=True
+	print('numba imported')
+else:
+	have_numba=False
+	print('numba not available. you should install it.')
+#
 #
 class Array_test(object):
 	def __init__(self, N=1000):
@@ -27,10 +42,26 @@ class Array_test(object):
 		self.Z_spp = [x1 + x2 for x1,x2 in zip(self.X1, self.X2)]
 	#
 	def add_arrays(self, X1=None, X2=None):
+		# (so this function can probably be compiled using numba, but maybe not inside the class object?
+		# ... and why not use numpy.array()
 		if X1==None: X1=self.X1
 		if X2==None: X2=self.X2
 		#
 		return [x1 + x2 for x1,x2 in zip(X1,X2)]
+
+# here's how to compile with numba:
+# ... but how do we make just the compilation part conditional?
+if have_numba:
+	@numba.jit
+	def add_arrays(X1=None, X2=None):
+		# (so this function can probably be compiled using numba, but maybe not inside the class object?
+		# ... and why not use numpy.array()
+		#
+		return [x1 + x2 for x1,x2 in zip(X1,X2)]
+else:
+	def add_arrays(X1=None, X2=None):
+		return [x1 + x2 for x1,x2 in zip(X1,X2)]
+
 
 class Array_test_worker(mpp.Process):
 	def __init__(self, ary1, ary2, aryout, j_start=0, j_stop=None):
@@ -108,6 +139,16 @@ def test_test_arrays(N=1e7):
 	return T	
 #
 class ROC_generic(object):
+	# generic, multi-purpose ROC class. this is super simple until multi-processing comes in, and then it gets
+	# a little bit tricky to make sure all the denominators are correct. there are a couple of approaches to take.
+	# 1) pass the denominator(s) to the workers (aka, the parent thread knows the full list size, so pass that to 
+	# the workers; the workers can then do the division on-process; all workers are identical, and we can return
+	# (pipe back) smaller data sets, 2) just do sorting and aggregation in-process; re-sort, aggregate, etc.
+	# in the parent-process (aka, shift more work to the parent process).
+	#
+	# at this time, we've chosen to optionally pass denominators to the process. this is a bit more complicated,
+	# but it makes the tool more versatile, and if we just pass None objects into the denoms, we get an expected
+	# default behavior.
 	#def __init__(self, Z_events, Z_fc, h_denom=None, f_denom=None, f_start=0., f_stop=None, do_normalize=True):
 	def __init__(self, Z_events, Z_fc, h_denom=None, f_denom=None, f_start=0., f_stop=None):
 		#
@@ -162,6 +203,7 @@ class ROC_generic(object):
 		'''
 		#
 		# list comprehensions, but 2 loops... not sure which should be faster.
+		# (and this can be compiled with numba.jit if we are so inclinded -- which we should be).
 		self.H = [sum([float(z_ev>=z_fc) for z_ev in self.Z_events])/h_denom for j,z_fc in enumerate(self.Z_fc)]
 		self.F = [(f_start + j - self.H[j]*h_denom)/f_denom for j,x in enumerate(self.Z_fc)]
 		#
@@ -297,6 +339,8 @@ class ROC_generic_worker(ROC_generic, mpp.Process):
 							# then, we can use f_start to augment f_denom and assign to F[j] instead of F[j+f_start].
 		#
 		# (this "if none" sytax might not work because H,F are arrays).
+		# note: coming soon to python >3.5, X==None will be an element-wise comparison; X is None will compare the
+		# list object itself. i'm not sure how the (X or X0) syntax will work; it has been problematic in the past.
 		self.H = (H or numpy.zeros(len(self.Z_fc)))
 		self.F = (F or numpy.zeros(len(self.Z_fc)))
 		self.f_start_index = (f_start_index or self.f_start)
