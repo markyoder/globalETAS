@@ -67,6 +67,11 @@ class Toy_etas(object):
 		#
 	#
 class  Toy_etas_invr(Toy_etas):
+	'''
+	# this is a "toy" object meant to emulate a GlobalETAS() class object for certain purposes.
+	# it is basically meant to facilitate comparison of an actual ETAS forecast to a simple pseudo-null
+	# model in which ETAS rates are like z~1/r
+	'''
 	def __init__(self, *args, **kwargs):
 		super(Toy_etas_invr,self).__init__(*args, **kwargs)
 		self.L_r = 10.**(.5*self.mainshock['mag']-1.76)
@@ -79,6 +84,9 @@ class  Toy_etas_invr(Toy_etas):
 		self.normalize()
 #
 class Toy_etas_random(Toy_etas):
+	'''
+	# (see Toy_etas() above for basic explanation)
+	'''
 	def __init__(self, *args, **kwargs):
 		#super(Toy_etas_random, self).__init__(None,*args, **kwargs)
 		super(Toy_etas_random, self).__init__(*args, **kwargs)
@@ -89,6 +97,10 @@ class Toy_etas_random(Toy_etas):
 		self.normalize()
 #class Toy_etas_fromxyz(Toy_etas):
 class Toy_etas_fromxyz(object):
+	'''
+	# (see Toy_etas() above for basic explanation)
+	'''
+
 	# maybe inherit from Toy_etas later...
 	# (still needs testing and development)
 	def __init__(self, fname='global_map_20151129.xyz', *args, **kwargs):

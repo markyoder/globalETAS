@@ -68,9 +68,9 @@ class equake_test1(object):
 		target = {'time':mpd.date2num(dtm.datetime(2005,1,1, tzinfo=pytz.timezone('UTC'))), 'lon':-120.0, 'lat':35.0}
 		#
 		z1 = eq1.local_intensity(t=target['time'], lon=target['lon'], lat=target['lat'])
-		print "target: ", target
+		print("target: ", target)
 		print("z1: ", z1)
-		print target
+		print(target)
 		z2 = eq2.localIntensity(inloc=[target['lon'],target['lat']] , intime=target['time']*days2secs)
 		#
 		print("Zs: ", z1, z2)
@@ -91,7 +91,6 @@ class equake_test1(object):
 		#
 		for lon,lat in rlons_lats:
 			t = target['time'] + (R3.random()-.5)*50.		# days
-			#print "t: ", t
 		
 			z1 = math.log10(eq1.local_intensity(t=t, lon=lon, lat=lat))
 			z2 = math.log10(eq2.localIntensity(inloc=[lon,lat] , intime=t*days2secs))
@@ -105,7 +104,7 @@ class equake_test1(object):
 			errs += [err]
 			j+=1
 		#
-		print "mean_err: ", mean_err/float(j), numpy.median(errs), max(errs), min(errs)
+		print("mean_err: ", mean_err/float(j), numpy.median(errs), max(errs), min(errs))
 		plt.figure(11)
 		plt.clf()
 		plt.plot(pf['lon'], pf['lat'], 'r*', ms=18, zorder=4)
