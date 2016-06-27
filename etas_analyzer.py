@@ -6,7 +6,7 @@ tzutc = pytz.timezone('UTC')
 
 #import operator
 import math
-import random
+import rgandom
 import numpy
 import scipy
 import scipy.optimize as spo
@@ -20,7 +20,7 @@ import multiprocessing as mpp
 #
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.mpl as mpl
+import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
 #import functools
 #
@@ -31,15 +31,17 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from geographiclib.geodesic import Geodesic as ggp
 #
 #
-import ANSStools as atp
+#import ANSStools as atp
+from common import ANSStools as atp
 #import bindex
 import contours2kml
 import globalETAS as gep
 from eq_params import *
-import roc_generic
+import roc_generic            # we'll eventually want to move to a new library of roc tools.
 import random
 #
-colors_ =  mpl.rcParams['axes.color_cycle']
+#colors_ =  mpl.rcParams['axes.color_cycle']
+colors_ = ['b', 'g', 'r', 'c', 'm', 'y', 'k']		# make sure these are correct...
 #
 
 sischuan_prams = {'to_dt':dtm.datetime(2008,6,12, tzinfo=pytz.timezone('UTC')), 'mainshock_dt':dtm.datetime(2008,5,13, tzinfo=pytz.timezone('UTC')), 'lat_center':31.021, 'lon_center':103.367, 'Lr_map_factor':4.0, 'mc':4.0, 'mc_0':None, 'dm_cat':2.0, 'gridsize':.1, 'fnameroot':'etas_auto_sichuan', 'catlen':10.0*365., 'd_lambda':1.76, 'doplot':True}
@@ -75,11 +77,12 @@ class  Toy_etas_invr(Toy_etas):
 	def __init__(self, *args, **kwargs):
 		super(Toy_etas_invr,self).__init__(*args, **kwargs)
 		self.L_r = 10.**(.5*self.mainshock['mag']-1.76)
+		q=(1. or q)
 		#
 		for j,rw in enumerate(self.ETAS_array):
 			g1=ggp.WGS84.Inverse(self.mainshock['lat'], self.mainshock['lon'], rw['y'], rw['x'])
 			#r_prime = (g1['s12']/1000.) + .5*L_r
-			self.ETAS_array['z'][j] = 1./((g1['s12']/1000.) + .5*self.L_r)
+			self.ETAS_array['z'][j] = 1./((g1['s12']/1000.) + .5*self.L_r)**q
 		#
 		self.normalize()
 #

@@ -17,14 +17,14 @@ import itertools
 import multiprocessing as mpp
 #
 import matplotlib.pyplot as plt
-import matplotlib.mpl as mpl
+import matplotlib as mpl
 import time
 #import functools
 try:
 	import numba
 	have_numba=True
 	print('numba imported')
-else:
+except:
 	have_numba=False
 	print('numba not available. you should install it.')
 #
