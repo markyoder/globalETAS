@@ -18,9 +18,13 @@ import ANSStools as atp
 
 from eq_params import *
 
-colors_ =  mpl.rcParams['axes.color_cycle']
-
+#colors_ =  mpl.rcParams['axes.color_cycle']
+colors_ = ['b','g','r','c','m','y','k']
 nepal_mainshock = {'mag':7.8, 'lon':84.708, 'lat':28.147}
+#
+# TODO: replace all ROCgeneric with optimizers.roc_tools
+#  there may be problems with the ROCgeneric ROC calcs... and also roc_tools is simpler and maybe faster (though
+#  we need to investigate to see if we can get a gain from mpp).
 
 class Map_drawer(object):
 	# container class to draw maps and stuff like that.
