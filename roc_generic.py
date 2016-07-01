@@ -146,6 +146,13 @@ class ROC_generic(object):
 	# (pipe back) smaller data sets, 2) just do sorting and aggregation in-process; re-sort, aggregate, etc.
 	# in the parent-process (aka, shift more work to the parent process).
 	#
+	# ######
+	# also, this needs to be benchmarked for speed. tests on another ROC code-base definitely showed that mpp did NOT
+	# make it run faster... in fact much slower. basically, ROC is a single pass through the data, and if we pipe
+	# it to a process, well that's two passes. so it should be investigated whether or not piping off multiple ROC jobs
+	# can be faster, but i'm going to guess that it isn't.
+	# for more, see the "optimizers" repository... where this code should eventually end up anyway.
+	#
 	# at this time, we've chosen to optionally pass denominators to the process. this is a bit more complicated,
 	# but it makes the tool more versatile, and if we just pass None objects into the denoms, we get an expected
 	# default behavior.
