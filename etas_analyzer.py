@@ -6,7 +6,7 @@ tzutc = pytz.timezone('UTC')
 
 #import operator
 import math
-import rgandom
+import random
 import numpy
 import scipy
 import scipy.optimize as spo
@@ -31,14 +31,17 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from geographiclib.geodesic import Geodesic as ggp
 #
 #
-#import ANSStools as atp
-from common import ANSStools as atp
+import ANSStools as atp
+#from yodiipy import ANSStools as atp
 #import bindex
 import contours2kml
 import globalETAS as gep
 from eq_params import *
 import roc_generic            # we'll eventually want to move to a new library of roc tools.
-import random
+
+#
+# optimizers included as submodule...
+from optimizers import roc_tools
 #
 #colors_ =  mpl.rcParams['axes.color_cycle']
 colors_ = ['b', 'g', 'r', 'c', 'm', 'y', 'k']		# make sure these are correct...
@@ -121,6 +124,8 @@ class Toy_etas_fromxyz(object):
 #
 class ROC_base(object):
 	# a base class object for MPP ROC stuff. we'll inherit this for both the worker and handerl mpp classes.
+	# note: this is a ROC tool specific to these map forecast analyses. we should separate the get_site() part and then use
+	# the roc_tools() optimizers.roc_tools bits.
 	#
 	def __init__(self, fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
 		#
@@ -172,6 +177,9 @@ class ROC_base(object):
 		#
 	#
 	def get_site(self, x,y):
+		# TODO: this binning needs to be double-checked. do lons[0], lats[0] define the edge of a bin or the boundary in which we
+		# select earthquakes (in which case, their outer edges are +/- dx/2.
+		# ... but i think this is correct.
 		return int(round((x-self.lons[0]+.5*self.d_lon)/self.d_lon)) + int(round((y-self.lats[0]+.5*self.d_lat)/self.d_lat))*self.nx
 
 	def calc_ROCs(self, H_denom=None, F_denom=None, m_c=None):
@@ -709,9 +717,15 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	#eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
 	eq_site_zs = [Zs[get_site(eq['lon'], eq['lat'])] for eq in test_catalog]
 	#
-	roc_obj = roc_generic.ROC_mpp(n_procs=n_cpus, Z_events=eq_site_zs, Z_fc=Zs, h_denom=None, f_denom=None, f_start=0., f_stop=None)
-	roc = roc_obj.calc_roc()
-	Fs, Hs = roc_obj.F, roc_obj.H
+	# yoder: 2016_07_01:
+	# mpp gives no real gain. roc_generic bits are fixed, but let's try using the new optimizer tool.
+	FH = roc_tools.calc_roc(Z_fc=Zs, Z_ev=eq_site_zs, f_denom=None, h_denom=None, j_fc0=0, j_eq0=0, do_sort=True)
+	
+	#roc_obj = roc_generic.ROC_mpp(n_procs=n_cpus, Z_events=eq_site_zs, Z_fc=Zs, h_denom=None, f_denom=None, f_start=0., f_stop=None)
+	#roc = roc_obj.calc_roc()
+	#Fs, Hs = roc_obj.F, roc_obj.H
+	#
+	#
 	#print("eZs: ", etas_fc.ETAS_array['z'][0:10], len(etas_fc.ETAS_array['z']))
 	#
 	'''
@@ -781,11 +795,13 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	if fignum!=None:
 		plt.figure(fignum)
 		if do_clf: plt.clf()
-		plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
+		#plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
+		plt.plot(*zip(*FH), ls='-', label='ROC_approx.', lw=2., alpha=.8)
 		#plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
 		plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
 	#
-	return list(zip(Fs,Hs))
+	#return list(zip(Fs,Hs))
+	return FH
 #	
 #
 def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120., mc_roc=5.0, fignum=0, do_clf=True):
@@ -1279,4 +1295,57 @@ def plot_mainshock_and_aftershocks(etas, m0=6.0, mainshock=None, fignum=0):
 		if eq['event_date']>eq['event_date']:
 			x,y = map_etas(eq['lon'], eq['lat'])
 			plt.plot([x], [y], 'o', zorder=7, ms=20, alpha=.8)	
-	
+
+def get_Z_fc_Z_ev(fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
+		#
+		if isinstance(fc_xyz, str):
+			# if we're given a filename...
+			with open(fc_xyz, 'r') as froc:
+				fc_xyz= [[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]
+		#
+		if to_dt   == None: to_dt = dtm.datetime.now(pytz.timezone('UTC'))
+		if from_dt == None: from_dt = to_dt-dtm.timedelta(days=120)			# but this really doesn't make much sense for this version of ROC...
+		#
+		#return fc_xyz
+		if not hasattr(fc_xyz, 'dtype'):
+			fc_xyz = numpy.core.records.fromarrays(zip(*fc_xyz), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
+		#
+		lats = [min(fc_xyz['y']), max(fc_xyz['y'])]
+		lons = [min(fc_xyz['x']), max(fc_xyz['x'])]
+		#
+		#mc   = mc_roc
+		X_set = sorted(list(set(fc_xyz['x'])))
+		Y_set = sorted(list(set(fc_xyz['y'])))
+		d_lon = (dx or abs(X_set[1] - X_set[0]))
+		d_lat = (dy or abs(Y_set[1] - Y_set[0]))
+		nx = len(X_set)
+		ny = len(Y_set)
+		#
+		
+		#
+		#
+		print("get cataog: ", lons, lats, mc, from_dt, to_dt)
+		if test_catalog==None: test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[from_dt, to_dt])
+		print("catlen: ", len(test_catalog))
+		#
+		# note: this will reduce the number of z values a bit, but what we really need to do is bin them into N bins... or maybe
+		# we do explicitly want to remove each site, one at a time to get a proper ROC...
+		Z_fc = sorted(list(fc_xyz['z'].copy()))
+		
+		# nominally, we'd make a copy of the whole catalog, but for memory conservation, just index the lsit.
+		#eq_ks = [[get_site(eq['lon'], eq['lat']), eq] for eq in test_catalog]
+		#eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
+		#
+		get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
+		#
+		Z_ev = [Z_fc[get_site(eq['lon'], eq['lat'])] for eq in test_catalog]
+		#
+		return {'Z_fc': Z_fc, 'Z_ev':Z_ev}
+	#
+'''
+def get_site(self, x,y, d_lon, d_lat):
+	# TODO: this binning needs to be double-checked. do lons[0], lats[0] define the edge of a bin or the boundary in which we
+	# select earthquakes (in which case, their outer edges are +/- dx/2.
+	# ... but i think this is correct.
+	return int(round((x-self.lons[0]+.5*self.d_lon)/self.d_lon)) + int(round((y-self.lats[0]+.5*self.d_lat)/self.d_lat))*self.nx
+	'''
