@@ -196,6 +196,7 @@ def toy_gs_roc(fignum=0):
 	return diffs
 #
 def stepify(xy):
+	# lets move (or copy) stepify function(s) to a generic repo.
 	xy_prime = [[x,y] for x,y in xy] + [[xy[j][0],y] for j,(x,y) in enumerate(xy[1:])]
 	
 	xy_prime.sort(key=lambda rw:rw[0])
@@ -207,6 +208,10 @@ def global_roc():
 #
 def global_roc1(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 4.5, 5.0, 6.0, 7.0]):
 	# a global ROC script; we may have some competing candidates for this right now. this seems to work. can we duplicate it with generic_roc?
+	# 2016_06_26 yoder: look in the new "optimizers" repo; there is a simple ROC tool. we should bench this ROC tool, however, to see if 
+	# there is any value in mpp. in the current "optimizers" version, the spp outperforms mpp on several 10-30 second runs.
+	# if, however, we modify that to return compressed data sets (exclude rows where ROC does not change), we might be able
+	# to make improvements.
 	#
 	# this script produced a really nice ROC, so let's clean it up a bit.
 	#A=etas_analyzer.ROC_mpp_handler(n_procs=8, fc_xyz='global/global_xyz_20151129.xyz', from_dt = eap.dtm.datetime(2015, 11, 30, tzinfo=eap.pytz.timezone('UTC')), to_dt=dtm.datetime.now(eap.pytz.timezone('UTC')), mc=5.5)
