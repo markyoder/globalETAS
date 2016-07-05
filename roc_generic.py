@@ -172,6 +172,8 @@ class ROC_generic(object):
 	#def roc_simple_sparse(self, h_denom=None, f_denom=None, f_start=0, f_stop=None, do_normalize=None):
 	def roc_simple_sparse(self, h_denom=None, f_denom=None, f_start=0, f_stop=None):
 		# simple ROC calculator.
+		# ... this is not quite right, however, because it does not account for multiple events in a single bin...
+		# but it's close for fine lattices.
 		#@do_normalize: normalise F,H. for mpp calculations, it might be simpler to return the total sums and normalize in the parent class/calling funct.
 		h_denom = (h_denom or self.h_denom)
 		f_denom = (f_denom or self.f_denom)
