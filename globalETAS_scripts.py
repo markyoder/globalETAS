@@ -57,3 +57,12 @@ def etas_outputs(n_processes = None, output_path='etas_outputs/', kml_file='etas
 	ETAS.export_xyz(xyz_file)
 	ETAS.export_kml(kml_file)
 	#
+
+
+"""
+~~~~Defaults args~~~~
+catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, p_etas=None
+"""
+
+
+etas_outputs(kml_file='etas_kml.kml', png_file='etas.png', xyz_file='etas_xyz.xyz', fignum=0, lats=[31.5, 42.2], lons=[-125., -114.], mc=2.5)
