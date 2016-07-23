@@ -30,7 +30,7 @@ except:
 #
 print('*****************\nDEPRICATION WARNING:\nThis module is being depricated; look at yodiipy.optimizers.roc_tools()')
 print('and possibly something like etas_roc_tools.py in the globalETAS folder.')
-print('this module contains some working code... and some not working code, so be very very careful,)
+print('this module contains some working code... and some not working code, so be very very careful,')
 print('particularly when running the more optimized codes.')
 print('NOTE: the Aray() (shared memory) vs piped mpp tests are probably worth keeping, particularly the Array() code sample.')
 #
