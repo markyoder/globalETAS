@@ -28,6 +28,7 @@ except:
 	have_numba=False
 	print('numba not available. you should install it.')
 #
+print('***************** roc_generic.py ***********************')
 print('*****************\nDEPRICATION WARNING:\nThis module is being depricated; look at yodiipy.optimizers.roc_tools()')
 print('and possibly something like etas_roc_tools.py in the globalETAS folder.')
 print('this module contains some working code... and some not working code, so be very very careful,')

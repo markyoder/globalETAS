@@ -290,7 +290,7 @@ class Molchan_base_optimizers(ROC_base):
 		#print("setting default eq_z_vals")
 		self.eq_z_vals = [self.fc_xyz['z'][self.get_site(eq['lon'], eq['lat'])] for eq in self.test_catalog if eq['mag']>=m_c]	
 		#
-		FH = rtp.calc_Molchan(self.Zs, self.
+		FH = rtp.calc_Molchan(self.Zs, self.Z_ev)
 		
 
 #

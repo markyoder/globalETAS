@@ -357,68 +357,75 @@ def global_roc_comparison(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, f
 	plt.ylabel('Hit Rate $H$')
 #
 def nepal_roc_script(fignum=0, mcs = [4., 5., 6., 7.], n_cpu=None):
-	# this needs to be rewritten a bit to:
-	# 1) use the same color for each magnitude
-	# 2) should probably use the roc_generic class; see _rocs3()
-	#
-	# full, one stop shopping script for nepal ROC analysis.
-	#
-	# first, get nepal ETAS objects:
-	etas_fc, etas_test = etas_analyzer.nepal_etas_roc()
-	test_catalog = etas_test.catalog
-	#
-	x0 = nepal_epi_lon
-	y0 = nepal_epi_lat
-	mag=7.8
-	L_r = .5*10**(.5*mag - 1.76)
-	xyz = etas_fc.ETAS_array
-	#
-	X_set = sorted(list(set(xyz['x'])))
-	Y_set = sorted(list(set(xyz['y'])))
-	nx = len(X_set)
-	ny = len(Y_set)
-	get_site = lambda x,y: int(round((x-etas_fc.lons[0]+.5*etas_fc.d_lon)/etas_fc.d_lon)) + int(round((y-etas_fc.lats[0]+.5*etas_fc.d_lat)/etas_fc.d_lat))*nx
-	#
-	xyz_r = xyz.copy()
-	for j,(x,y,z) in enumerate(xyz_r):
-		xyz_r['z'][j]=1./(dist_to(x,y,x0,y0) + .5*L_r)
-	#
-	Zs = sorted(list(xyz['z'].copy()))
-	Zs_r = sorted(list(xyz_r['z'].copy()))
-	#
-	eq_site_zs = [[xyz['z'][get_site(eq['lon'], eq['lat'])], eq['mag']] for eq in test_catalog]
-	#
-	plt.figure(fignum)
-	plt.clf()
-	plt.plot(range(2), range(2), ls='--', color='m', lw=3., alpha=.75, zorder=2)
-	FHs = {}		# we'll use mc as a key, FH as a val: {mc:[FH]...}
-	for j,mc in enumerate(mcs):
-		clr = colors_[j%len(colors_)]
-		roc = roc_generic.ROC_mpp(n_procs=n_cpu, Z_events=[z for z,m in eq_site_zs if m>=mc], Z_fc=Zs, h_denom=None, f_denom=None, f_start=0, f_stop=None)
-		a=roc.calc_roc()		# no parameters, and in fact no return value, but it's never a bad idea to leave a place-holder for one.
+	return Nepal_ROC_script(**locals())
+class nepal__ROC_script(object):
+	def __init__(self, fignum=0, mcs = [4., 5., 6., 7.], n_cpu=None):
+		# this needs to be rewritten a bit to:
+		# 1) use the same color for each magnitude
+		# 2) should probably use the roc_generic class; see _rocs3()
 		#
-		plt.plot(roc.F, roc.H, ls='-', color=clr, marker='', lw=2.5, label='$m_c=%.2f$' % mc)
-		#FHs[mc]=[[f,h] for f,h in zip(roc.F, roc.H)]
+		# full, one stop shopping script for nepal ROC analysis.
 		#
-		roc = roc_generic.ROC_mpp(n_procs=n_cpu, Z_events=[z for z,m in eq_site_zs if m>=mc], Z_fc=Zs_r, h_denom=None, f_denom=None, f_start=0, f_stop=None)
-		roc.calc_roc()
-		plt.plot(roc.F, roc.H, ls='--', color=clr, marker='', lw=2.5, label='$m_c=%.2f$' % mc)
+		# first, get nepal ETAS objects:
+		etas_fc, etas_test = etas_analyzer.nepal_etas_roc()
+		test_catalog = etas_test.catalog
 		#
-		plt.show()	# just in case...
+		x0 = nepal_epi_lon
+		y0 = nepal_epi_lat
+		mag=7.8
+		L_r = .5*10**(.5*mag - 1.76)
+		xyz = etas_fc.ETAS_array
+		#
+		# now, replace all of this "get x,y and ROC" stuff with the optimizers.roc_tools equivalents.
+		X_set = sorted(list(set(xyz['x'])))
+		Y_set = sorted(list(set(xyz['y'])))
+		nx = len(X_set)
+		ny = len(Y_set)
+		get_site = lambda x,y: int(round((x-etas_fc.lons[0]+.5*etas_fc.d_lon)/etas_fc.d_lon)) + int(round((y-etas_fc.lats[0]+.5*etas_fc.d_lat)/etas_fc.d_lat))*nx
+		#
+		xyz_r = xyz.copy()
+		for j,(x,y,z) in enumerate(xyz_r):
+			xyz_r['z'][j]=1./(dist_to(x,y,x0,y0) + .5*L_r)
+		#
+		Zs = sorted(list(xyz['z'].copy()))
+		Zs_r = sorted(list(xyz_r['z'].copy()))
+		#
+		eq_site_zs = [[xyz['z'][get_site(eq['lon'], eq['lat'])], eq['mag']] for eq in test_catalog]
+		#
+		plt.figure(fignum)
+		plt.clf()
+		plt.plot(range(2), range(2), ls='--', color='m', lw=3., alpha=.75, zorder=2)
+		FHs = {}		# we'll use mc as a key, FH as a val: {mc:[FH]...}
+		for j,mc in enumerate(mcs):
+			clr = colors_[j%len(colors_)]
+			roc = roc_generic.ROC_mpp(n_procs=n_cpu, Z_events=[z for z,m in eq_site_zs if m>=mc], Z_fc=Zs, h_denom=None, f_denom=None, f_start=0, f_stop=None)
+			a=roc.calc_roc()		# no parameters, and in fact no return value, but it's never a bad idea to leave a place-holder for one.
+			#
+			plt.plot(roc.F, roc.H, ls='-', color=clr, marker='', lw=2.5, label='$m_c=%.2f$' % mc)
+			#FHs[mc]=[[f,h] for f,h in zip(roc.F, roc.H)]
+			#
+			roc = roc_generic.ROC_mpp(n_procs=n_cpu, Z_events=[z for z,m in eq_site_zs if m>=mc], Z_fc=Zs_r, h_denom=None, f_denom=None, f_start=0, f_stop=None)
+			roc.calc_roc()
+			plt.plot(roc.F, roc.H, ls='--', color=clr, marker='', lw=2.5, label='$m_c=%.2f$' % mc)
+			#
+			plt.show()	# just in case...
 	
 	
-	#ROC_n = roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.5, 5.0, 6.0, 7.0], fignum=fignum, do_clf=True)
-	#
-	# now, make a toy catalog:
-	#etas_toy = Toy_etas_invr(etas_in=etas_fc, mainshock={'mag':7.3, 'lon':84.698, 'lat':28.175})
-	#
-	#ROC_t = roc_normalses(etas_toy, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.5, 5.0, 6.0, 7.0], fignum=fignum, do_clf=False, roc_ls='--')
-	#
-	# now, some random catalogs:
-	for j in range(25):
-		this_etas = etas_analyzer.Toy_etas_random(etas_in=etas_fc)
-		FH = etas_analyzer.roc_normal(this_etas, fignum=None)
-		plt.plot(*zip(*FH), marker='.', ls='', alpha=.6)
+		#ROC_n = roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.5, 5.0, 6.0, 7.0], fignum=fignum, do_clf=True)
+		#
+		# now, make a toy catalog:
+		#etas_toy = Toy_etas_invr(etas_in=etas_fc, mainshock={'mag':7.3, 'lon':84.698, 'lat':28.175})
+		#
+		#ROC_t = roc_normalses(etas_toy, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.5, 5.0, 6.0, 7.0], fignum=fignum, do_clf=False, roc_ls='--')
+		#
+		# now, some random catalogs:
+		for j in range(25):
+			this_etas = etas_analyzer.Toy_etas_random(etas_in=etas_fc)
+			FH = etas_analyzer.roc_normal(this_etas, fignum=None)
+			plt.plot(*zip(*FH), marker='.', ls='', alpha=.6)
+		#
+		self.__dict__.update(locals())
+		#
 
 #
 def inv_dist_to(xy,x0,y0,r0):
