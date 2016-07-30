@@ -434,6 +434,11 @@ def dist_to(x,y,x0,y0):
 	return globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1)
 
 #
+# yoder: in revisions... let's try to consolidate and/or rewrite the ROC and Molchan codes. they also may need better unit testing, so set up a well
+# defined unit test. note: for some implementations, keep it simple; one earthquake, one bin (especially for small lattices). if we make this approximation,
+# we can run much faster algorithms than explicit ROC. note that if we run into cases where this is not true, particularly for coarse grain maps, we can --
+# somewhat ironically, improve performance by fine-meshing the lattice. we can also devise a more sophisticated fast approach that counts the number of events
+# in each bin/at each level.
 def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, mc=6.0, fc_len=120):
 	# yoder, 2016_07_01:
 	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
