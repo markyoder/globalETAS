@@ -6,8 +6,9 @@ import pytz
 kmldir='kml'
 catdir='kml'
 
-lon2km=111.1
-deg2rad = math.pi*2.0/360.
+
+lat2km=111.1
+deg2rad = math.pi/180.
 tz_utc = pytz.timezone('UTC')
 #
 # some parameter sets for important earthquakes:

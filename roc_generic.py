@@ -28,6 +28,13 @@ except:
 	have_numba=False
 	print('numba not available. you should install it.')
 #
+print('***************** roc_generic.py ***********************')
+print('*****************\nDEPRICATION WARNING:\nThis module is being depricated; look at yodiipy.optimizers.roc_tools()')
+print('and possibly something like etas_roc_tools.py in the globalETAS folder.')
+print('this module contains some working code... and some not working code, so be very very careful,')
+print('particularly when running the more optimized codes.')
+print('NOTE: the Aray() (shared memory) vs piped mpp tests are probably worth keeping, particularly the Array() code sample.')
+#
 #
 class Array_test(object):
 	def __init__(self, N=1000):
@@ -183,6 +190,8 @@ class ROC_generic(object):
 	def roc_simple_sparse(self, h_denom=None, f_denom=None, f_start=0, f_stop=None, do_sort=True):
 		# ... actually, this needs to be re-done or removed. i don't think we can actually solve for the correct F with the information provided.
 		# simple ROC calculator.
+		# ... this is not quite right, however, because it does not account for multiple events in a single bin...
+		# but it's close for fine lattices.
 		#@do_normalize: normalise F,H. for mpp calculations, it might be simpler to return the total sums and normalize in the parent class/calling funct.
 		h_denom = (h_denom or self.h_denom)
 		f_denom = (f_denom or self.f_denom)

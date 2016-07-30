@@ -43,6 +43,8 @@ import roc_generic            # we'll eventually want to move to a new library o
 # optimizers included as submodule...
 from optimizers import roc_tools
 #
+import optimizers.roc_tools as rtp
+#
 #colors_ =  mpl.rcParams['axes.color_cycle']
 colors_ = ['b', 'g', 'r', 'c', 'm', 'y', 'k']		# make sure these are correct...
 #
@@ -121,7 +123,8 @@ class Toy_etas_fromxyz(object):
 		self.lats = [min(self.ETAS_array['y']), max(self.ETAS_array['y'])]
 		#
 		#
-#
+#	
+
 class ROC_base(object):
 	# a base class object for MPP ROC stuff. we'll inherit this for both the worker and handerl mpp classes.
 	# note: this is a ROC tool specific to these map forecast analyses. we should separate the get_site() part and then use
@@ -272,6 +275,24 @@ class ROC_base(object):
 		plt.plot(*zip(*self.FH), ls='-', label='ROC_approx.', lw=2., alpha=.8)
 		#plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
 		plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
+#
+class Molchan_base_optimizers(ROC_base):
+	# a molchan calculator, base on ROC_base
+	#
+	def __init__(self, fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
+		super(Molchan_base_optimizers, self).__init__(fc_xyz=fc_xyz, test_catalog=test_catalog, from_dt=from_dt, to_dt=to_dt, dx=dx, dy=dy, cat_len=cat_len, mc=mc)
+		#
+	#
+	def calc_Molchan(self, mc=None):
+		mc=(mc or self.mc)
+		#
+		#if self.eq_z_vals == None or m_c!=None:
+		#print("setting default eq_z_vals")
+		self.eq_z_vals = [self.fc_xyz['z'][self.get_site(eq['lon'], eq['lat'])] for eq in self.test_catalog if eq['mag']>=m_c]	
+		#
+		FH = rtp.calc_Molchan(self.Zs, self.Z_ev)
+		
+
 #
 class ROC_mpp_handler(ROC_base):
 	# you know, what we should start doing is write up these "handler" classes as mpp.Pool() subclasses...
@@ -535,7 +556,12 @@ def nepal_etas_roc():
 	#
 	return nepal_etas_fc, nepal_etas_test
 
+<<<<<<< HEAD
 def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5,**pram_updates):
+=======
+def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5):
+	# nepal ETAS forecast (up to 2015-5-7).
+>>>>>>> e51d2cd36a2f4de59de6788be690658aeb302f23
 	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
 	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_processes':n_procs, 'p_cat':p_cat, 'q_cat':q_cat})
 	#
@@ -548,8 +574,7 @@ def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5,**pram
 
 def get_nepal_etas_test(p_cat=1.1, q_cat=1.5,**pram_updates):
 	# pram_updates: any earthquake parameters (aka, np_prams) we might want to specify, like "q"...
-	#
-	# 
+	# nepal ETAS after forcast (for comparison with forecast)
 	#
 	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
 	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':False, 'n_contours':15})
