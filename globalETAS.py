@@ -386,6 +386,9 @@ class Global_ETAS_model(object):
 		#
 		# export ETAS_array as xyx format.
 		#
+		if not os.path.isdir(os.path.split(fout)[0]):
+			os.makedirs(os.path.split(fout))
+		#
 		with open(fout, 'w') as f:
 			[f.write('\t'.join([str(x) for x in rw]) + '\n') for rw in self.ETAS_array.tolist()]
 		#

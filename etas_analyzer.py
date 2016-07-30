@@ -535,9 +535,12 @@ def nepal_etas_roc():
 	#
 	return nepal_etas_fc, nepal_etas_test
 
-def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5):
+def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5,**pram_updates):
 	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
 	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_processes':n_procs, 'p_cat':p_cat, 'q_cat':q_cat})
+	#
+	# ... and any params we've passed along...
+	np_prams.update(pram_updates)
 	#nepal_etas_fc = gep.ETAS_rtree(**np_prams)
 	#
 	#return gep.ETAS_rtree(**np_prams)
@@ -721,76 +724,6 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	# mpp gives no real gain. roc_generic bits are fixed, but let's try using the new optimizer tool.
 	FH = roc_tools.calc_roc(Z_fc=Zs, Z_ev=eq_site_zs, f_denom=None, h_denom=None, j_fc0=0, j_eq0=0, do_sort=True)
 	
-	#roc_obj = roc_generic.ROC_mpp(n_procs=n_cpus, Z_events=eq_site_zs, Z_fc=Zs, h_denom=None, f_denom=None, f_start=0., f_stop=None)
-	#roc = roc_obj.calc_roc()
-	#Fs, Hs = roc_obj.F, roc_obj.H
-	#
-	#
-	#print("eZs: ", etas_fc.ETAS_array['z'][0:10], len(etas_fc.ETAS_array['z']))
-	#
-	'''
-	ROCs = [[0,0,0,0]]
-	# (and here, we really need to figure out how to MPP this)
-	#for j_z, z0 in enumerate(Zs['z']):
-	for j_z, z0 in enumerate(Zs):
-		# z0 is the threshold z for predicted=True/False
-		#
-		#for j_eq, eq in enumerate(test_catalog):
-		for k in eq_site_indices:
-			#k = eq_site_indices[j_eq]
-			#print('site: ', k)
-			#z_val = fc_xyz['z'][k]
-			#
-			#if z_val>=z0:
-			if fc_xyz['z'][k]>=z0:
-				# predicted!
-				ROCs[-1][0]+=1
-				#
-				# ... and subtract from falsies; in the end, we'll assume all sites>z were false alarms:
-				ROCs[-1][1]-=1
-			else:
-				# missed it
-				ROCs[-1][2]+=1
-				ROCs[-1][3]-=1		# an earthquake occurred in this site. it did not correctly predict non-occurrence.
-			#
-		n_gt = float(len([z for z in fc_xyz['z'] if z>=z0]))
-		n_lt = float(len([z for z in fc_xyz['z'] if z<z0]))
-		#
-		ROCs[-1][1]+=n_gt
-		ROCs[-1][3]+=n_lt
-		#
-		ROCs += [[0,0,0,0]]
-	#
-	
-	Hs=[]
-	Fs=[]
-	
-	Hs2=[]
-	Fs2=[]
-	# note: this migh make a nice practice problem for mpp.Array() ....
-	len_test_cat = float(len(test_catalog))
-	len_fc       = float(len(fc_xyz))
-	for roc in ROCs[:-1]:
-		#try:
-		if True:
-			roc=[float(x) for x in roc]
-			#h=float(len(etas_fc.ETAS_array))
-			#f=roc[1]/float(len(etas_fc.ETAS_array))
-			#
-			#Hs += [roc[0]/float(len(test_catalog))]
-			#Fs += [roc[1]/float(len(fc_xyz))]
-			Hs += [roc[0]/len_test_cat]
-			Fs += [roc[1]/len_fc]
-			#
-			## diagnostic formulation:
-			#Hs2 += [roc[0]/(roc[0]+roc[2])]
-			#Fs2 += [roc[1]/(roc[1]+roc[3])]
-			
-		#except:
-		#	print('ROC error, probably div/0: ', roc, len(test_catalog), len(etas_fc.ETAS_array), roc[0]/float(len(test_catalog)), roc[1]/float(float(len(etas_fc.ETAS_array))) )
-		#	
-	#
-	'''
 	#
 	if fignum!=None:
 		plt.figure(fignum)
