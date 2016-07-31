@@ -4,7 +4,7 @@
 '''
 
 import globalETAS as gep
-import ANSStools as atp
+import yodiipy.ANSStools as atp
 import datetime as dtm
 import pytz
 import math
