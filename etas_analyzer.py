@@ -867,7 +867,7 @@ def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5,**pram
 	#return gep.ETAS_rtree(**np_prams)
 	return gep.ETAS_mpp_handler_xyz(**np_prams)
 
-def get_nepal_etas_test(p_cat=1.1, q_cat=1.5,**pram_updates):
+def get_nepal_etas_test(p_cat=1.1, q_cat=1.5, delta_t=120, **pram_updates):
 	# create a "test" etas set, aka ETAS from the events tha timmediately follow the forecast for a geospatial-etas comparison.
 	# this is basically a reboot of the RI/PI method, on crack. note, however, that we nominally want
 	# this ETAS to be stationary (aka, omori_p = 0), so we're not weighting any specific time during the forecast test period.
@@ -881,8 +881,8 @@ def get_nepal_etas_test(p_cat=1.1, q_cat=1.5,**pram_updates):
 	np_prams_test = np_prams
 	# ... but i think we'd intended for this to be a 120 day test period?
 	#np_prams_test.update({'t_now':dtm.datetime(2015,5,21,tzinfo=tzutc), 't_0':dtm.datetime(2015,5,8,tzinfo=tzutc)})
-	t_0 = dtm.datetime(2015,5,21,tzinfo=tzutc)
-	np_prams_test.update({'t_now':t_0 + dtm.timedelta(days=120), 't_0':t_0})
+	t_0 = dtm.datetime(2015,5,8,tzinfo=tzutc)
+	np_prams_test.update({'t_now':t_0 + dtm.timedelta(days=delta_t), 't_0':t_0})
 	np_prams_test.update(pram_updates)
 	#
 	#nepal_etas_test = gep.ETAS_rtree(**np_prams_test)
