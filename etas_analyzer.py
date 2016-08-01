@@ -75,6 +75,11 @@ class Toy_etas(object):
 	#
 class  Toy_etas_invr(Toy_etas):
 	'''
+	# DEPRICATION:
+	# This class is most likely also being made obsolete. newer scripts be redesigned to be simpler and not take
+	# an ETAS object as an input; 1/r type null-ETAS can be calculated easily enough in a line or two of code so that
+	# this is not really necessary.
+	#
 	# this is a "toy" object meant to emulate a GlobalETAS() class object for certain purposes.
 	# it is basically meant to facilitate comparison of an actual ETAS forecast to a simple pseudo-null
 	# model in which ETAS rates are like z~1/r
@@ -93,6 +98,11 @@ class  Toy_etas_invr(Toy_etas):
 #
 class Toy_etas_random(Toy_etas):
 	'''
+	# DEPRICATION:
+	# This class is most likely also being made obsolete. newer scripts be redesigned to be simpler and not take
+	# an ETAS object as an input; 1/r type null-ETAS can be calculated easily enough in a line or two of code so that
+	# this is not really necessary.
+	#
 	# (see Toy_etas() above for basic explanation)
 	'''
 	def __init__(self, *args, **kwargs):
@@ -126,6 +136,10 @@ class Toy_etas_fromxyz(object):
 #	
 
 class ROC_base(object):
+	# DEPRICATION: most or all of the ROC stuff from this module will eventually be removed. use optimizers.roc_tools.py instead.
+	#  note that when we do ROC correctly, we don't get any value from mpp, so while we might write some parallel script to run
+	#  multiple ROC analyses, we won't be splitting ROC to multiple processors.
+	#
 	# a base class object for MPP ROC stuff. we'll inherit this for both the worker and handerl mpp classes.
 	# note: this is a ROC tool specific to these map forecast analyses. we should separate the get_site() part and then use
 	# the roc_tools() optimizers.roc_tools bits.
@@ -534,96 +548,16 @@ def roc_class_test_1(n_cpus=None):
 	#return (roc, fh_obj, fh_fxyz, fh_fetas, fh_mpp)
 	return roc_mpp, fh_mpp
 #
-
-#
-def nepal_etas_roc():
-	# def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15,**kwargs)
-	#
-	nepal_etas_fc = get_nepal_etas_fc()
-	nepal_etas_test = get_nepal_etas_test()
-	#
-	# get mainshock:
-	ms = nepal_etas_fc.catalog[0]
-	for rw in nepal_etas_fc.catalog:
-		if rw['mag']>ms['mag']: ms=rw
-	#
-	z1 = plot_mainshock_and_aftershocks(etas=nepal_etas_fc, m0=6.0, fignum=0)
-	#
-	z2 = plot_mainshock_and_aftershocks(etas=nepal_etas_test, m0=6.0, fignum=1)
-	#
-	# now, normalize z1,z2. we can normalize a number of different ways, namely 1) normalize so that sum(z)=1, 2) normailze to max(z).
-	# nominally, if we want to compare a big catalog to a small catalog and we don't want to mess around with time dependence, we just normalize to sum(z)=1.
-	#
-	return nepal_etas_fc, nepal_etas_test
-
-
-def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5,**pram_updates):
-	# nepal ETAS forecast (up to 2015-5-7).
-	#
-	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_processes':n_procs, 'p_cat':p_cat, 'q_cat':q_cat})
-	#
-	# ... and any params we've passed along...
-	np_prams.update(pram_updates)
-	#nepal_etas_fc = gep.ETAS_rtree(**np_prams)
-	#
-	#return gep.ETAS_rtree(**np_prams)
-	return gep.ETAS_mpp_handler_xyz(**np_prams)
-
-def get_nepal_etas_test(p_cat=1.1, q_cat=1.5,**pram_updates):
-	# pram_updates: any earthquake parameters (aka, np_prams) we might want to specify, like "q"...
-	# nepal ETAS after forcast (for comparison with forecast)
-	#
-	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':False, 'n_contours':15})
-	#
-	np_prams_test = np_prams
-	np_prams_test.update({'t_now':dtm.datetime(2015,5,21,tzinfo=tzutc), 't_0':dtm.datetime(2015,5,8,tzinfo=tzutc)})
-	np_prams_test.update(pram_updates)
-	#
-	#nepal_etas_test = gep.ETAS_rtree(**np_prams_test)
-	#
-	# there's a more proper way to do this, probably to create an inherited class of globalETAS and/or Earthquake for a "stationary" output (p=0 for calculating ETAS, but remember NOT for
-	# the initial rate calculation (which is done in the catalog construction bits) ). for now, create the ETAS object; then spin through the catalog and set p=0 for all the earthquakes.
-	# remember also that etas.catalog is a recarray, not an array of Earthquake objects.
-	#
-	#etas = gep.ETAS_rtree(**np_prams_test)
-	etas = gep.ETAS_mpp_handler_xyz(p_cat=p_cat, q_cat=q_cat, **np_prams_test)
-	for j,eq in enumerate(etas.catalog):
-		etas.catalog['p'][j] = 0.0
-		# ... and sort of a sloppy way to do this as well...
-		for key,val in pram_updates.items(): etas.catalog[key]=val
-	#
-	etas.make_etas()
-	return etas
-'''	
-def toy_etas(ETAS_array=None, lats=None, lons=None, l_lon=.1, d_lat=.1, epicenter=None, mc=None):
-	# make a toy object that contains all the necessary bits to look like an etas object.
-	#
-	# ... but actually, maybe a better way to do this is to just clone (most of) another etas objec, like:
-	# obj.update(etas_template.__dict__)
-	if ETAS_array==None:
-		ETAS_array = [[x,y] for x,y in itertools.product(numpy.arange(lats[0], lats[1]+d_lat, d_lat), numpy.arange(lons[0], lons[1]+d_lon, d_lon))]
-	#
-	epicen_lat = 28.147
-	epicen_lon = 84.708
-	#
-	for j,rw in enumerate(ETAS_array):
-		if len(rw)<3:
-			ETAS_array[j]+=[0]
-			g1=ggp.WGS84.Inverse(epicen_lat, epicen_lon, rw[1], rw[0])
-			ETAS_array[j][2] = 1.0/(g1['s12']/1000.)
-			#
-	my_etas = object()
-	my_etas.lattice_xy = ETAS_array
-	my_etas.lons=[min([rw[0] for rw in ETAS_array]), max([rw[0] for rw in ETAS_array])]
-	my_etas.lats=[min([rw[1] for rw in ETAS_array]), max([rw[1] for rw in ETAS_array])]
-	#
-'''	
+# #########################
+# Comopnents and helper scripts, in various states of repair...
 
 def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-'):
 	#
-	# make a set of "normal" ROCs.
+	# DEPRICATION: See the newer global_etas_figs_revision.ipynb notebook, and other code derived from that. this script can be replaced
+	# using optimizers.roc_tools.py; see the ROC_xyz_handler() class and calc_roc() function.
+	# 
+	# make a set of "normal" ROCs, starting with a catalog. so fetch a catalog and some etas. find the z-values for the events
+	# (z-values for the sites with an event), then calc. ROC.
 	plt.figure(fignum)
 	if do_clf: plt.clf()
 	ax=plt.gca()
@@ -662,6 +596,9 @@ def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=
 	return FHs
 #
 def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., fignum=0, do_clf=True, n_cpus=None, mc_roc=5.0):
+	#
+	# DEPRICATION: See the newer global_etas_figs_revision.ipynb notebook, and other code derived from that. this script can be replaced
+	# using optimizers.roc_tools.py; see the ROC_xyz_handler() class and calc_roc() function.
 	#
 	# roc from an xyz forecast input. eventually, convolve this with roc_normal() which takes etas_fc, an etas type, object as an input.
 	# dx, dy are grid-sizes in the x,y direction. if none, we'll figure them out.
@@ -836,6 +773,8 @@ def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120
 				ROCs[-1][0]+=1
 				#
 				# ... and subtract from falsies; in the end, we'll assume all sites>z were false alarms:
+				# ... this might cause some problems for scenarios where multiple earthquakes occur in the same site. newer ROC scripts
+				#  handle this better and should probably be used.
 				ROCs[-1][1]-=1
 			else:
 				# missed it
@@ -888,8 +827,86 @@ def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120
 		plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
 	#
 	return list(zip(Fs,Hs))
+#
+##########################
+#
+# Working and mostly-working scripts for paper:
+#
+def nepal_etas_roc():
+	# def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15,**kwargs)
+	#
+	nepal_etas_fc = get_nepal_etas_fc()
+	nepal_etas_test = get_nepal_etas_test()
+	#
+	# get mainshock:
+	ms = nepal_etas_fc.catalog[0]
+	for rw in nepal_etas_fc.catalog:
+		if rw['mag']>ms['mag']: ms=rw
+	#
+	#z1 = plot_mainshock_and_aftershocks(etas=nepal_etas_fc, m0=6.0, fignum=0)
+	z1 = nepal_etas_fc.plot_mainshock_and_aftershocks(m0=6.0, fignum=0)
+	#
+	#z2 = plot_mainshock_and_aftershocks(etas=nepal_etas_test, m0=6.0, fignum=1)
+	z2 = nepal_etas_test.plot_mainshock_and_aftershocks(m0=6.0, fignum=1)
+	#
+	# now, normalize z1,z2. we can normalize a number of different ways, namely 1) normalize so that sum(z)=1, 2) normailze to max(z).
+	# nominally, if we want to compare a big catalog to a small catalog and we don't want to mess around with time dependence, we just normalize to sum(z)=1.
+	#
+	return nepal_etas_fc, nepal_etas_test
+#
+def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5,**pram_updates):
+	# nepal ETAS forecast (up to 2015-5-7).
+	#
+	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_processes':n_procs, 'p_cat':p_cat, 'q_cat':q_cat})
+	#
+	# ... and any params we've passed along...
+	np_prams.update(pram_updates)
+	#nepal_etas_fc = gep.ETAS_rtree(**np_prams)
+	#
+	#return gep.ETAS_rtree(**np_prams)
+	return gep.ETAS_mpp_handler_xyz(**np_prams)
+
+def get_nepal_etas_test(p_cat=1.1, q_cat=1.5,**pram_updates):
+	# create a "test" etas set, aka ETAS from the events tha timmediately follow the forecast for a geospatial-etas comparison.
+	# this is basically a reboot of the RI/PI method, on crack. note, however, that we nominally want
+	# this ETAS to be stationary (aka, omori_p = 0), so we're not weighting any specific time during the forecast test period.
+	#
+	# pram_updates: any earthquake parameters (aka, np_prams) we might want to specify, like "q"...
+	# nepal ETAS after forcast (for comparison with forecast)
+	#
+	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':False, 'n_contours':15})
+	#
+	np_prams_test = np_prams
+	# ... but i think we'd intended for this to be a 120 day test period?
+	#np_prams_test.update({'t_now':dtm.datetime(2015,5,21,tzinfo=tzutc), 't_0':dtm.datetime(2015,5,8,tzinfo=tzutc)})
+	t_0 = dtm.datetime(2015,5,21,tzinfo=tzutc)
+	np_prams_test.update({'t_now':t_0 + dtm.timedelta(days=120), 't_0':t_0})
+	np_prams_test.update(pram_updates)
+	#
+	#nepal_etas_test = gep.ETAS_rtree(**np_prams_test)
+	#
+	# there's a more proper way to do this, probably to create an inherited class of globalETAS and/or Earthquake for a "stationary" output (p=0 for calculating ETAS, but remember NOT for
+	# the initial rate calculation (which is done in the catalog construction bits) ). for now, create the ETAS object; then spin through the catalog and set p=0 for all the earthquakes.
+	# remember also that etas.catalog is a recarray, not an array of Earthquake objects.
+	#
+	#etas = gep.ETAS_rtree(**np_prams_test)
+	# yoder: 31 july 2016 :: we should be able to just pass the p_etas param now, to get the stationary catalog.
+	etas = gep.ETAS_mpp_handler_xyz(p_cat=p_cat, q_cat=q_cat, p_etas=0.,  **np_prams_test)
+	# ... except we want to know (or have evidence) that this is how the map was calculated...
+	for j,eq in enumerate(etas.catalog):
+		etas.catalog['p'][j] = 0.0
+		# ... and sort of a sloppy way to do this as well...
+		for key,val in pram_updates.items(): etas.catalog[key]=val
+	#
+	#etas.make_etas()
+	return etas
 
 def nepal_roc_normal_script(fignum=0):
+	# TODO: test this to see if it works properly, but it is probably depricated and being replaced by the code in the new
+	# global_etas_revisions (something like that) notebook script(s).
+	#
 	# this needs to be rewritten a bit to:
 	# 1) use the same color for each magnitude
 	# 2) should probably use the roc_generic class; see _rocs3()
@@ -1233,7 +1250,9 @@ def roc_gs_linear_figs(diffs, fignum=0):
 	ax3.set_title('Misses')
 	ax3.legend(loc=0, numpoints=1)
 #
+# should this (basically because it requires an etas input) be looped into the globalETAS object? i think probably so...
 def plot_mainshock_and_aftershocks(etas, m0=6.0, mainshock=None, fignum=0):
+	# Depricating this: move to globalETAS member function.
 	
 	map_etas = etas.make_etas_contour_map(n_contours=25, fignum=fignum)
 	if mainshock==None:

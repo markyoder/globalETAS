@@ -189,7 +189,7 @@ class Global_ETAS_model(object):
 		self.n_lon = len(self.lonses)
 		#
 		# calculate xyz_range (for mpp applications where we split up the geo-spatial array to processes):
-		if etas_xyz_range==None: etas_xyz_range = [0,self.n_lat*self.n_lon]
+		if etas_xyz_range is None: etas_xyz_range = [0,self.n_lat*self.n_lon]
 		etas_xyz_range[0] = (etas_xyz_range[0] or 0)
 		etas_xyz_range[1] = (etas_xyz_range[1] or self.n_lat*self.n_lon)
 		#
@@ -223,7 +223,7 @@ class Global_ETAS_model(object):
 								# using indices and (inadvertently? sort it?). this may be unnecessary.
 								# that said, let's take the next step and return dict. type earthquake entries.
 		#
-		if catalog==None:
+		if catalog is None:
 			print("fetch and process catalog.")
 			#catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
 			catalog = make_ETAS_catalog_mpp(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor, p=p_cat, q=q_cat)	# and note there are other variables to consider...
@@ -231,7 +231,7 @@ class Global_ETAS_model(object):
 		self.catalog = catalog
 		#
 		# set etas_cat_range as necessary:
-		if etas_cat_range==None: etas_cat_range = [0,len(catalog)]
+		if etas_cat_range is None: etas_cat_range = [0,len(catalog)]
 		etas_cat_range[0] = (etas_cat_range[0] or 0)
 		etas_cat_range[1] = (etas_cat_range[1] or len(catalog))
 		self.etas_cat_range = etas_cat_range
@@ -324,7 +324,26 @@ class Global_ETAS_model(object):
 		#
 		return cm
 		#
-		
+	def plot_mainshock_and_aftershocks(self, m0=6.0, n_contours=25, mainshock=None, fignum=0):
+		#
+		map_etas = self.make_etas_contour_map(n_contours=n_contours, fignum=fignum)
+		if mainshock is None:
+			mainshock = self.catalog[0]
+			for rw in self.catalog:
+				if rw['mag']>mainshock['mag']: mainshock=rw
+		ms=mainshock
+		#
+		for eq in self.catalog:
+			if eq['mag']<m0 or eq['event_date']<ms['event_date']: continue
+			if eq==ms:
+				x,y = map_etas(eq['lon'], eq['lat'])
+				plt.plot([x], [y], 'k*', zorder=7, ms=20, alpha=.8)
+				plt.plot([x], [y], 'r*', zorder=8, ms=18, label='mainshock', alpha=.8)
+			if eq['event_date']>eq['event_date']:
+				x,y = map_etas(eq['lon'], eq['lat'])
+				plt.plot([x], [y], 'o', zorder=7, ms=20, alpha=.8)	
+		#
+		return plt.gca()
 	#
 	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
@@ -372,8 +391,8 @@ class Global_ETAS_model(object):
 		#
 	#
 	def kml_from_contours(self, contours=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
-		if contours==None: contours = self.etas_contours
-		if (contours==None or refresh_etas): contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), n_contours)
+		if contours is None: contours = self.etas_contours
+		if (contours is None or refresh_etas): contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), n_contours)
 		#
 		self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=contour_kml_file)
 		p_name, f_name = os.path.split(contour_kml_file)
@@ -679,7 +698,7 @@ class ETAS_mpp_handler(Global_ETAS_model):
 		self.etas_kwargs = {key:val for key,val in kwargs.items() if key not in ['n_proocesses']}		# or any other kwargs we want to skip. note: might need to handle
 																										# the ETAS_range parameter carefully...
 		#
-		if n_processes==None: n_processes = max(1, mpp.cpu_count()-1)
+		if n_processes is None: n_processes = max(1, mpp.cpu_count()-1)
 		self.n_processes = n_processes
 		#
 		# go ahead and run the base class __init__. this basically handles lats, lons, forecast_time, and some other bits and then kicks off make_etas(), where we'll
@@ -754,7 +773,7 @@ class ETAS_mpp_handler_xyz(Global_ETAS_model):
 		self.etas_kwargs = {key:val for key,val in kwargs.items() if key not in ['n_proocesses']}		# or any other kwargs we want to skip. note: might need to handle
 																										# the ETAS_range parameter carefully...
 		#
-		if n_processes==None: n_processes = max(1, mpp.cpu_count()-1)
+		if n_processes is None: n_processes = max(1, mpp.cpu_count()-1)
 		self.n_processes = n_processes
 		#
 		# go ahead and run the base class __init__. this basically handles lats, lons, forecast_time, and some other bits and then kicks off make_etas(), where we'll
@@ -991,10 +1010,10 @@ class Earthquake(object):
 		'''
 		#
 		# T is the transformation matrix from the PCA.
-		if T==None: T=self.T
+		if T is None: T=self.T
 		E_hat=self.E_hat		# like (e_vals_n x I)
 		
-		#T = (T or self.T)	# note: this syntax sometimes fails for numpy.array() objects; gives a "multiple truth" error, in other words, " if each element==None, then..."
+		#T = (T or self.T)	# note: this syntax sometimes fails for numpy.array() objects; gives a "multiple truth" error, in other words, " if each element is None, then..."
 		
 		#T = numpy.dot([[self.e_vals_n[0], 0.],[0., self.e_vals_n[1]]], self.e_vecs.transpose())
 		#
@@ -1164,9 +1183,9 @@ class Shape(object):
 		#
 		plt.figure(fignum)
 		if do_clf: plt.clf()
-		if ax==None: ax=plt.gca()
+		if ax is None: ax=plt.gca()
 		#
-		#if self.poly==None or len(self.poly==0):
+		#if self.poly is None or len(self.poly==0):
 		#	self.poly(poly_len)
 		#
 		ax.plot(*zip(*self.poly()), **kwargs)
@@ -1200,11 +1219,11 @@ class Circle(Shape):
 #
 class Ellipse(Shape):
 	def __init__(self, a=1.0, b=.5, ab_ratio=None, theta=0.):
-		if a==None and b==None: a,b = 1.0, .5
-		if not (a==None and b==None): ab_ratio=a/float(b)
+		if a is None and b is None: a,b = 1.0, .5
+		if not (a is None and b is None): ab_ratio=a/float(b)
 		#
-		if a==None: a=b*ab_ratio
-		if b==None: b=a/ab_ratio
+		if a is None: a=b*ab_ratio
+		if b is None: b=a/ab_ratio
 		#
 		self.a = a
 		self.b = b
@@ -1246,7 +1265,7 @@ class Ellipse(Shape):
 		plt.figure(fignum)
 		if do_clf: plt.clf()
 		#
-		#if self.poly==None or len(self.poly==0):
+		#if self.poly is None or len(self.poly==0):
 		#	self.poly(poly_len)
 		#
 		plt.plot(*zip(*self.poly()), color='b', marker='.', ls='-', lw='1.5')
@@ -1267,13 +1286,13 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 	#etas_prams.__delitem__('self')
 	print('etas_prams: ', etas_prams)
 	# handle dates:
-	if date_range[1]==None: date_range[1] = dtm.datetime.now(pytz.timezone('UTC'))
+	if date_range[1] is None: date_range[1] = dtm.datetime.now(pytz.timezone('UTC'))
 	#
 	for j,dt in enumerate(date_range):
 		if isinstance(dt, str):
 			date_range[j] = mpd.num2date(mpd.datestr2num(dt))
 	#
-	if incat==None or (hasattr(incat, '__len__') and len(incat)==0):
+	if incat is None or (hasattr(incat, '__len__') and len(incat)==0):
 		# try to catch network errors:
 		n_tries_max = 10
 		t_sleep = 5
@@ -1287,7 +1306,7 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 				n_tries+=1
 	#
 	etas_prams['incat']=incat
-	if n_cpus==None:
+	if n_cpus is None:
 		n_cpus = max(1, mpp.cpu_count()-1)
 		#
 	#
@@ -1338,7 +1357,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	'''
 	#
 	# save a copy of the input parameters to ammend to the output array as metadata. we can do this in lieu of creating a derived class -- sort of a (sloppy?) shortcut...
-	if incat==None:
+	if incat is None:
 		# use all the local inputs:
 		meta_parameters = locals().copy()
 	else:
@@ -1356,7 +1375,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	km2lat = 1./deg2km		# deg3km defined globally
 	#
 	# handle dates:
-	if date_range[1]==None: date_range[1] = dtm.datetime.now(pytz.timezone('UTC'))
+	if date_range[1] is None: date_range[1] = dtm.datetime.now(pytz.timezone('UTC'))
 	#
 	for j,dt in enumerate(date_range):
 		if isinstance(dt, str):
@@ -1367,7 +1386,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	start_date = date_range[0]
 	end_date   = date_range[1]
 	#
-	if incat==None or (hasattr(incat, '__len__') and len(incat)==0):
+	if incat is None or (hasattr(incat, '__len__') and len(incat)==0):
 		n_tries = 0
 		try_wait = 5
 		max_tries=10
@@ -1382,7 +1401,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 				time.sleep(try_wait)
 		# catalog_range:
 	# catalog_range parameter, for MPP applications (usually None).
-	if catalog_range==None or len(catalog_range)==0:
+	if catalog_range is None or len(catalog_range)==0:
 		catalog_range = [0,len(incat)]
 
 	#
@@ -1620,8 +1639,8 @@ def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 	if xy_transform:
 		xy_factor = deg2km
 	#
-	if center_lat==None: center_lat = numpy.mean([x[1] for x in cat])*xy_factor
-	if center_lon==None:
+	if center_lat is None: center_lat = numpy.mean([x[1] for x in cat])*xy_factor
+	if center_lon is None:
 		center_lon = numpy.mean([x[0]*(math.cos(x[1]*deg2rad) if xy_transform else 1.0) for x in cat])*xy_factor
 	#
 	# subtract off center:
@@ -1795,10 +1814,10 @@ def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 	min_y, max_y = min(xyz['y']), max(xyz['y'])
 	#
 	padding = .05
-	if n_x==None:
+	if n_x is None:
 		dx = min([abs(x-xyz['x'][j]) for j,x in enumerate(xyz['x'][1:]) if x-xyz['x'][j]!=0.])
 		n_x = (n_x or int(round((max_x-min_x)/dx)))
-	if n_y==None:
+	if n_y is None:
 		dy = min([abs(y-xyz['y'][j]) for j,y in enumerate(xyz['y'][1:]) if x-xyz['y'][j]!=0.])
 		n_y = (n_y or int(round((max_y-min_y)/dy)))
 	#
@@ -1825,10 +1844,10 @@ def griddata_brute_plot(xyz, xrange=None, yrange=None, dx=None, dy=None):
 	#
 	#
 	padding = .05
-	if dx==None:
+	if dx is None:
 		dx = min([abs(x-xyz['x'][j]) for j,x in enumerate(xyz['x'][1:]) if x-xyz['x'][j]!=0.])
 		#n_x = (n_x or int(round((max_x-min_x)/dx))
-	if dy==None:
+	if dy is None:
 		dy = min([abs(y-xyz['y'][j]) for j,y in enumerate(xyz['y'][1:]) if x-xyz['y'][j]!=0.])
 		#n_y = (n_y or int(round((max_y-min_y)/dy))
 	#
@@ -1859,7 +1878,7 @@ def test_earthquake_transform(fignum=0,transform_type='equal_area', lats=[33.8, 
 	# we then plot the earthquakes (.), parkfield(*), a curcle, and the elliptical transform (R -> R') of that circle.
 	#
 	# parkfield={'dt':dtm.datetime(2004,9,28,17,15,24, tzinfo=pytz.timezone('UTC')), 'lat':35.815, 'lon':-120.374, 'mag':5.96}
-	if catalog==None:
+	if catalog is None:
 		catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=fit_factor, do_recarray=True)
 	C = catalog
 	#
