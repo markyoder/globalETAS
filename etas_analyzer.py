@@ -898,7 +898,11 @@ def get_nepal_etas_test(p_cat=1.1, q_cat=1.5,**pram_updates):
 	for j,eq in enumerate(etas.catalog):
 		etas.catalog['p'][j] = 0.0
 		# ... and sort of a sloppy way to do this as well...
-		for key,val in pram_updates.items(): etas.catalog[key]=val
+		for key,val in pram_updates.items():
+			try:
+				etas.catalog[key]=val
+			except:
+				print('failed to update parameter: {}:{}'.format(key,val))
 	#
 	#etas.make_etas()
 	return etas
