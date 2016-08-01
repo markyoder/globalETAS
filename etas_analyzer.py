@@ -856,9 +856,10 @@ def nepal_etas_roc():
 #
 def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5,**pram_updates):
 	# nepal ETAS forecast (up to 2015-5-7).
+	t_0 = dtm.datetime(1990,1,1, tzinfo=tz_utc)
 	#
 	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':dtm.datetime(1990,1,1, tzinfo=tz_utc), 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_processes':n_procs, 'p_cat':p_cat, 'q_cat':q_cat})
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':t_0, 't_now':dtm.datetime(2015,5,7,tzinfo=tzutc), 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_processes':n_procs, 'p_cat':p_cat, 'q_cat':q_cat})
 	#
 	# ... and any params we've passed along...
 	np_prams.update(pram_updates)
@@ -867,7 +868,7 @@ def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5,**pram
 	#return gep.ETAS_rtree(**np_prams)
 	return gep.ETAS_mpp_handler_xyz(**np_prams)
 
-def get_nepal_etas_test(p_cat=1.1, q_cat=1.5,**pram_updates):
+def get_nepal_etas_test(p_cat=1.1, q_cat=1.5, n_cpu=None, **pram_updates):
 	# create a "test" etas set, aka ETAS from the events tha timmediately follow the forecast for a geospatial-etas comparison.
 	# this is basically a reboot of the RI/PI method, on crack. note, however, that we nominally want
 	# this ETAS to be stationary (aka, omori_p = 0), so we're not weighting any specific time during the forecast test period.
@@ -893,7 +894,7 @@ def get_nepal_etas_test(p_cat=1.1, q_cat=1.5,**pram_updates):
 	#
 	#etas = gep.ETAS_rtree(**np_prams_test)
 	# yoder: 31 july 2016 :: we should be able to just pass the p_etas param now, to get the stationary catalog.
-	etas = gep.ETAS_mpp_handler_xyz(p_cat=p_cat, q_cat=q_cat, p_etas=0.,  **np_prams_test)
+	etas = gep.ETAS_mpp_handler_xyz(p_cat=p_cat, q_cat=q_cat, p_etas=0., n_processes=n_cpu,  **np_prams_test)
 	# ... except we want to know (or have evidence) that this is how the map was calculated...
 	for j,eq in enumerate(etas.catalog):
 		etas.catalog['p'][j] = 0.0
@@ -902,7 +903,8 @@ def get_nepal_etas_test(p_cat=1.1, q_cat=1.5,**pram_updates):
 			try:
 				etas.catalog[key]=val
 			except:
-				print('failed to update parameter: {}:{}'.format(key,val))
+				#print('failed to update parameter: {}:{}'.format(key,val))
+				pass
 	#
 	#etas.make_etas()
 	return etas
