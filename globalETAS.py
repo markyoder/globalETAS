@@ -946,6 +946,9 @@ class Earthquake(object):
 		ab_ratio_expon = (ab_ratio_expon or self.ab_ratio_expon)
 		ab_ratio_expon = (ab_ratio_expon or .5)
 		#
+		# notes on ab_ratio: in the strictest sense, ab_ratio should be 0.5, in the sense that the 'singular values' of the decomposition are equal to
+		# the sqrt(eigen_values) of the covariance (which makes sense; the basis lengths are approximately the standard deviation in some direction;
+		# the covariance eigenvalues are variance). 
 		ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)	# note: this **.5 on the e0/e1 value is quasi-arbitrary.
 		#																								# ok, so what specifically is e0/e1 supposed to be? stdev, var?
 		#																								# in any case, it seems to be pretty huge almost all the time, so
@@ -1507,10 +1510,18 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# note: if center_lat/lon=None (default), we subtract mean value to get PCA. if we specify center_lat/lon, we subtract those values.
 		# note: if there aren't any data, don't bother fitting (though we could just leave this to the PCA code)
 		if len(included_indices)>10 or True:
+			# since we're just getting the eigen- vals, vecs, it might be faster to just do the covariance calculation in place here.
+			# note that in general, whether or not it's faster to re-calc cov(X) in place or save a copy will depend on the size of the array,
+			# but since we're always doing dim(cov)=(2,2), it should be faster to make a copy.
+			# cov_pca = numpy.cov([[incat['lon'][j], incat['lat'][j]] for j in included_indices])
+			# eig_vals, eig_vecs = numpy.eigh(numpy.dot(cov_pca.transpose(), cov_pca ))
+			#
 			eig_vals, eig_vecs = get_pca(cat=[[incat['lon'][j], incat['lat'][j]] for j in included_indices], center_lat=rw['lat'], center_lon=rw['lon'], xy_transform=True)
 		else:
 			eig_vals = [1.0, 1.0]
 			eig_vecs = [[1.0, 0.], [0., 1.0]]
+			# or: 
+			#eig_vecs = numpy.identity(2)
 		#
 		#
 		output_catalog += [ list(rw) + [L_r, r_0, chi, dt_r, t_0, tau, dmstar, p, q] + [eig_vals, eig_vecs, len(included_indices)] ]
@@ -1629,7 +1640,11 @@ def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, max
 # we might try useing scipy linear algebra; rumor has it that scipy is better compiled.
 #@numba.jit
 def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
-	# get pca (principal component analysis) for the input catalog. if center_lat/lon=None, then subtrac these values as
+	# get pca (principal component analysis) for the input catalog. 
+	# ... but recognizing that this notaiton is a little sloppy, since the specifics of the pca() transform are taylored to this
+	# specific geospatial application.
+	#
+	# if center_lat/lon != None, then subtract these values as
 	# the 'mean' (standard PCA). otherwise, subtract the actual mean.
 	# if xy_transform, then transform from lat/lon to x,y
 	# we really need to find a good PCA library or write an extension for this. maybe a good D project?
