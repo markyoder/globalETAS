@@ -114,9 +114,10 @@ def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_co
 	plt.contourf(lns, lts, Zs, n_conts, alpha=.65, zorder=11, cmap=cmap)
 	plt.colorbar()
 
-def roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=None, n_bins=100, line_color='m', shade_color='m'):
+def roc_random(n_events=100, n_fc=10000, n_rocs=100, ax=None, n_bins=100, line_color='m', shade_color='m', zorder=1):
+	# calculate a bunch of random ROCs (random events, random forecasts) and plot an envelope figure.
+	#
 	R=random.Random()
-	n_cpus = (n_cpus or mpp.cpu_count())
 	#
 	if ax==None:
 		plt.figure()
@@ -125,20 +126,25 @@ def roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=None, n_bin
 	#
 	dx=1./n_bins
 	j_bin = lambda x: int(x/dx)
-	x_min_max = [[(j+1.)/float(n_bins), 1., 0.] for j in range(n_bins)]
+	#x_min_max = [[(j+1.)/float(n_bins), 1., 0.] for j in range(n_bins)]
+	x_min_max = [[(j)/float(n_bins), 1., 0.] for j in range(n_bins+1)]
 	#
 	for j in range(n_rocs):
 		Z_events=[R.random() for j in range(n_events)]
 		Z_fc=sorted([R.random() for j in range(n_fc)])
 		#
-		C = roc_generic.ROC_mpp(n_procs=n_cpus, Z_events=Z_events, Z_fc=Z_fc)
-		roc = C.calc_roc()
+		roc_FH = roc_tools.calc_roc(Z_fc, Z_events, f_denom=None, h_denom=None)
 		#
 		#ax=plt.plot(C.F, C.H, '-', lw=2.0, alpha=.5)
+		#ax.plot(*zip(*roc_FH), marker='.', ls='')
 		#
-		for k,(f,h) in enumerate(zip(C.F, C.H)):
+		# bin up the F,H values (you know, maybe a better way is to use scipy.interpolate...
+		#for k,(f,h) in enumerate(zip(C.F, C.H)):
+		for k, (f,h) in enumerate(roc_FH):
 			bin = j_bin(f)
-			while bin>=len(x_min_max): x_min_max += [[x_min_max[-1][0]+dx, 0.,0.]]	# sometimes we get a little integer overhang
+			while bin>=len(x_min_max): 
+				print('extending...')
+				x_min_max += [[x_min_max[-1][0]+dx, 0.,0.]]	# sometimes we get a little integer overhang
 			#print('bin: ', bin, f)
 			x_min_max[bin][1]=min(x_min_max[bin][1], h)
 			x_min_max[bin][2]=max(x_min_max[bin][2], h)
@@ -146,9 +152,9 @@ def roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=None, n_bin
 	#
 	X,mn, mx = zip(*x_min_max)
 	#return X,mn,mx
-	ax.plot(X,mn, color=line_color, ls='-', lw=2., alpha=.7)
-	ax.plot(X,mx, color=line_color, ls='-', lw=2., alpha=.7)
-	ax.fill_between(X,mn,mx, color=shade_color, alpha=.3)
+	ax.plot(X,mn, color=line_color, ls='-', lw=2., alpha=.7, zorder=zorder)
+	ax.plot(X,mx, color=line_color, ls='-', lw=2., alpha=.7, zorder=zorder)
+	ax.fill_between(X,mn,mx, color=shade_color, alpha=.3, zorder=zorder)
 	#
 	return X,mn,mx
 	
@@ -217,9 +223,11 @@ def global_roc():
 def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 5.0, 6.0, 6.5], test_catalog=None, fc_start_date=None, fc_end_date=None, cat_len=120, fc_frac=1.0, fout='global_roc3.png'):
 	# ok, so all of this is a mess. the roc bits need to be consolidated, cleaned up, and better modularized. we'll do some of that here, at lest by example.
 	# @fc_frac: fraction of fc sites to use (aka, skip the first (1-frac)*N (low z) sites.
-	# fetch teh fc_xyz, generate a test catalog, then use generic_roc tools (mpp implementations) to do the roc.
+	# fetch the fc_xyz, generate a test catalog, then use generic_roc tools (mpp implementations) to do the roc.
 	# with the test catalog: 1) get the test catalog for the region, time domain (maybe write  script to do this)
 	# then, get the fc_z-values, but keep those as pairs like [[z, mag], ...]. this way, we can quickly make z_events lists.
+	#
+	# note: use optimizers.roc_tools ROC calculator(s). also, see the new notebook script for nepal ROC.
 	#
 	n_cpu = (n_cpu or mpp.cpu_count())
 	#
@@ -439,23 +447,67 @@ def dist_to(x,y,x0,y0):
 # we can run much faster algorithms than explicit ROC. note that if we run into cases where this is not true, particularly for coarse grain maps, we can --
 # somewhat ironically, improve performance by fine-meshing the lattice. we can also devise a more sophisticated fast approach that counts the number of events
 # in each bin/at each level.
-def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, mc=6.0, fc_len=120):
+def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fignum=0, mcs=6.0, fc_len=120):
 	# yoder, 2016_07_01:
 	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
 	fc_end_date = etas_end_date + dtm.timedelta(days=fc_len)
-	
-	fc_ev = etas_analyzer.get_Z_fc_Z_ev(fc_xyz=fc_xyz, test_catalog=None, from_dt=etas_end_date, to_dt=fc_end_date, dx=None, dy=None, cat_len=120., mc=mc)
-	Z_fc = fc_ev['Z_fc']
-	Z_ev = fc_ev['Z_ev']
+	if not hasattr(mcs, '__getitem__'): mcs = [mcs]
 	#
-	FH = roc_tools.calc_roc(Z_fc, Z_ev)
+	if isinstance(fc_xyz,str):
+		with open(fc_xyz,'r') as f:
+			fc_xyz = [[float(x) for x in rw.split()] for rw in f if rw[0] not in ('#', ' ', '\t', '\n')]
+			fc_xyz = numpy.core.records.fromarrays(zip(*fc_xyz), dtype=[('x','float'), ('y','float'),('z','float')])
+		#
+	#	
+	#fc_ev = etas_analyzer.get_Z_fc_Z_ev(fc_xyz=fc_xyz, test_catalog=None, from_dt=etas_end_date, to_dt=fc_end_date, dx=None, dy=None, cat_len=120., mc=mc)
+	#Z_fc = fc_ev['Z_fc']
+	#Z_ev = fc_ev['Z_ev']
 	#
-	plt.figure(0)
-	plt.clf()
-	plt.plot(*zip(*FH), marker='.', ls='-')
-	plt.plot(range(2), range(2), color='r', ls='-', lw=2.)
+	#lats = [min(fc_xyz['y']), max(fc_xyz['y'])]
+	#lons = [min(fc_xyz['x']), max(fc_xyz['x'])]
 	#
-	return FH
+	#mc   = mc_roc
+	X_set = sorted(list(set(fc_xyz['x'])))
+	Y_set = sorted(list(set(fc_xyz['y'])))
+	lons = [min(X_set), max(X_set)]
+	lats = [min(Y_set), max(Y_set)]
+	#
+	#d_lon = (dx or abs(X_set[1] - X_set[0]))
+	#d_lat = (dy or abs(Y_set[1] - Y_set[0]))
+	d_lon = abs(X_set[1] - X_set[0])
+	d_lat = abs(Y_set[1] - Y_set[0])
+	nx = len(X_set)
+	ny = len(Y_set)
+	#
+	mc0 = min(mcs)
+	print("get cataog: ", lons, lats, mc0, etas_end_date, fc_end_date)
+	test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc0, dates0=[etas_end_date, fc_end_date])
+	#test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[etas_end_date, fc_end_date])
+	print("catlen: ", len(test_catalog))
+	#
+	FHs = []
+	for mc in mcs:
+		events_xyz = [[rw['lon'], rw['lat'], rw['mag']] for rw in test_catalog if rw['mag']>=mc]
+		#
+		#FH = roc_tools.calc_roc(Z_fc, Z_ev)
+		roc_obj = roc_tools.ROC_xyz_handler(fc_xyz=fc_xyz, events_xyz=events_xyz)
+		FHs += [[mc, roc_obj.calc_roc()]]
+	#
+	if not fignum is None:
+		plt.figure(fignum)
+		plt.clf()
+		for j,(mc, FH) in enumerate(FHs):
+			plt.plot(*zip(*FH), marker='.', ls='-', label='$m_c={:.2f}$'.format(mc), zorder=5)
+		plt.plot(range(2), range(2), color='r', ls='--', lw=2., label='$H=F$', zorder=4)
+		plt.legend(loc=0, numpoints=1)
+		#
+		# draw random roc:
+		roc_random(n_events=1000, n_fc=10000, n_rocs=100, ax=plt.gca(), n_bins=100, line_color='m', shade_color='m', zorder=1)
+	#
+	if len(FH)==1:
+		return FH[0][1]
+	else:
+		return FHs
 #
 def global_roc1_single(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, mc=6.0, fc_len=120):
 	# a global ROC script; we may have some competing candidates for this right now. this seems to work. can we duplicate it with generic_roc?
