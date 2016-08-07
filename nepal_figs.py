@@ -48,7 +48,7 @@ class Map_drawer(object):
 		#
 		
 			
-	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=1., d_lat_range=1.):
+	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=1., d_lat_range=1., lats=None, lons=None):
 		'''
 		# plot contours over a map.
 		'''
@@ -61,7 +61,10 @@ class Map_drawer(object):
 		plt.figure(fignum, fig_size)
 		plt.clf()
 		#
-		lons, lats = self.lons, self.lats
+		#lons, lats = self.lons, self.lats
+		lons = (lons or self.lons)
+		lats = (lats or self.lats)
+		#	
 		cntr = [numpy.mean(lons), numpy.mean(lats)]
 		cm = Basemap(llcrnrlon=self.lons[0], llcrnrlat=self.lats[0], urcrnrlon=self.lons[1], urcrnrlat=self.lats[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1])
 		#
@@ -116,6 +119,8 @@ def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_co
 
 def roc_random(n_events=100, n_fc=10000, n_rocs=100, ax=None, n_bins=100, line_color='m', shade_color='m', zorder=1):
 	# calculate a bunch of random ROCs (random events, random forecasts) and plot an envelope figure.
+	# by passing ax={matplotlib.axes (axis?)} object, we can use this script to plot a "random-envelope" onto an 
+	# independently computed ROC figure.
 	#
 	R=random.Random()
 	#
@@ -214,155 +219,7 @@ def stepify(xy):
 	
 	xy_prime.sort(key=lambda rw:rw[0])
 	return xy_prime
-	
-def global_roc():
-	roc_global = etas_analyzer.roc_normal_from_xyz(fc_xyz='global/global_xyz_20151129.xyz', test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc_roc=5.0, fignum=0, do_clf=True)
-	return roc_global
-#
 
-def global_roc3(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, m_cs=[4.0, 5.0, 6.0, 6.5], test_catalog=None, fc_start_date=None, fc_end_date=None, cat_len=120, fc_frac=1.0, fout='global_roc3.png'):
-	# ok, so all of this is a mess. the roc bits need to be consolidated, cleaned up, and better modularized. we'll do some of that here, at lest by example.
-	# @fc_frac: fraction of fc sites to use (aka, skip the first (1-frac)*N (low z) sites.
-	# fetch the fc_xyz, generate a test catalog, then use generic_roc tools (mpp implementations) to do the roc.
-	# with the test catalog: 1) get the test catalog for the region, time domain (maybe write  script to do this)
-	# then, get the fc_z-values, but keep those as pairs like [[z, mag], ...]. this way, we can quickly make z_events lists.
-	#
-	# note: use optimizers.roc_tools ROC calculator(s). also, see the new notebook script for nepal ROC.
-	#
-	n_cpu = (n_cpu or mpp.cpu_count())
-	#
-	# for now, with this script, we're assuming that we are using this specific file, but we might pre-load it.
-	if isinstance(fc_xyz, str):
-		with open(fc_xyz, 'r') as froc:
-			fc_xyz= [[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]
-		#
-	#
-	#return fc_xyz
-	fc_start_date = (fc_start_date or dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC')))
-	fc_end_date   = (fc_end_date or fc_start_date + dtm.timedelta(days=cat_len))
-	#
-	if not hasattr(fc_xyz, 'dtype'):
-		fc_xyz = numpy.core.records.fromarrays(zip(*fc_xyz), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
-	#
-	#lons=[-180., 180.]
-	#lats=[-89., 89.]
-	mc=min(m_cs)
-	#
-	X_set = sorted(list(set(fc_xyz['x'])))
-	Y_set = sorted(list(set(fc_xyz['y'])))
-	nx = len(X_set)
-	ny = len(Y_set)
-	lons = [min(X_set), max(X_set)]
-	lats = [min(Y_set), max(Y_set)]
-	d_lon = abs(X_set[1] - X_set[0])
-	d_lat = abs(Y_set[1] - Y_set[0])
-	get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
-	#	
-	print("get cataog: ", lons, lats, mc, fc_start_date, fc_end_date)
-	if test_catalog==None:
-		test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=min(m_cs), dates0=[fc_start_date, fc_end_date])
-	print("catlen: ", len(test_catalog))
-	#
-	# forecast z-values.
-	#Zs = sorted(list(fc_xyz['z'].copy()))
-	Zs = sorted(list(fc_xyz['z']))
-	#
-	# now, get both the eq magnitudes and site_z values, so we can change the mc threshold later.
-	eq_site_zs = [[fc_xyz['z'][get_site(eq['lon'], eq['lat'])], eq['mag']] for eq in test_catalog]
-	#eq_site_zs.sort(key=lambda x: x[1])
-	#
-	plt.figure(fnum)
-	plt.clf()
-	plt.plot(range(2), range(2), ls='--', color='m', lw=3., alpha=.75, zorder=2)
-	FHs = {}		# we'll use mc as a key, FH as a val: {mc:[FH]...}
-	#				# it won't key well because of floating point error (aka, FHs[5.5] will not be reliable. but it will make a decent container.
-	#
-	for j,mc in enumerate(m_cs):
-		print('doing ROC for mc=%f' % mc)
-		#
-		# n_procs,Z_events, Z_fc, h_denom=None, f_denom=None, f_start=0., f_stop=None
-		roc = roc_generic.ROC_mpp(n_procs=n_cpu, Z_events=[z for z,m in eq_site_zs if m>=mc], Z_fc=Zs, h_denom=None, f_denom=None, f_start=0, f_stop=None)
-		a=roc.calc_roc()		# no parameters, and in fact no return value, but it's never a bad idea to leave a place-holder for one.
-		#
-		clr = colors_[j%len(colors_)]
-		plt.plot(roc.F, roc.H, ls='-', color=clr, marker='', lw=2.5, label='$m_c=%.2f$' % mc)
-		#FHs[mc]=[[f,h] for f,h in zip(roc.F, roc.H)]
-		#
-		plt.show()	# just in case...
-	bins, mins, maxes = roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=plt.gca(), n_bins=100, line_color='m', shade_color='m')
-	#plt.fill_between(bins, mins, maxes, color='m', alpha=.3)
-	#plt.plot(bins, mins, '-', lw=1.5, alpha=.8)
-	#plt.plot(bins, maxes, '-', lw=1.5, alpha=.8)
-	plt.legend(loc=0, numpoints=1)
-	plt.title('Global ROC', size=18)
-	plt.xlabel('False Alarm Rate $F$', size=18)
-	plt.ylabel('Hit Rate $H$', size=18)
-	plt.savefig(fout)
-	#
-	#
-	return FHs
-#
-def global_roc_comparison(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, mc=6.0, roc_fracs=[1.0, .8, .5], test_catalog=None, fc_start_date=None, fc_end_date=None, fc_frac=1.0):
-	#
-	# (turns out that i don't think we really need this script. its apparent value appears to have resulted from an error
-	# in the global_roc scripts.
-	n_cpu = (n_cpu or mpp.cpu_count())
-	#
-	# for now, with this script, we're assuming that we are using this specific file, but we might pre-load it.
-	if isinstance(fc_xyz, str):
-		with open(fc_xyz, 'r') as froc:
-			fc_xyz= [[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]
-		#
-	#
-	fc_start_date = (fc_start_date or dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC')))
-	fc_end_date   = (fc_end_date or fc_start_date + dtm.timedelta(days=120))
-	#
-	if not hasattr(fc_xyz, 'dtype'):
-		fc_xyz = numpy.core.records.fromarrays(zip(*fc_xyz), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
-	#
-	X_set = sorted(list(set(fc_xyz['x'])))
-	Y_set = sorted(list(set(fc_xyz['y'])))
-	nx = len(X_set)
-	ny = len(Y_set)
-	lons = [min(X_set), max(X_set)]
-	lats = [min(Y_set), max(Y_set)]
-	d_lon = abs(X_set[1] - X_set[0])
-	d_lat = abs(Y_set[1] - Y_set[0])
-	get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
-	#	
-	print("get cataog: ", lons, lats, mc, fc_start_date, fc_end_date)
-	if test_catalog==None:
-		test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[fc_start_date, fc_end_date])
-	print("catlen: ", len(test_catalog))
-	#
-	# forecast z-values.
-	#Zs = sorted(list(fc_xyz['z'].copy()))
-	Zs = sorted(list(fc_xyz['z']))
-	#
-	# now, get both the eq magnitudes and site_z values, so we can change the mc threshold later.
-	#eq_site_zs = [[Zs[get_site(eq['lon'], eq['lat'])], eq['mag']] for eq in test_catalog if eq['mag']>=mc]
-	eq_site_zs = [fc_xyz['z'][get_site(eq['lon'], eq['lat'])] for eq in test_catalog if eq['mag']>=mc]
-	#eq_site_zs.sort(key=lambda x: x[1])
-	#
-	plt.figure(fnum)
-	plt.clf()
-	plt.plot(range(2), range(2), ls='--', color='r', lw=3., alpha=.75, zorder=2)
-	#
-	for j,frac in enumerate(roc_fracs):
-		#
-		print('calcing roc for mc=%f, frac=%f' % (mc, frac))
-		j_roc = int(len(fc_xyz)*(1.-frac))
-		Zs = sorted(list(fc_xyz['z'][j_roc:].copy()))
-		#
-		# n_procs,Z_events, Z_fc, h_denom=None, f_denom=None, f_start=0., f_stop=None
-		roc = roc_generic.ROC_mpp(n_procs=n_cpu, Z_events=eq_site_zs, Z_fc=Zs, h_denom=None, f_denom=None, f_start=0, f_stop=None)
-		a=roc.calc_roc()		# no parameters, and in fact no return value, but it's never a bad idea to leave a place-holder for one.
-		#
-		plt.plot(roc.F, roc.H, ls='-', label='$m_c=%f, frac=%f' % (mc, frac))
-	#
-	plt.title('ROC Comparison')
-	plt.xlabel('False Alarm Rate $F$')
-	plt.ylabel('Hit Rate $H$')
 #
 def nepal_roc_script(fignum=0, mcs = [4., 5., 6., 7.], n_cpu=None):
 	return Nepal_ROC_script(**locals())
@@ -447,7 +304,7 @@ def dist_to(x,y,x0,y0):
 # we can run much faster algorithms than explicit ROC. note that if we run into cases where this is not true, particularly for coarse grain maps, we can --
 # somewhat ironically, improve performance by fine-meshing the lattice. we can also devise a more sophisticated fast approach that counts the number of events
 # in each bin/at each level.
-def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fignum=0, mcs=6.0, fc_len=120):
+def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0, mcs=6.0, fc_len=120, ls='-', marker='.', lw=2.5):
 	# yoder, 2016_07_01:
 	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
 	fc_end_date = etas_end_date + dtm.timedelta(days=fc_len)
@@ -459,21 +316,11 @@ def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=Non
 			fc_xyz = numpy.core.records.fromarrays(zip(*fc_xyz), dtype=[('x','float'), ('y','float'),('z','float')])
 		#
 	#	
-	#fc_ev = etas_analyzer.get_Z_fc_Z_ev(fc_xyz=fc_xyz, test_catalog=None, from_dt=etas_end_date, to_dt=fc_end_date, dx=None, dy=None, cat_len=120., mc=mc)
-	#Z_fc = fc_ev['Z_fc']
-	#Z_ev = fc_ev['Z_ev']
-	#
-	#lats = [min(fc_xyz['y']), max(fc_xyz['y'])]
-	#lons = [min(fc_xyz['x']), max(fc_xyz['x'])]
-	#
-	#mc   = mc_roc
 	X_set = sorted(list(set(fc_xyz['x'])))
 	Y_set = sorted(list(set(fc_xyz['y'])))
 	lons = [min(X_set), max(X_set)]
 	lats = [min(Y_set), max(Y_set)]
 	#
-	#d_lon = (dx or abs(X_set[1] - X_set[0]))
-	#d_lat = (dy or abs(Y_set[1] - Y_set[0]))
 	d_lon = abs(X_set[1] - X_set[0])
 	d_lat = abs(Y_set[1] - Y_set[0])
 	nx = len(X_set)
@@ -496,41 +343,26 @@ def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=Non
 	if not fignum is None:
 		plt.figure(fignum)
 		plt.clf()
+		ax=plt.gca()
 		for j,(mc, FH) in enumerate(FHs):
-			plt.plot(*zip(*FH), marker='.', ls='-', label='$m_c={:.2f}$'.format(mc), zorder=5)
-		plt.plot(range(2), range(2), color='r', ls='--', lw=2., label='$H=F$', zorder=4)
-		plt.legend(loc=0, numpoints=1)
+			ax.plot(*zip(*FH), marker=marker, ls=ls, lw=lw, label='$m_c={:.2f}$'.format(mc), zorder=5)
+		ax.plot(range(2), range(2), color='r', ls='--', lw=2., label='$H=F$', zorder=4)
+		ax.legend(loc=0, numpoints=1)
 		#
 		# draw random roc:
-		roc_random(n_events=1000, n_fc=10000, n_rocs=100, ax=plt.gca(), n_bins=100, line_color='m', shade_color='m', zorder=1)
+		roc_random(n_events=1000, n_fc=10000, n_rocs=100, ax=ax, n_bins=100, line_color='m', shade_color='m', zorder=1)
+		#
+		ax.set_xlabel('False Alarm rate $F$', size=18)
+		ax.set_ylabel('Hit Rate $H$', size=18)
+		ax.set_title('Golbal ETAS ROC\n{} + {} days'.format(etas_end_date, fc_len))
 	#
 	if len(FH)==1:
 		return FH[0][1]
 	else:
 		return FHs
-#
-def global_roc1_single(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, fnum=0, mc=6.0, fc_len=120):
-	# a global ROC script; we may have some competing candidates for this right now. this seems to work. can we duplicate it with generic_roc?
-	# ... but using this ROC method, MPP does help...
-	#
-	# this script produced a really nice ROC, so let's clean it up a bit.
-	#A=etas_analyzer.ROC_mpp_handler(n_procs=8, fc_xyz='global/global_xyz_20151129.xyz', from_dt = eap.dtm.datetime(2015, 11, 30, tzinfo=eap.pytz.timezone('UTC')), to_dt=dtm.datetime.now(eap.pytz.timezone('UTC')), mc=5.5)
-	#
-	n_cpu = (n_cpu or mpp.cpu_count())
-	#
-	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
-	#fc_len=120	# test period is 120 days.
-	fc_end_date = etas_end_date + dtm.timedelta(days=fc_len)
-	#
-	#roc=etas_analyzer.ROC_mpp_handler(n_procs=n_cpu, fc_xyz=fc_xyz, from_dt = etas_end_date, to_dt=fc_end_date, mc=mc)
-	roc=etas_analyzer.ROC_base(fc_xyz=fc_xyz, from_dt = etas_end_date, to_dt=fc_end_date, mc=mc)
-	#X=roc.calc_ROCs(n_procs=n_cpu, m_c=6.0)
-	X=roc.calc_ROCs(m_c=6.0)
-	roc.plot_HF(fignum=fnum)
-	#
-	return roc
 
-def global_etas_and_roc(fc_len=120, fout_xyz='figs/global_etas.xyz', fnum=0, m_cs=[4.0, 5.0, 6.0, 6.5]):
+
+def global_etas_and_roc(fc_len=120, fout_xyz='figs/global_etas.xyz', fignum=0, m_cs=[4.0, 5.0, 6.0, 6.5]):
 	# a soup-to-nuts global ETAS and roc bit. calculate a global ETAS up to fc_len days ago (fc_len+1?); then do ROC on that data set.
 	#
 	if not os.path.isdir(os.path.split(fout_xyz)[0]): os.makedirs(os.path.split(fout_xyz)[0])
@@ -556,7 +388,8 @@ def global_etas_and_roc(fc_len=120, fout_xyz='figs/global_etas.xyz', fnum=0, m_c
 		[fout.write('\t'.join([str(x) for x in rw])+'\n') for j,rw in enumerate(etas.ETAS_array)]
 		#
 	#
-	roc_glob = global_roc3(fc_xyz=etas.ETAS_array, n_cpu=None, fnum=fnum+1, m_cs=m_cs, test_catalog=None, fc_start_date=t_now+dtm.timedelta(days=1), fc_end_date=t_now+dtm.timedelta(days=121))
+	roc_glob = global_roc_from_optimizer(fc_xyz=etas.ETAS_array, fignum=fignum, mcs=6.0, fc_len=fc_len, ls=ls, marker=marker, lw=lw)
+	#roc_glob = global_roc3(fc_xyz=etas.ETAS_array, n_cpu=None, fnum=fnum+1, m_cs=m_cs, test_catalog=None, fc_start_date=t_now+dtm.timedelta(days=1), fc_end_date=t_now+dtm.timedelta(days=121))
 	plt.savefig('%s/etas_global_roc_a__%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
 	#
 	return{'etas':etas, 'roc':roc_glob}
