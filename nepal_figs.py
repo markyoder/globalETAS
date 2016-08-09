@@ -163,35 +163,6 @@ def roc_random(n_events=100, n_fc=10000, n_rocs=100, ax=None, n_bins=100, line_c
 	#
 	return X,mn,mx
 	
-
-def nepal_roc_script_a():
-	#
-	etas_fc = etas_analyzer.get_nepal_etas_fc()
-	#nepal_etas_test = get_nepal_etas_test()
-	Xs = sorted(list(set(etas_fc.ETAS_array['x'])))
-	Ys = sorted(list(set(etas_fc.ETAS_array['y'])))
-	get_site = lambda x,y: int(numpy.floor((x-lons[0])/d_lon)) + int(numpy.floor((y-lats[0])/d_lat))*nx
-	
-	print('do real nepal roc')
-	A=etas_analyzer.roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-')
-	#
-	
-	# now, get roc for a 1/r map (i think there's a script for that)
-	etas_toy = etas_analyzer.Toy_etas_invr(etas_in=etas_fc, mainshock=nepal_mainshock)
-	r0 = 10.**(.5*7.8-1.76)
-	x0=nepal_epi_lon
-	y0=nepal_epi_lat
-	#for j,(x,y,z) in enumerate(etas_fc.ETAS_array): ETAS_array['z'][j]=1/(dist_to(x,y,x0,y0) + r0)
-	etas_toy.d_lat=etas_fc.d_lat
-	etas_toy.d_lon=etas_fc.d_lon
-	B=etas_analyzer.roc_normalses(etas_toy, test_catalog=etas_fc.catalog, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=False, roc_ls='--') 
-	ax=plt.gca()
-	#
-	#
-	# and draw in roc for random...
-	print('do toy, 1/r roc')
-	bins, mins, maxes = roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=ax, n_bins=100, line_color='m', shade_color='m')
-	plt.draw()
 #
 def toy_gs_roc(fignum=0):
 	z1=list(range(10))
@@ -215,6 +186,9 @@ def toy_gs_roc(fignum=0):
 #
 def stepify(xy):
 	# lets move (or copy) stepify function(s) to a generic repo.
+	# also, the main purpose of this little function was to make molchan calculations look like ROC. we have better
+	# ROC scripts, and maybe we're better off just letting molchan have slopes, so we can visually distinguish it from ROC.
+	#
 	xy_prime = [[x,y] for x,y in xy] + [[xy[j][0],y] for j,(x,y) in enumerate(xy[1:])]
 	
 	xy_prime.sort(key=lambda rw:rw[0])
@@ -228,6 +202,9 @@ class nepal__ROC_script(object):
 		# this needs to be rewritten a bit to:
 		# 1) use the same color for each magnitude
 		# 2) should probably use the roc_generic class; see _rocs3()
+		#    **** correction **: REMOVE roc_generic, use optimziers.roc_tools ROC tools instead. see tons of new examples.
+		#     ... also, this script has been rewritten in the nepal-revisions notebook, so before too long, replace this
+		#     implementation with the new, shiny, code.
 		#
 		# full, one stop shopping script for nepal ROC analysis.
 		#
@@ -297,13 +274,17 @@ def inv_dist_to(xy,x0,y0,r0):
 	return [[x,y, 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1) + r0)] for x,y in xy]
 def dist_to(x,y,x0,y0):
 	return globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1)
-
+##################################
+#################################
+# good stuff, that i think we can keep, happening below this line...
 #
 # yoder: in revisions... let's try to consolidate and/or rewrite the ROC and Molchan codes. they also may need better unit testing, so set up a well
 # defined unit test. note: for some implementations, keep it simple; one earthquake, one bin (especially for small lattices). if we make this approximation,
 # we can run much faster algorithms than explicit ROC. note that if we run into cases where this is not true, particularly for coarse grain maps, we can --
 # somewhat ironically, improve performance by fine-meshing the lattice. we can also devise a more sophisticated fast approach that counts the number of events
 # in each bin/at each level.
+#
+# yoder 2016-07-07: this is a new, shiny, working roc-from-etas_file script. hook it up wiht "calc global ROC, and we're good to go...'
 def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0, mcs=6.0, fc_len=120, ls='-', marker='.', lw=2.5):
 	# yoder, 2016_07_01:
 	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
@@ -362,9 +343,13 @@ def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0,
 		return FHs
 
 
-def global_etas_and_roc(fc_len=120, fout_xyz='figs/global_etas.xyz', fignum=0, m_cs=[4.0, 5.0, 6.0, 6.5]):
+def global_etas_and_roc(fc_len=120, out_path = 'figs', fout_xyz='global_etas.xyz', fignum=0, m_cs=[4.0, 5.0, 6.0, 6.5], n_cpu=None):
 	# a soup-to-nuts global ETAS and roc bit. calculate a global ETAS up to fc_len days ago (fc_len+1?); then do ROC on that data set.
 	#
+	if not os.path.isdir(out_path): os.makedirs(out_path)
+	fout_xyz = os.path.join(out_path, fout_xyz)
+	#
+	n_cpu = (n_cpu or mpp.cpu_count())
 	if not os.path.isdir(os.path.split(fout_xyz)[0]): os.makedirs(os.path.split(fout_xyz)[0])
 	#
 	lats=[-89., 89.]
@@ -379,7 +364,7 @@ def global_etas_and_roc(fc_len=120, fout_xyz='figs/global_etas.xyz', fignum=0, m
 	cat_len=3650.
 	#
 	etas = globalETAS.ETAS_mpp(lats=lats, lons=lons, mc=mc, d_lon=d_lon, d_lat=d_lat, etas_range_factor=etas_range_factor, etas_range_padding=etas_range_padding, etas_fit_factor=etas_fit_factor, t_now=t_now, cat_len=cat_len)
-	mp = etas.make_etas_contour_map(fignum=fnum, map_resolution='f')
+	mp = etas.make_etas_contour_map(fignum=fignum, map_resolution='f')
 	plt.savefig('%s/etas_contours_%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
 	#
 	with open(fout_xyz,'w') as fout:
@@ -390,7 +375,11 @@ def global_etas_and_roc(fc_len=120, fout_xyz='figs/global_etas.xyz', fignum=0, m
 	#
 	roc_glob = global_roc_from_optimizer(fc_xyz=etas.ETAS_array, fignum=fignum, mcs=6.0, fc_len=fc_len, ls=ls, marker=marker, lw=lw)
 	#roc_glob = global_roc3(fc_xyz=etas.ETAS_array, n_cpu=None, fnum=fnum+1, m_cs=m_cs, test_catalog=None, fc_start_date=t_now+dtm.timedelta(days=1), fc_end_date=t_now+dtm.timedelta(days=121))
-	plt.savefig('%s/etas_global_roc_a__%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
+	#plt.savefig('%s/etas_global_roc_a__%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
+	etas_png_fpath = os.path.join(out_path, 'etas_global_roc_a_{}.png'.format(t_now))
+	plt.savefig(etas_png_fpath)
+	#
+	# ... and maybe we need to save the ROC data as well?
 	#
 	return{'etas':etas, 'roc':roc_glob}
 

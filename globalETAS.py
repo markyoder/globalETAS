@@ -35,7 +35,7 @@
 #    this will be similar to the L_r approach, bit will account for proper scaling and should improve the output appearance.
 # 5: modify the MPP handler(s) to inherit from Pool() and actually work like a Pool(), rather than explicitly handling Process() objects. the problem is that when
 #    we divide up the job, we inevitably give one processor a light job and one processor a heavy job, so we spend a lot of time waiting for one process to finish.
-#    yes, there is a bit of overhead in running with n_processes > n_processors, but it is minor in comparison. also, by dividing the job into lots of small little
+#    yes, there is a bit of overhead in running with n_cpu > n_processors, but it is minor in comparison. also, by dividing the job into lots of small little
 #    jobs, we can probably also reduce the real-time memory footprint, so we can run on smaller systems.
 '''
 #
@@ -667,8 +667,8 @@ class ETAS_rtree(Global_ETAS_model):
 	#
 #
 class ETAS_rtree_mpp(ETAS_rtree, mpp.Process):
-	'''n 
-	# an mpp version of ETAS_rtree (to be run as an mpp process)
+	''' 
+	# an mpp version of ETAS_rtree (to be run as an mpp process, aka not an mpp handler, but an mpp worker**).
 	'''	
 	def __init__(self, pipe_r, *args, **kwargs):
 		self.make_etas = self.make_etas_rtree
@@ -691,15 +691,17 @@ class ETAS_rtree_mpp(ETAS_rtree, mpp.Process):
 #
 class ETAS_mpp_handler(Global_ETAS_model):
 	# a sub/container class to manage and collect results from a bunch of mpp_etas instances.
+	# Note: this version works, but can be super memory-intensive for large catalogs. its cousin class, ETAS_mpp_handler_xyz
+	# is recommended for almost all operations (to the extent that this version should probalby be depricated and removed).
 
-	def __init__(self, n_processes=None, *args, **kwargs):
+	def __init__(self, n_cpu=None, *args, **kwargs):
 		#self.make_etas = self.make_etas_rtree
 		#
 		self.etas_kwargs = {key:val for key,val in kwargs.items() if key not in ['n_proocesses']}		# or any other kwargs we want to skip. note: might need to handle
 																										# the ETAS_range parameter carefully...
 		#
-		if n_processes is None: n_processes = max(1, mpp.cpu_count()-1)
-		self.n_processes = n_processes
+		if n_cpu is None: n_cpu = max(1, mpp.cpu_count()-1)
+		self.n_cpu = n_cpu
 		#
 		# go ahead and run the base class __init__. this basically handles lats, lons, forecast_time, and some other bits and then kicks off make_etas(), where we'll
 		#kwargs['make_etas']=False
@@ -718,15 +720,15 @@ class ETAS_mpp_handler(Global_ETAS_model):
 		#
 		#
 		cat_len = len(self.catalog)
-		#proc_len = cat_len/self.n_processes
-		proc_len = (self.etas_cat_range[1]-self.etas_cat_range[0])/self.n_processes
+		#proc_len = cat_len/self.n_cpu
+		proc_len = (self.etas_cat_range[1]-self.etas_cat_range[0])/self.n_cpu
 		# first, gather a bunch of rtree processes.
 		#
 		etas_workers = []
 		etas_pipes   = []
 		prams = self.etas_kwargs.copy()
 		prams['catalog']=self.catalog		# .copy() ??
-		for j in range(self.n_processes):
+		for j in range(self.n_cpu):
 			pipe_r, pipe_s = mpp.Pipe()
 			prams['etas_cat_range'] = [int(self.etas_cat_range[0]+j*proc_len), int((j+1)*proc_len)]		# (sort out these indices to be sure we always get the whole catalog...)
 			prams['pipe_r'] = pipe_r
@@ -766,15 +768,22 @@ class ETAS_mpp_handler_xyz(Global_ETAS_model):
 	# this is a semi-memory friendly version in which the forecast lattice is divided amongst the processes,
 	# as opposed to ETAS_mpp_handler() in which the catalog is split up, which uses a lot of memory (and probably lots
 	# of time piping results) for large maps.
+	#
+	# TODO: Figure out how to derive this from mpp.Pool() and, rather than manually managing processes, run as a Pool().
+	# the main problem is that we divide the job into jobs based on geography (aka, slice up the map and give each processor
+	# a section of map), but this is not an accurate representation of the actual compute requirements. seismically active
+	# regions end up doing way more flops than quiescent regions. a good, simple approach, then, is to divide into, say
+	# 2*n_cpu() jobs, which we process n_cpu() at a time using a Pool(). this way, non-intensive jobs will be discarded and replaced
+	# quickly, and the compute intensive jobs will be smaller, as a product of smaller geometry.
 
-	def __init__(self, n_processes=None, *args, **kwargs):
+	def __init__(self, n_cpu=None, *args, **kwargs):
 		#self.make_etas = self.make_etas_rtree
 		#
 		self.etas_kwargs = {key:val for key,val in kwargs.items() if key not in ['n_proocesses']}		# or any other kwargs we want to skip. note: might need to handle
 																										# the ETAS_range parameter carefully...
 		#
-		if n_processes is None: n_processes = max(1, mpp.cpu_count()-1)
-		self.n_processes = n_processes
+		if n_cpu is None: n_cpu = max(1, mpp.cpu_count()-1)
+		self.n_cpu = n_cpu
 		#
 		# go ahead and run the base class __init__. this basically handles lats, lons, forecast_time, and some other bits and then kicks off make_etas(), where we'll
 		#kwargs['make_etas']=False
@@ -793,10 +802,10 @@ class ETAS_mpp_handler_xyz(Global_ETAS_model):
 		#
 		#
 		cat_len = len(self.catalog)
-		##proc_len = cat_len/self.n_processes
-		#proc_len = (self.etas_cat_range[1]-self.etas_cat_range[0])/self.n_processes
+		##proc_len = cat_len/self.n_cpu
+		#proc_len = (self.etas_cat_range[1]-self.etas_cat_range[0])/self.n_cpu
 		#
-		xyz_len = self.n_lat*self.n_lon/self.n_processes
+		xyz_len = self.n_lat*self.n_lon/self.n_cpu
 		#
 		# first, gather a bunch of rtree processes.
 		#
@@ -805,7 +814,7 @@ class ETAS_mpp_handler_xyz(Global_ETAS_model):
 		prams = self.etas_kwargs.copy()
 		prams['etas_cat_range']=None
 		prams['catalog']=self.catalog		# .copy() ??
-		for j in range(self.n_processes):
+		for j in range(self.n_cpu):
 			pipe_r, pipe_s = mpp.Pipe()
 			prams['etas_xyz_range'] = [int(j*xyz_len), int((j+1)*xyz_len)]		# (sort out these indices to be sure we always get the whole catalog...)
 			print('etas_mpp worker xyz_range: ', prams['etas_xyz_range'])
@@ -886,8 +895,16 @@ class Earthquake(object):
 		if not hasattr(self, 'event_date_float'): self.event_date_float = mpd.date2num(self.event_date.tolist())
 		#self.event_date_float_secs = self.event_date_float*days2secs
 		#
+		# yoder 2016-8-7:
+		# so actually, the ab_ratio should be sqrt(\lambda_1/\lambda_2).
+		# in PCA, the eigen-values are basically the magnitude of variance (aka, stdev**2) in that eigen-direction, so the approximate length
+		# of the spatial vectors is the sqrt() of eigen-value. note then that for the equal-area transform, we take another sqrt() so that
+		# a_ea = r*(\lambda_1 / \lambda_2)**.25
+		# b_ea = r*(\lambda_2 / \lambda_1)**.25
+		#
 		#self.ab_ratio = min(transform_ratio_max, max(self.e_vals)/min(self.e_vals))
-		self.ab_ratio_raw = max(self.e_vals)/min(self.e_vals)
+		#self.ab_ratio_raw = max(self.e_vals)/min(self.e_vals)
+		self.ab_ratio_raw = math.sqrt(max(self.e_vals)/min(self.e_vals))
 		self.set_transform()
 		#
 		#####
@@ -937,6 +954,9 @@ class Earthquake(object):
 		#
 		#... and let's clean up a bit, removing some of the inverse, etc. variants.
 		#
+		# TODO: this sub-script seems to conflict a bit with __init__, where we also set ab_ratio... right? for now, we've adjusted the code to be consistent.
+		# in the very, very near fugure, we need to clean it up to be not redundant.
+		#
 		'''
 		#
 		e_vals = (e_vals or self.e_vals)
@@ -946,13 +966,17 @@ class Earthquake(object):
 		ab_ratio_expon = (ab_ratio_expon or self.ab_ratio_expon)
 		ab_ratio_expon = (ab_ratio_expon or .5)
 		#
-		# notes on ab_ratio: in the strictest sense, ab_ratio should be 0.5, in the sense that the 'singular values' of the decomposition are equal to
+		# notes on ab_ratio: in the strictest sense, ab_ratio expon. should be 0.5, in the sense that the 'singular values' of the decomposition are equal to
 		# the sqrt(eigen_values) of the covariance (which makes sense; the basis lengths are approximately the standard deviation in some direction;
 		# the covariance eigenvalues are variance). 
 		ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)	# note: this **.5 on the e0/e1 value is quasi-arbitrary.
 		#																								# ok, so what specifically is e0/e1 supposed to be? stdev, var?
-		#																								# in any case, it seems to be pretty huge almost all the time, so
-		#																								# let's put a fractional power on it...
+		#																								# in any case, it seems to be pretty huge almost all the
+		#																								# time, so let's put a fractional power on it...
+		#																								# ... and as it so happens, e0,e1 are the eigen-values of the
+		#																								# variance, so the basis vector lengths should be sqrt(e[j]):
+		# 
+		ab_ratio = min(transform_ratio_max, math.sqrt((max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)
 		#abratio = 2.0
 		self.ab_ratio=ab_ratio
 		#
@@ -964,6 +988,9 @@ class Earthquake(object):
 		#	
 		elif transform_type=='rotation':
 			# set the *small* eigen-value --> 1; scale the large one.
+			# remember (i think) that this geometry is inverted. we leave the short eigen-vector=1, so when we calc r', it is unchanged in this direction.
+			# in the orothogonal direction, r'>>r, and we have etas halos elongated along the "short" (rupture) axis).
+			#
 			#self.e_vals_n = [min(transform_ratio_max, x/min(e_vals)) for x in e_vals]
 			self.e_vals_n  = [ab_ratio, 1.]
 			self.spatial_intensity_factor = min(self.e_vals_n)/max(self.e_vals_n)		# area of "core" (rupture area) is reduced, so intensity increases.
@@ -979,7 +1006,8 @@ class Earthquake(object):
 		# get v = [lon,lat]-[self.lon, self.lat]
 		# rotate v with transpose: v_prime = numpy.dot(self.e_vecs.transpose(),v)
 		#    -- x_prime = v dot x_prime
-		#    -- y_prime = v dot y_prime    
+		#    -- y_prime = v dot y_prime
+		#
 		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
 		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
 		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in
