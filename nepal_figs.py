@@ -363,7 +363,7 @@ def global_etas_and_roc(fc_len=120, out_path = 'figs', fout_xyz='global_etas.xyz
 	t_now=dtm.datetime.now(globalETAS.tzutc)-dtm.timedelta(days=fc_len-1)
 	cat_len=3650.
 	#
-	etas = globalETAS.ETAS_mpp(lats=lats, lons=lons, mc=mc, d_lon=d_lon, d_lat=d_lat, etas_range_factor=etas_range_factor, etas_range_padding=etas_range_padding, etas_fit_factor=etas_fit_factor, t_now=t_now, cat_len=cat_len)
+	etas = globalETAS.ETAS_mpp(lats=lats, lons=lons, mc=mc, d_lon=d_lon, d_lat=d_lat, etas_range_factor=etas_range_factor, etas_range_padding=etas_range_padding, etas_fit_factor=etas_fit_factor, t_now=t_now, cat_len=cat_len, n_cpu=n_cpu)
 	mp = etas.make_etas_contour_map(fignum=fignum, map_resolution='f')
 	plt.savefig('%s/etas_contours_%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
 	#
