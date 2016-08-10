@@ -193,6 +193,7 @@ def nepal_roc_script_a():
 	bins, mins, maxes = roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=ax, n_bins=100, line_color='m', shade_color='m')
 	plt.draw()
 #
+# Geospatial ROC (aka, RI/PI on crack):
 def toy_gs_roc(fignum=0):
 	z1=list(range(10))
 	z2=reversed(list(range(10)))

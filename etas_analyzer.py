@@ -852,6 +852,9 @@ def plot_mainshock_and_aftershocks(etas, m0=6.0, mainshock=None, fignum=0):
 
 def get_Z_fc_Z_ev(fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
 		#
+		# DEPRICATION:
+		# not sure this is needed any longer... and not sure it works for all inputs. see the ROC class in optimizers.roc_tools
+		# for a replacement.
 		if isinstance(fc_xyz, str):
 			# if we're given a filename...
 			with open(fc_xyz, 'r') as froc:

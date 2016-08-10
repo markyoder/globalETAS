@@ -1746,6 +1746,7 @@ def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'],
 	
 @numba.jit
 def spherical_dist(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], Rearth = 6378.1):
+	# ... also, we might start using geopy.distances.great_circle() -- or something like that. it's geopy anyway...
 	# Geometric spherical distance formula...
 	# displacement from inloc...
 	# inloc is a vector [lon, lat]
@@ -1794,7 +1795,8 @@ def ellipse_circumference_approx1(a=None, b=None):
 	return math.pi*(a + b)*(1. + 3.*h/(10 + math.sqrt(4. - 3.*h)))
 
 def ab_ratio_distribution(e_vals, **kwargs):
-	x = [max(x[0]/x[1], x[1]/x[0]) for x in e_vals]
+	#x = [max(x[0]/x[1], x[1]/x[0]) for x in e_vals]
+	x = [math.sqrt(max(x[0]/x[1]), math.sqrt(x[1]/x[0])) for x in e_vals]
 	#
 	plt.figure(0)
 	plt.clf()
@@ -2079,7 +2081,7 @@ def etas_diagnostic_1(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[
 def etas_diagnostic_r0(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=[dtm.datetime(2000,1,1, tzinfo=pytz.timezone('UTC')), dtm.datetime.now(pytz.timezone('UTC'))], etas_fit_factor=1.5, gridsize=.05, D_fract=1.5, b=1.0):
 	'''
 	# another diagnostic:
-	# start by checkin gout the r_0(m) scaling:
+	# start by checking out the r_0(m) scaling:
 	
 	'''
 	cat0 = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=date_range, fit_factor=etas_fit_factor, D_fract=D_fract, b1=b)
@@ -2101,9 +2103,9 @@ def etas_diagnostic_r0(lons=[-118., -114.], lats=[31., 38.], mc=5.0, date_range=
 	X = [min(cat0['mag']), max(cat0['mag'])]
 	ax.plot(X, [10**(f_lin(X[0], *lstsq)), 10**(f_lin(X[1], *lstsq))], '-', label='a=%f, b=%f' % tuple(lstsq))
 	plt.legend(loc=0, numpoints=1)
+	ax.set_xlabel('magnitude $m$')
+	ax.set_ylabel('$r_0$')
 	#
-	#plt.figure(1)
-	#plt.clf()
 
 def ellipse_test(fignume=0, N=1000):
 	plt.figure(0)
