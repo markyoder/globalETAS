@@ -547,4 +547,37 @@ def global_roc_comparison(fc_xyz='global/global_xyz_20151129.xyz', n_cpu=None, f
 	plt.ylabel('Hit Rate $H$')
 #
 
+def nepal_roc_script_a():
+	#
+	# i think this script works correctly, but slowly. see the notebook script (which will probably be moved to nepal_figs.py before too long)
+	# this script will be moved to the deprication, discard holding module...
+	#
+	
+	etas_fc = etas_analyzer.get_nepal_etas_fc()
+	#nepal_etas_test = get_nepal_etas_test()
+	Xs = sorted(list(set(etas_fc.ETAS_array['x'])))
+	Ys = sorted(list(set(etas_fc.ETAS_array['y'])))
+	get_site = lambda x,y: int(numpy.floor((x-lons[0])/d_lon)) + int(numpy.floor((y-lats[0])/d_lat))*nx
+	
+	print('do real nepal roc')
+	A=etas_analyzer.roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-')
+	#
+	
+	# now, get roc for a 1/r map (i think there's a script for that)
+	etas_toy = etas_analyzer.Toy_etas_invr(etas_in=etas_fc, mainshock=nepal_mainshock)
+	r0 = 10.**(.5*7.8-1.76)
+	x0=nepal_epi_lon
+	y0=nepal_epi_lat
+	#for j,(x,y,z) in enumerate(etas_fc.ETAS_array): ETAS_array['z'][j]=1/(dist_to(x,y,x0,y0) + r0)
+	etas_toy.d_lat=etas_fc.d_lat
+	etas_toy.d_lon=etas_fc.d_lon
+	B=etas_analyzer.roc_normalses(etas_toy, test_catalog=etas_fc.catalog, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=False, roc_ls='--') 
+	ax=plt.gca()
+	#
+	#
+	# and draw in roc for random...
+	print('do toy, 1/r roc')
+	bins, mins, maxes = roc_random(n_events=100, n_fc=10000, n_rocs=100, n_cpus=None, ax=ax, n_bins=100, line_color='m', shade_color='m')
+	plt.draw()
+#
 
