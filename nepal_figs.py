@@ -13,7 +13,7 @@ from geographiclib.geodesic import Geodesic as ggp
 import globalETAS
 import etas_analyzer
 
-import roc_generic
+#import roc_generic
 from optimizers import roc_tools
 
 import contours2kml
@@ -133,6 +133,7 @@ def stepify(xy):
 	return xy_prime
 
 #
+'''
 def nepal_roc_script(fignum=0, mcs = [4., 5., 6., 7.], n_cpu=None):
 	return Nepal_ROC_script(**locals())
 class nepal__ROC_script(object):
@@ -206,7 +207,7 @@ class nepal__ROC_script(object):
 		#
 		self.__dict__.update(locals())
 		#
-
+'''
 #
 def inv_dist_to(xy,x0,y0,r0):
 	return [[x,y, 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1) + r0)] for x,y in xy]

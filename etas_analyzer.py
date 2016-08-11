@@ -37,7 +37,7 @@ import ANSStools as atp
 import contours2kml
 import globalETAS as gep
 from eq_params import *
-import roc_generic            # we'll eventually want to move to a new library of roc tools.
+#import roc_generic            # we'll eventually want to move to a new library of roc tools.
 
 #
 # optimizers included as submodule...
@@ -135,6 +135,7 @@ class Toy_etas_fromxyz(object):
 		#
 #	
 #
+'''
 def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=[4.0, 5.0, 6.0, 7.0], fignum=1, do_clf=True, roc_ls='-'):
 	#
 	# DEPRICATION: See the newer global_etas_figs_revision.ipynb notebook, and other code derived from that. this script can be replaced
@@ -179,6 +180,8 @@ def roc_normalses(etas_fc, test_catalog=None, to_dt=None, cat_len=120., mc_rocs=
 	#
 	return FHs
 #
+
+# see optimizers.roc_tools.py.
 def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., fignum=0, do_clf=True, n_cpus=None, mc_roc=5.0):
 	#
 	# DEPRICATION: See the newer global_etas_figs_revision.ipynb notebook, and other code derived from that. this script can be replaced
@@ -279,9 +282,11 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	#
 	#return list(zip(Fs,Hs))
 	return FH
+'''
 #	
 #
 def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120., mc_roc=5.0, fignum=0, do_clf=True):
+	# i think this is a working, rigorous way to calc. ROC. it is (i believe) correct, but slow. see optimizers.roc_tools for a faster way...	
 	#
 	if from_dt==None:
 		from_dt=max([dt.tolist() for dt in etas_fc.catalog['event_date']])
@@ -417,6 +422,8 @@ def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120
 # Working and mostly-working scripts for paper:
 #
 def nepal_etas_roc():
+	# not exactly what it sounds like; this function returns the test and forecast etas objects for roc analysis... and other stuff too.
+	#
 	# def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., cat_len=2.*365., calc_etas=True, n_contours=15,**kwargs)
 	#
 	nepal_etas_fc = get_nepal_etas_fc()
@@ -482,6 +489,7 @@ def get_nepal_etas_test(p_cat=1.1, q_cat=1.5, t_start=dtm.datetime(2015,5,7, tzi
 	#etas.make_etas()
 	return etas
 
+'''
 def nepal_roc_normal_script(fignum=0):
 	# TODO: test this to see if it works properly, but it is probably depricated and being replaced by the code in the new
 	# global_etas_revisions (something like that) notebook script(s).
@@ -507,10 +515,12 @@ def nepal_roc_normal_script(fignum=0):
 		this_etas = Toy_etas_random(etas_in=etas_fc)
 		FH = roc_normal(this_etas, fignum=None)
 		plt.plot(*zip(*FH), marker='.', ls='', alpha=.6)
-		
+'''		
 	
 	#
 def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5, dq_fc=.1, dq_t=.1, fignum=0, fout='data/roc_geospatial_raw.csv'):
+	# evaluating the optimal q_fc, q_test parameter(s) for geospatial ROC:
+	#
 	# this will be bruatl, but just calc the etas from scratch for each value.
 	# unfortunetely, i don't think we have enought memory to calc all ~20 of them into memory and then iterate, so there will
 	# be some redundancy.
@@ -657,6 +667,7 @@ def roc_plots_from_gsroc(FH, fignum=0):
 	#print('Best Skill: ', best_skill)
 	#	
 #
+# can this be generalized and moved to yodiipy.roc_tools()? replace the etas_fc/test objects with regular arrays...
 def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=False):
 #def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
 	# do_log should pretty much always be True.
@@ -673,6 +684,8 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	ax2 = f_quad.add_axes([.55, .05, .4, .4], sharex=ax0, sharey=ax0)
 	ax3 = f_quad.add_axes([.55, .55, .4, .4], sharex=ax0, sharey=ax0)		
 	#
+	# what we really want to do here is to calc_etas() (or whatever we call it). we do a full on _contour_map() so we can look at it.
+	# in the end, to do the gs_roc, we just need the ETAS xyz array.
 	etas_fc.make_etas_contour_map(fignum=0)
 	etas_test.make_etas_contour_map(fignum=1)
 	#
@@ -680,6 +693,8 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	lat_vals = sorted(list(set(etas_fc.ETAS_array['y'])))
 	#
 	# we need normalization here...
+	# ... and we need to think a bit more about what we mean by normalize. here, we just shift the values to be equal. do
+	# we also want to normailze their range?
 	z_fc_norm = etas_fc.ETAS_array['z'].copy()
 	z_test_norm = etas_test.ETAS_array['z'].copy()
 	#
@@ -760,8 +775,6 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 			ax2.contourf(lon_vals, lat_vals, zz, 25)
 			ax2.set_title('False Alarm Rate')
 			#ax2.colorbar()
-
-
 	#
 	if diagnostic:
 		return [diffs_lbls] + diffs
@@ -773,6 +786,7 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 def get_gs_diffs(z1,z2):
 	return numpy.core.records.fromarrays(zip(*[[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z1, z2)]), names=['z_fc', 'z_test', 'z1-z2', 'hits','misses', 'falsie'], formats=['double' for j in range(6)])
 #
+# these probably belong in the nepal_figs module and/or notebook:
 def nepal_linear_roc():
 	# production figure script (almost... just script ranges).
 	diffs = analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=True)
