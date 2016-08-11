@@ -904,7 +904,7 @@ class Earthquake(object):
 		#
 		#self.ab_ratio = min(transform_ratio_max, max(self.e_vals)/min(self.e_vals))
 		#self.ab_ratio_raw = max(self.e_vals)/min(self.e_vals)
-		self.ab_ratio_raw = math.sqrt(max(self.e_vals)/min(self.e_vals))
+		self.ab_ratio_raw = math.sqrt(abs(max(self.e_vals)/min(self.e_vals)))
 		self.set_transform()
 		#
 		#####
@@ -975,14 +975,16 @@ class Earthquake(object):
 		#																								# time, so let's put a fractional power on it...
 		#																								# ... and as it so happens, e0,e1 are the eigen-values of the
 		#																								# variance, so the basis vector lengths should be sqrt(e[j]):
-		# 
-		ab_ratio = min(transform_ratio_max, math.sqrt((max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)
+		#
+		# note: this is sqrt(eigen-values)**ab_ratio_expon. the basis vector lengths are sqrt(eig-vals); then the elliptical area uses the factor
+		# sqrt(ab_ratio) 
+		ab_ratio = min(transform_ratio_max, (max((abs(e_vals[0]/e_vals[1]), abs(e_vals[1]/e_vals[0])))))**(.5*ab_ratio_expon)
 		#abratio = 2.0
 		self.ab_ratio=ab_ratio
 		#
 		if transform_type=='equal_area':
 			# so that pi*r^2 = pi*ab = pi*b*(ab_ratio)*b
-			self.e_vals_n = [math.sqrt(ab_ratio), 1./math.sqrt(ab_ratio)]
+			self.e_vals_n = [math.sqrt(abs(ab_ratio)), 1./math.sqrt(abs((ab_ratio)))]
 			self.spatial_intensity_factor = 1.0
 			#
 		#	
@@ -993,7 +995,7 @@ class Earthquake(object):
 			#
 			#self.e_vals_n = [min(transform_ratio_max, x/min(e_vals)) for x in e_vals]
 			self.e_vals_n  = [ab_ratio, 1.]
-			self.spatial_intensity_factor = min(self.e_vals_n)/max(self.e_vals_n)		# area of "core" (rupture area) is reduced, so intensity increases.
+			self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))**.5		# area of "core" (rupture area) is reduced, so intensity increases.
 			#
 		else:
 			return self.set_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
