@@ -101,6 +101,7 @@ class Map_drawer(object):
 		#
 
 #
+# Geospatial ROC (aka, RI/PI on crack):
 def toy_gs_roc(fignum=0):
 	z1=list(range(10))
 	z2=reversed(list(range(10)))
