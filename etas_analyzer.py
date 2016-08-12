@@ -236,21 +236,19 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	# (for this application, we can also just get nasty and to a loop-loop with geodetic distancing).
 	get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
 	#
-	'''
+
 	#test:
-	print('testing get_site:')
-	Rx = random.Random()
-	Ry = random.Random()
-	for k in range(10):
-		x = lons[0] + Rx.random()*(lons[1]-lons[0])
-		y = lats[0] + Ry.random()*(lats[1]-lats[0])
-		#
-		j_lattice = get_site(x,y)
-		print("for %f, %f: " % (x,y), etas_fc.ETAS_array[j_lattice])
+	#print('testing get_site:')
+	#Rx = random.Random()
+	#Ry = random.Random()
+	#for k in range(10):
+	#	x = lons[0] + Rx.random()*(lons[1]-lons[0])
+	#	y = lats[0] + Ry.random()*(lats[1]-lats[0])
+	#	#
+	#	j_lattice = get_site(x,y)
+	#	print("for %f, %f: " % (x,y), etas_fc.ETAS_array[j_lattice])
 	#
-	'''
-	#
-	'''
+
 	# hits (observed yes, forecast yes):
 	roc_A = [0]
 	# falsies (over-predict) (observed no, fc. yes)
@@ -259,7 +257,7 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	roc_C = [0]
 	# didn't happen (observed no, fc no):
 	roc_D = [0]
-	'''
+	
 	#
 	# nominally, we'd make a copy of the whole catalog, but for memory conservation, just index the lsit.
 	#eq_ks = [[get_site(eq['lon'], eq['lat']), eq] for eq in test_catalog]
@@ -522,7 +520,7 @@ def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5
 	# evaluating the optimal q_fc, q_test parameter(s) for geospatial ROC:
 	#
 	# this will be bruatl, but just calc the etas from scratch for each value.
-	# unfortunetely, i don't think we have enought memory to calc all ~20 of them into memory and then iterate, so there will
+	# unfortunately, i don't think we have enought memory to calc all ~20 of them into memory and then iterate, so there will
 	# be some redundancy.
 	#
 	FH=[]
@@ -863,7 +861,7 @@ def plot_mainshock_and_aftershocks(etas, m0=6.0, mainshock=None, fignum=0):
 		if eq['event_date']>eq['event_date']:
 			x,y = map_etas(eq['lon'], eq['lat'])
 			plt.plot([x], [y], 'o', zorder=7, ms=20, alpha=.8)	
-
+'''
 def get_Z_fc_Z_ev(fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
 		#
 		# DEPRICATION:
@@ -913,6 +911,8 @@ def get_Z_fc_Z_ev(fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=N
 		#
 		return {'Z_fc': Z_fc, 'Z_ev':Z_ev}
 	#
+'''
+	
 '''
 def get_site(self, x,y, d_lon, d_lat):
 	# TODO: this binning needs to be double-checked. do lons[0], lats[0] define the edge of a bin or the boundary in which we

@@ -101,27 +101,6 @@ class Map_drawer(object):
 		#
 
 #
-# Geospatial ROC (aka, RI/PI on crack):
-def toy_gs_roc(fignum=0):
-	z1=list(range(10))
-	z2=reversed(list(range(10)))
-	diffs = etas_analyzer.get_gs_diffs(z1,z2)
-	#
-	X=list(range(len(diffs)))
-	plt.figure(fignum)
-	plt.clf()
-	#plt.plot(*zip(*stepify(list(zip(X, diffs['z_fc'])))), marker='.', ls='-', label='foreccast')
-	#plt.plot(*zip(*stepify(list(zip(X, diffs['z_test'])))), marker='.', ls='-', label='test_cat')
-	plt.plot(X, diffs['z_fc'], marker='.', ls='-', label='foreccast')
-	plt.plot(X, diffs['z_test'], marker='.', ls='-', label='test_cat')
-	#
-	plt.plot(X, diffs['hits'], '--', label='hits')
-	plt.plot(X, diffs['misses'], '--', label='misses')
-	plt.plot(X, diffs['falsie'], '--', label='falsies')
-	plt.legend(loc=0, numpoints=1)
-	#
-	return diffs
-#
 def stepify(xy):
 	# lets move (or copy) stepify function(s) to a generic repo.
 	# also, the main purpose of this little function was to make molchan calculations look like ROC. we have better
@@ -208,6 +187,32 @@ class nepal__ROC_script(object):
 		self.__dict__.update(locals())
 		#
 '''
+##############
+# some working test scripts.
+########################################################
+#######################################################
+# Geospatial ROC (aka, RI/PI on crack):
+def toy_gs_roc(fignum=0):
+	# test script for the geo-spatial diffs metric.
+	z1=list(range(10))
+	z2=reversed(list(range(10)))
+	diffs = etas_analyzer.get_gs_diffs(z1,z2)
+	#
+	X=list(range(len(diffs)))
+	plt.figure(fignum)
+	plt.clf()
+	#plt.plot(*zip(*stepify(list(zip(X, diffs['z_fc'])))), marker='.', ls='-', label='foreccast')
+	#plt.plot(*zip(*stepify(list(zip(X, diffs['z_test'])))), marker='.', ls='-', label='test_cat')
+	plt.plot(X, diffs['z_fc'], marker='.', ls='-', label='foreccast')
+	plt.plot(X, diffs['z_test'], marker='.', ls='-', label='test_cat')
+	#
+	plt.plot(X, diffs['hits'], '--', label='hits')
+	plt.plot(X, diffs['misses'], '--', label='misses')
+	plt.plot(X, diffs['falsie'], '--', label='falsies')
+	plt.legend(loc=0, numpoints=1)
+	#
+	return diffs
+
 #
 def inv_dist_to(xy,x0,y0,r0):
 	return [[x,y, 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1) + r0)] for x,y in xy]
