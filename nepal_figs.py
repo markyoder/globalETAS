@@ -13,7 +13,7 @@ from geographiclib.geodesic import Geodesic as ggp
 import globalETAS
 import etas_analyzer
 
-import roc_generic
+#import roc_generic
 from optimizers import roc_tools
 
 import contours2kml
@@ -100,69 +100,6 @@ class Map_drawer(object):
 		return cm
 		#
 
-def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_conts=15, cmap=plt.cm.jet):
-	plt.figure(fignum)
-	plt.clf()
-	mm = Map_drawer(xyz=xyz)
-	mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=0)
-	#return mm
-	#
-	lns, lts = mm.lonses, mm.latses
-	Zs = numpy.log10([rw[2] for rw in mm.XYZ])
-	Zs.shape=(len(lts), len(lns))
-	#
-	plt.figure(fignum)
-	# plt.cm.coolwarm
-	print('cmap: ', cmap)
-	plt.contourf(lns, lts, Zs, n_conts, alpha=.65, zorder=11, cmap=cmap)
-	plt.colorbar()
-
-def roc_random(n_events=100, n_fc=10000, n_rocs=100, ax=None, n_bins=100, line_color='m', shade_color='m', zorder=1):
-	# calculate a bunch of random ROCs (random events, random forecasts) and plot an envelope figure.
-	# by passing ax={matplotlib.axes (axis?)} object, we can use this script to plot a "random-envelope" onto an 
-	# independently computed ROC figure.
-	#
-	R=random.Random()
-	#
-	if ax==None:
-		plt.figure()
-		plt.clf()
-		ax=plt.gca()
-	#
-	dx=1./n_bins
-	j_bin = lambda x: int(x/dx)
-	#x_min_max = [[(j+1.)/float(n_bins), 1., 0.] for j in range(n_bins)]
-	x_min_max = [[(j)/float(n_bins), 1., 0.] for j in range(n_bins+1)]
-	#
-	for j in range(n_rocs):
-		Z_events=[R.random() for j in range(n_events)]
-		Z_fc=sorted([R.random() for j in range(n_fc)])
-		#
-		roc_FH = roc_tools.calc_roc(Z_fc, Z_events, f_denom=None, h_denom=None)
-		#
-		#ax=plt.plot(C.F, C.H, '-', lw=2.0, alpha=.5)
-		#ax.plot(*zip(*roc_FH), marker='.', ls='')
-		#
-		# bin up the F,H values (you know, maybe a better way is to use scipy.interpolate...
-		#for k,(f,h) in enumerate(zip(C.F, C.H)):
-		for k, (f,h) in enumerate(roc_FH):
-			bin = j_bin(f)
-			while bin>=len(x_min_max): 
-				print('extending...')
-				x_min_max += [[x_min_max[-1][0]+dx, 0.,0.]]	# sometimes we get a little integer overhang
-			#print('bin: ', bin, f)
-			x_min_max[bin][1]=min(x_min_max[bin][1], h)
-			x_min_max[bin][2]=max(x_min_max[bin][2], h)
-		#
-	#
-	X,mn, mx = zip(*x_min_max)
-	#return X,mn,mx
-	ax.plot(X,mn, color=line_color, ls='-', lw=2., alpha=.7, zorder=zorder)
-	ax.plot(X,mx, color=line_color, ls='-', lw=2., alpha=.7, zorder=zorder)
-	ax.fill_between(X,mn,mx, color=shade_color, alpha=.3, zorder=zorder)
-	#
-	return X,mn,mx
-	
 #
 # Geospatial ROC (aka, RI/PI on crack):
 def toy_gs_roc(fignum=0):
@@ -196,6 +133,7 @@ def stepify(xy):
 	return xy_prime
 
 #
+'''
 def nepal_roc_script(fignum=0, mcs = [4., 5., 6., 7.], n_cpu=None):
 	return Nepal_ROC_script(**locals())
 class nepal__ROC_script(object):
@@ -269,7 +207,7 @@ class nepal__ROC_script(object):
 		#
 		self.__dict__.update(locals())
 		#
-
+'''
 #
 def inv_dist_to(xy,x0,y0,r0):
 	return [[x,y, 1./(globalETAS.spherical_dist(lon_lat_from=[x0,y0], lon_lat_to=[x, y], Rearth = 6378.1) + r0)] for x,y in xy]
@@ -286,9 +224,72 @@ def dist_to(x,y,x0,y0):
 # in each bin/at each level.
 #
 # yoder 2016-07-07: this is a new, shiny, working roc-from-etas_file script. hook it up wiht "calc global ROC, and we're good to go...'
-def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0, mcs=6.0, fc_len=120, ls='-', marker='.', lw=2.5):
-	# yoder, 2016_07_01:
-	etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
+# and before very long, we need to tie in the date fields...
+#
+# ... and this needs to be morphed into a general etas,roc handler function... or class...
+def global_etas_and_roc(fout_xyz='global_etas.xyz', fc_len=120, out_path = 'figs', fignum=0, m_cs=[4.0, 5.0, 6.0, 6.5], n_cpu=None, t_now=None):
+	# a soup-to-nuts global ETAS and roc bit. calculate a global ETAS up to fc_len days ago (fc_len+1?); then do ROC on that data set.
+	#
+	# t_now for original globalETAS paper draft: dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))
+	# note: etas end time should be in the .xyz header file, so we can get it from there as well...
+	#
+	if not os.path.isdir(out_path): os.makedirs(out_path)
+	fout_xyz = os.path.join(out_path, fout_xyz)
+	#
+	n_cpu = (n_cpu or mpp.cpu_count())
+	if not os.path.isdir(os.path.split(fout_xyz)[0]): os.makedirs(os.path.split(fout_xyz)[0])
+	#
+	lats=[-89., 89.]
+	lons=[-180., 180.]
+	mc=3.0
+	d_lon=.1
+	d_lat=.1
+	etas_range_factor=15.
+	etas_range_padding=1.0
+	etas_fit_factor=1.5
+	#
+	# date to which etas is calculated:
+	t_now =  (t_now or dtm.datetime.now(globalETAS.tzutc)-dtm.timedelta(days=fc_len))
+	cat_len=3650.
+	#
+	plt.figure(fignum, figsize=(12,10))
+	etas = globalETAS.ETAS_mpp(lats=lats, lons=lons, mc=mc, d_lon=d_lon, d_lat=d_lat, etas_range_factor=etas_range_factor, etas_range_padding=etas_range_padding, etas_fit_factor=etas_fit_factor, t_now=t_now, cat_len=cat_len, n_cpu=n_cpu)
+	mp = etas.make_etas_contour_map(fignum=fignum, map_resolution='f', lat_interval=20, lon_interval=20)
+	plt.savefig('%s/etas_contours_%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
+	#
+	# not sure if this will take an array as an input. if not, it should...
+	#draw_global_etas_contours(xyz=etas.ETAS_array, fignum=0, n_conts=15, cmap=plt.cm.jet)
+	#
+	with open(fout_xyz,'w') as fout:
+		fout.write('#global ETAS\n#lats={lats!s}\tlons={lons!s}\tmc={mc!s}\td_lon={dlon!s}\td_lat={dlat!s}\tetas_range_factor={erf!s}\tetas_range_padding={erp!s}\tetas_fit_factor={eff!s}\tt_now={tnow!s}\tcat_len={catlen!s}\n'.format(lats=lats, lons=lons, mc=mc, dlon=d_lon, dlat=d_lat, erf=etas_range_factor, erp=etas_range_padding, eff=etas_fit_factor,tnow=t_now,catlen=cat_len))
+		#
+		[fout.write('\t'.join([str(x) for x in rw])+'\n') for j,rw in enumerate(etas.ETAS_array)]
+		#
+	#
+	roc_marker=''
+	roc_ls = '-'
+	roc_lw=2.
+	roc_glob = global_roc_from_optimizer(fc_xyz=etas.ETAS_array, fignum=fignum+1, etas_end_date=t_now+dtm.timedelta(days=1), mcs=[4.,5., 6.], fc_len=fc_len, ls=roc_ls, marker=roc_marker, lw=roc_lw)
+	#
+	#plt.savefig('%s/etas_global_roc_a__%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
+	etas_png_fpath = os.path.join(out_path, 'etas_global_roc_a_{}.png'.format(t_now))
+	plt.savefig(etas_png_fpath)
+	#
+	# ... and maybe we need to save the ROC data as well?
+	#
+	return{'etas':etas, 'roc':roc_glob}
+#
+# 2016-04-12 12:52:58.803348+00:00
+def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0, etas_end_date = None, mcs=6.0, fc_len=120, ls='-', marker='.', lw=2.5, x_scale='linear', y_scale='linear'):
+	#yoder, 2016_08_01:
+	# note, of course, this is for a specific run of a global ETAS, so get this all stitched together as soon as possible...
+	#
+	#etas_end_date = dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))		# ran ETAS sometime on 29 Nov. so we'll start our test period after the 30th.
+	
+	# this is still a bit of a mess, but this default behavior is consistent with the calc_global_etas behavior, above.
+	# dtm.datetime(2015,11,30, tzinfo=pytz.timezone('UTC'))
+	etas_end_date = (etas_end_date or dtm.datetime.now(globalETAS.tzutc)-dtm.timedelta(days=fc_len-1))
+	
 	fc_end_date = etas_end_date + dtm.timedelta(days=fc_len)
 	if not hasattr(mcs, '__getitem__'): mcs = [mcs]
 	#
@@ -321,14 +322,18 @@ def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0,
 		#FH = roc_tools.calc_roc(Z_fc, Z_ev)
 		roc_obj = roc_tools.ROC_xyz_handler(fc_xyz=fc_xyz, events_xyz=events_xyz)
 		FHs += [[mc, roc_obj.calc_roc()]]
-	#
+	#	
 	if not fignum is None:
 		plt.figure(fignum)
 		plt.clf()
 		ax=plt.gca()
+		ax.set_xscale(x_scale)
+		ax.set_yscale(y_scale)
+		#		
 		for j,(mc, FH) in enumerate(FHs):
 			ax.plot(*zip(*FH), marker=marker, ls=ls, lw=lw, label='$m_c={:.2f}$'.format(mc), zorder=5)
-		ax.plot(range(2), range(2), color='r', ls='--', lw=2., label='$H=F$', zorder=4)
+		# plot a bunch of points along the H=F line in case we log-transform...
+		ax.plot(numpy.linspace(0.,1., 250), numpy.linspace(0.,1., 250), color='r', ls='--', lw=2., label='$H=F$', zorder=4)
 		ax.legend(loc=0, numpoints=1)
 		#
 		# draw random roc:
@@ -338,51 +343,14 @@ def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0,
 		ax.set_ylabel('Hit Rate $H$', size=18)
 		ax.set_title('Golbal ETAS ROC\n{} + {} days'.format(etas_end_date, fc_len))
 	#
+	ax.set_xlim(0., 1.05)
+	ax.set_ylim(0.,1.05)
 	if len(FH)==1:
 		return FH[0][1]
 	else:
 		return FHs
+####################
 
-
-def global_etas_and_roc(fc_len=120, out_path = 'figs', fout_xyz='global_etas.xyz', fignum=0, m_cs=[4.0, 5.0, 6.0, 6.5], n_cpu=None):
-	# a soup-to-nuts global ETAS and roc bit. calculate a global ETAS up to fc_len days ago (fc_len+1?); then do ROC on that data set.
-	#
-	if not os.path.isdir(out_path): os.makedirs(out_path)
-	fout_xyz = os.path.join(out_path, fout_xyz)
-	#
-	n_cpu = (n_cpu or mpp.cpu_count())
-	if not os.path.isdir(os.path.split(fout_xyz)[0]): os.makedirs(os.path.split(fout_xyz)[0])
-	#
-	lats=[-89., 89.]
-	lons=[-180., 180.]
-	mc=3.0
-	d_lon=.1
-	d_lat=.1
-	etas_range_factor=15.
-	etas_range_padding=.5
-	etas_fit_factor=1.5
-	t_now=dtm.datetime.now(globalETAS.tzutc)-dtm.timedelta(days=fc_len-1)
-	cat_len=3650.
-	#
-	etas = globalETAS.ETAS_mpp(lats=lats, lons=lons, mc=mc, d_lon=d_lon, d_lat=d_lat, etas_range_factor=etas_range_factor, etas_range_padding=etas_range_padding, etas_fit_factor=etas_fit_factor, t_now=t_now, cat_len=cat_len, n_cpu=n_cpu)
-	mp = etas.make_etas_contour_map(fignum=fignum, map_resolution='f')
-	plt.savefig('%s/etas_contours_%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
-	#
-	with open(fout_xyz,'w') as fout:
-		fout.write('#global ETAS\n#lats={lats!s}\tlons={lons!s}\tmc={mc!s}\td_lon={dlon!s}\td_lat={dlat!s}\tetas_range_factor={erf!s}\tetas_range_padding={erp!s}\tetas_fit_factor={eff!s}\tt_now={tnow!s}\tcat_len={catlen!s}\n'.format(lats=lats, lons=lons, mc=mc, dlon=d_lon, dlat=d_lat, erf=etas_range_factor, erp=etas_range_padding, eff=etas_fit_factor,tnow=t_now,catlen=cat_len))
-		#
-		[fout.write('\t'.join([str(x) for x in rw])+'\n') for j,rw in enumerate(etas.ETAS_array)]
-		#
-	#
-	roc_glob = global_roc_from_optimizer(fc_xyz=etas.ETAS_array, fignum=fignum, mcs=6.0, fc_len=fc_len, ls=ls, marker=marker, lw=lw)
-	#roc_glob = global_roc3(fc_xyz=etas.ETAS_array, n_cpu=None, fnum=fnum+1, m_cs=m_cs, test_catalog=None, fc_start_date=t_now+dtm.timedelta(days=1), fc_end_date=t_now+dtm.timedelta(days=121))
-	#plt.savefig('%s/etas_global_roc_a__%s.png' % (os.path.split(fout_xyz)[0], str(t_now)))
-	etas_png_fpath = os.path.join(out_path, 'etas_global_roc_a_{}.png'.format(t_now))
-	plt.savefig(etas_png_fpath)
-	#
-	# ... and maybe we need to save the ROC data as well?
-	#
-	return{'etas':etas, 'roc':roc_glob}
 
 def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv'):
 	# make some figures for geospatial roc
@@ -432,6 +400,71 @@ def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv'):
 	plt.colorbar()
 	
 	return X
+
+
+def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_conts=15, cmap=plt.cm.jet):
+	plt.figure(fignum)
+	plt.clf()
+	mm = Map_drawer(xyz=xyz)
+	mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=fignum)
+	#return mm
+	#
+	lns, lts = mm.lonses, mm.latses
+	Zs = numpy.log10([rw[2] for rw in mm.XYZ])
+	Zs.shape=(len(lts), len(lns))
+	#
+	plt.figure(fignum)
+	# plt.cm.coolwarm
+	print('cmap: ', cmap)
+	plt.contourf(lns, lts, Zs, n_conts, alpha=.65, zorder=11, cmap=cmap)
+	plt.colorbar()
+
+def roc_random(n_events=100, n_fc=10000, n_rocs=100, ax=None, n_bins=100, line_color='m', shade_color='m', zorder=1):
+	# calculate a bunch of random ROCs (random events, random forecasts) and plot an envelope figure.
+	# by passing ax={matplotlib.axes (axis?)} object, we can use this script to plot a "random-envelope" onto an 
+	# independently computed ROC figure.
+	#
+	R=random.Random()
+	#
+	if ax==None:
+		plt.figure()
+		plt.clf()
+		ax=plt.gca()
+	#
+	dx=1./n_bins
+	j_bin = lambda x: int(x/dx)
+	#x_min_max = [[(j+1.)/float(n_bins), 1., 0.] for j in range(n_bins)]
+	x_min_max = [[(j)/float(n_bins), 1., 0.] for j in range(n_bins+1)]
+	#
+	for j in range(n_rocs):
+		Z_events=[R.random() for j in range(n_events)]
+		Z_fc=sorted([R.random() for j in range(n_fc)])
+		#
+		roc_FH = roc_tools.calc_roc(Z_fc, Z_events, f_denom=None, h_denom=None)
+		#
+		#ax=plt.plot(C.F, C.H, '-', lw=2.0, alpha=.5)
+		#ax.plot(*zip(*roc_FH), marker='.', ls='')
+		#
+		# bin up the F,H values (you know, maybe a better way is to use scipy.interpolate...
+		#for k,(f,h) in enumerate(zip(C.F, C.H)):
+		for k, (f,h) in enumerate(roc_FH):
+			bin = j_bin(f)
+			while bin>=len(x_min_max): 
+				print('extending...')
+				x_min_max += [[x_min_max[-1][0]+dx, 0.,0.]]	# sometimes we get a little integer overhang
+			#print('bin: ', bin, f)
+			x_min_max[bin][1]=min(x_min_max[bin][1], h)
+			x_min_max[bin][2]=max(x_min_max[bin][2], h)
+		#
+	#
+	X,mn, mx = zip(*x_min_max)
+	#return X,mn,mx
+	ax.plot(X,mn, color=line_color, ls='-', lw=2., alpha=.7, zorder=zorder)
+	ax.plot(X,mx, color=line_color, ls='-', lw=2., alpha=.7, zorder=zorder)
+	ax.fill_between(X,mn,mx, color=shade_color, alpha=.3, zorder=zorder)
+	#
+	return X,mn,mx
+	
 	
 def roc_fig_geospatial_fast_raw():
 	# roc figure for q/q range(s).use pre-compiled data.
