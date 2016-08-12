@@ -672,8 +672,8 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	# this script draws a bunch of geospatial ROC figures. we'll use this script to draw a quad-figure with
 	# z_fc, z_test, hits, falsies.
 	#
-	if etas_fc   == None: etas_fc   = get_nepal_etas_fc()
-	if etas_test == None: etas_test = get_nepal_etas_test()
+	if etas_fc   == None: etas_fc   = get_nepal_etas_fc(n_procs=2*mpp.cpu_count())
+	if etas_test == None: etas_test = get_nepal_etas_test(n_procs=2*mpp.cpu_count())
 	#
 	f_quad = plt.figure(42)
 	plt.clf()
@@ -787,7 +787,7 @@ def get_gs_diffs(z1,z2):
 # these probably belong in the nepal_figs module and/or notebook:
 def nepal_linear_roc():
 	# production figure script (almost... just script ranges).
-	diffs = analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=True)
+	diffs = analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=False)
 	AA=roc_gs_linear_figs(diffs)
 #
 def roc_gs_linear_figs(diffs, fignum=0):
