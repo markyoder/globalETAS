@@ -775,7 +775,9 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 			#ax2.colorbar()
 	#
 	if diagnostic:
-		return [diffs_lbls] + diffs
+		print('***', diffs_lbls, type(diffs))
+		#return [diffs_lbls] + diffs
+		return diffs
 	else:
 		return F,H
 	#return F,H
@@ -787,7 +789,7 @@ def get_gs_diffs(z1,z2):
 # these probably belong in the nepal_figs module and/or notebook:
 def nepal_linear_roc():
 	# production figure script (almost... just script ranges).
-	diffs = analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=False)
+	diffs = analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=True)
 	AA=roc_gs_linear_figs(diffs)
 #
 def roc_gs_linear_figs(diffs, fignum=0):
@@ -795,11 +797,12 @@ def roc_gs_linear_figs(diffs, fignum=0):
 	# plot out the various arrays like time-series. show the various H,F, etc. in time series.
 	# (i think this is basically a diagnostic plot at this point).
 	#
-	cols = diffs[0]
-	diffs = diffs[1:]
-	print('cols: ', cols)
-	#
-	diffs = numpy.core.records.fromarrays(zip(*diffs),  names=cols, formats=['float' for c in cols])
+	if not hasattr(diffs, 'dtype'):
+		cols = diffs[0]
+		diffs = diffs[1:]
+		print('cols: ', cols)
+		#
+		diffs = numpy.core.records.fromarrays(zip(*diffs),  names=cols, formats=['float' for c in cols])
 	#
 	f = plt.figure(fignum)
 	plt.clf()
