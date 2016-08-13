@@ -674,6 +674,7 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	#
 	if etas_fc   == None: etas_fc   = get_nepal_etas_fc(n_procs=2*mpp.cpu_count())
 	if etas_test == None: etas_test = get_nepal_etas_test(n_procs=2*mpp.cpu_count())
+	etas_test.make_etas()
 	#
 	f_quad = plt.figure(42)
 	plt.clf()
@@ -817,12 +818,13 @@ def roc_gs_linear_figs(diffs, fignum=0):
 	#
 	X=numpy.arange(len(diffs))
 	#
+	# TODO: sort out the z-orders and alphas...
 	for ax in (ax0, ax_main):
-		ax.plot(X, diffs['z_fc'], '-', lw=3., label='forecast')
-		ax.plot(X, diffs['z_test'], '-', lw=3., label='test')
+		ax.plot(X, diffs['z_fc'], '-', lw=3., label='forecast', zorder=4, alpha=.7)
+		ax.plot(X, diffs['z_test'], '-', lw=3., label='test', zorder=5, alpha=.7)
 		ax.fill_between(X, y1=numpy.zeros(len(diffs['z_fc'])), y2=diffs['hits'], color='c', alpha=.25)
-		ax.fill_between(X, y1=diffs['z_test'], y2=diffs['z_fc'], where=[True if zfc<ztest else False for zfc,ztest in zip(diffs['z_fc'],diffs['z_test'])], label='misses', color='r', alpha=.8)
-		ax.fill_between(X, y1=diffs['z_test'], y2=diffs['z_fc'], where=[True if zfc>ztest else False for zfc,ztest in zip(diffs['z_fc'],diffs['z_test'])], label='falsies', color='m', alpha=.25)
+		ax.fill_between(X, y1=diffs['z_test'], y2=diffs['z_fc'], where=[True if zfc<ztest else False for zfc,ztest in zip(diffs['z_fc'],diffs['z_test'])], label='misses', color='r', alpha=.8, zorder=6)
+		ax.fill_between(X, y1=diffs['z_test'], y2=diffs['z_fc'], where=[True if zfc>ztest else False for zfc,ztest in zip(diffs['z_fc'],diffs['z_test'])], label='falsies', color='m', alpha=.25, zorder=6)
 		ax.legend(loc=0, numpoints=1)
 		ax.set_title('Hits, False Alarms, Misses')
 	
