@@ -515,9 +515,15 @@ def nepal_roc_normal_script(fignum=0):
 		plt.plot(*zip(*FH), marker='.', ls='', alpha=.6)
 '''		
 	
-	#
+#
+# since these are specific to nepal (see internal code), they should be moved to nepal_figs... and cleaned up. maybe not in that order.
 def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5, dq_fc=.1, dq_t=.1, fignum=0, fout='data/roc_geospatial_raw.csv'):
 	# evaluating the optimal q_fc, q_test parameter(s) for geospatial ROC:
+	# 	# looks like this is functionally equivalent to etas_roc_geospatial_fcset(), but maybe better optimized?
+	# we might rethink this analysis a bit and compare the individual roc scores for each site (see figure in notebook).
+	# TODO: these are specific to nepal (see guts of analyze_etas_roc_geospatial()) we need to rewrite this to do a generic
+	# etas-geospatial analysis for two input regions, or maybe two input etas objects/catalogs, but where we re-calc. etas
+	# for a range of q values.
 	#
 	# this will be bruatl, but just calc the etas from scratch for each value.
 	# unfortunately, i don't think we have enought memory to calc all ~20 of them into memory and then iterate, so there will
@@ -547,6 +553,9 @@ def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5
 	return FH
 			
 def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=3.5, q_test_min=1.1, q_test_max=3.5, do_log=True, dq_fc=.1, dq_test=.1, fignum=0, fout='roc_geospatial_fast.csv'):
+	# full q_fc, q_t analysis. this includes a wrapper around etas_roc_geospatial_set() to do full blown
+	# q_fc vs q_t optimization.
+	# looks like this is functionally equivalent to etas_roc_geospatial_raw(), but maybe better optimized?
 	#
 	#if etas_fc==None: 
 	etas_fc=get_nepal_etas_fc()
@@ -611,6 +620,8 @@ def etas_roc_geospatial_set(etas_fc=None, etas_test=None, do_log=True, q_test_mi
 #
 def roc_plots_from_gsroc(FH, fignum=0):
 	# some figures for geospatial type ROC.
+	# FH input: output from one of the geospatial analyses like:
+	# etas_roc_geospatial_set()
 	#
 	if len(FH[0])==4: cols = {key:val for key,val in zip(['q_fc', 'q_t', 'F', 'H'], range(4))}
 	if len(FH[0])==3: cols = {key:val for key,val in zip(['q_t', 'F', 'H'], range(3))}
