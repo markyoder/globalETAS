@@ -8,6 +8,7 @@ import sys
 import os
 import datetime as dtm
 import pytz
+import json
 from geographiclib.geodesic import Geodesic as ggp
 
 import globalETAS
@@ -359,19 +360,23 @@ def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0,
 ####################
 
 
-def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv'):
+def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv', fignum=0):
 	# make some figures for geospatial roc
 	#
 	with open(data,'r') as f:
 		#X = [[x,y, h-f] for x,y,f,h in rw.split() for rw in f if rw[0]!='#']
-		X = []
-		for rw in f:
-			if rw[0]=='#': continue
-			x,y,f,h=[float(x) for x in rw.split()]
-			X += [[x,y,h-f]]
+		if os.path.splitext(data)[1]=='.json':
+			# TODO: make this file-type handling smarter...
+			X = json.load(open(data))
+		else:
+			X = []
+			for rw in f:
+				if rw[0]=='#': continue
+				x,y,f,h=[float(x) for x in rw.split()]
+				X += [[x,y,h-f]]
 	#
 	#
-	fg = plt.figure(0)
+	fg = plt.figure(fignum)
 	plt.clf()
 	ax = fg.add_subplot(111, projection='3d')
 	ax.set_xlabel('$q_{fc}$', size=18)
@@ -380,13 +385,15 @@ def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv'):
 	#
 	ax.scatter(*zip(*X), marker='.')
 	#
-	Xs = list(set([rw[0] for rw in X]))
-	Ys = list(set([rw[1] for rw in X]))
+	Xs = sorted(list(set([rw[0] for rw in X])))
+	Ys = sorted(list(set([rw[1] for rw in X])))
 	n_x=len(Xs)
 	n_y=len(Ys)
-	Z=numpy.array([rw[2] for rw in X])
-	Z.shape=(n_x, n_y)
-	#plt.clf()
+	#Z=numpy.array([rw[2] for rw in X])
+	Z=numpy.array([rw[3]-rw[2] for rw in X])
+	#Z.shape=(n_x, n_y)
+	Z.shape=(n_y, n_x)
+	#
 	xx = numpy.array([rw[0] for rw in X])
 	yy = numpy.array([rw[1] for rw in X])
 	xx.shape = Z.shape
@@ -397,7 +404,8 @@ def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv'):
 	ax.plot_trisurf(*zip(*X), cmap='coolwarm', lw=.5)
 	cset=ax.contourf(Xs, Ys, list(zip(*Z)), 25, zdir='z', offset=.67, cmap=mpl.cm.coolwarm)
 	#
-	plt.figure(1)
+	#TODO: wrap this into a multi-axes figure? may
+	plt.figure(fignum+1)
 	plt.clf()
 	plt.contourf(Xs,Ys,list(zip(*Z)), 25, cmap=mpl.cm.coolwarm)
 	#plt.contourf(Xs,Ys,Z, 25, cmap=mpl.cm.coolwarm)
