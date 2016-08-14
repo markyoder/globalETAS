@@ -517,6 +517,7 @@ def nepal_roc_normal_script(fignum=0):
 	
 #
 # since these are specific to nepal (see internal code), they should be moved to nepal_figs... and cleaned up. maybe not in that order.
+# full roc geospatial for ranges of q_fc, q_test, straight up, NOT using etas_roc_geospatial() as in intermediate script.
 def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5, dq_fc=.1, dq_t=.1, fignum=0, fout='data/roc_geospatial_raw.csv'):
 	# evaluating the optimal q_fc, q_test parameter(s) for geospatial ROC:
 	# 	# looks like this is functionally equivalent to etas_roc_geospatial_fcset(), but maybe better optimized?
@@ -529,6 +530,10 @@ def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5
 	# unfortunately, i don't think we have enought memory to calc all ~20 of them into memory and then iterate, so there will
 	# be some redundancy.
 	#
+	# note: we could improve performance using mpp; basically thread off each job (use itertools.product() as a full spp task; aka,
+	# run each etas calc. in spp mode). so we modify the nested for-loop (on q_t) to 1) add all the jobs to a list-queue,
+	# 2) process them in a Pool() (write a wrapper function), 3) collect results.
+
 	FH=[]
 	for q_fc in numpy.arange(q_fc_min,q_fc_max+dq_fc,dq_fc):
 		etas_fc=get_nepal_etas_fc(q_cat=q_fc)
@@ -551,7 +556,8 @@ def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5
 		#
 	#
 	return FH
-			
+
+# full roc geospatial for ranges of q_fc, q_test, using etas_roc_geospatial() as in intermediate script.		
 def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=3.5, q_test_min=1.1, q_test_max=3.5, do_log=True, dq_fc=.1, dq_test=.1, fignum=0, fout='roc_geospatial_fast.csv'):
 	# full q_fc, q_t analysis. this includes a wrapper around etas_roc_geospatial_set() to do full blown
 	# q_fc vs q_t optimization.
@@ -766,9 +772,10 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 		#plt.contourf(numpy.log10(zz), 25)
 		plt.contourf(lon_vals, lat_vals, zz, 25)
 		plt.title(diffs_lbls[j])
-		plt.colorbar()
+		plt.colorbar() 
 		#
 		# ... and make our quad-plot too:
+		#(and it would be smarter to distinguish the columns by their actual names, not indices...).
 		if j==0:
 			ax1.contourf(lon_vals, lat_vals, zz, 25)
 			ax1.set_title('Forecast ETAS')
@@ -787,6 +794,7 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 			#ax2.colorbar()
 	#
 	if diagnostic:
+		# diagnostic, or if we want to explicityly return the diffs object (has [z1, z2, z2-z1, hits(z1,z2), falsies(z1,z2)], etc.)
 		print('***', diffs_lbls, type(diffs))
 		#return [diffs_lbls] + diffs
 		return diffs

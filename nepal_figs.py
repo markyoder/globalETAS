@@ -347,11 +347,13 @@ def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0,
 		ax.set_xlabel('False Alarm rate $F$', size=18)
 		ax.set_ylabel('Hit Rate $H$', size=18)
 		ax.set_title('Golbal ETAS ROC\n{} + {} days'.format(etas_end_date, fc_len))
+		#
+		ax.set_xlim(0., 1.05)
+		ax.set_ylim(0.,1.05)
 	#
-	ax.set_xlim(0., 1.05)
-	ax.set_ylim(0.,1.05)
-	if len(FH)==1:
-		return FH[0][1]
+	# at some point, double-check the first case (one FH) case; make sure it's returning properly.
+	if len(FHs)==1:
+		return FHs[0][1]
 	else:
 		return FHs
 ####################
