@@ -255,10 +255,12 @@ class Global_ETAS_model(object):
 		X.shape=(len(self.latses), len(self.lonses))
 		return X
 	#
-	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=None, d_lat_range=None ):
+	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=None, d_lat_range=None, lats_map=None, lons_map=None ):
 		'''
 		# plot contours over a map.
 		'''
+		lons_map = (lons_map or self.lons)
+		lats_map = (lats_map or self.lats)
 		#
 		# first, get contours:
 		#etas_contours = self.calc_etas_contours(n_contours=n_contours, fignum=fignum, contour_fig_file=contour_fig_file, contour_kml_file=contour_kml_file, kml_contours_bottom=kml_contours_bottom, kml_contours_top=kml_contours_top, alpha_kml=alpha_kml, refresh_etas=refresh_etas)
@@ -271,9 +273,11 @@ class Global_ETAS_model(object):
 		plt.figure(fignum, fig_size)
 		plt.clf()
 		#
-		lons, lats = self.lons, self.lats
-		cntr = [numpy.mean(lons), numpy.mean(lats)]
-		cm = Basemap(llcrnrlon=self.lons[0], llcrnrlat=self.lats[0], urcrnrlon=self.lons[1], urcrnrlat=self.lats[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1])
+		#lons, lats = self.lons, self.lats
+		#cntr = [numpy.mean(lons), numpy.mean(lats)]
+		cntr = [numpy.mean(lons_map), numpy.mean(lats_map)]
+		#cm = Basemap(llcrnrlon=self.lons[0], llcrnrlat=self.lats[0], urcrnrlon=self.lons[1], urcrnrlat=self.lats[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1])
+		cm = Basemap(llcrnrlon=lons_map[0], llcrnrlat=lats_map[0], urcrnrlon=lons_map[1], urcrnrlat=lats_map[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1])
 		#
 		#cm.drawlsmask(land_color='0.8', ocean_color='b', resolution=map_resolution)
 		cm.drawcoastlines(color='gray', zorder=1)
@@ -287,16 +291,16 @@ class Global_ETAS_model(object):
 		#
 		#cm.drawmeridians(range(int(lons[0]), int(lons[1])), color='k', labels=[0,0,1,1])
 		#cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
-		cm.drawmeridians(numpy.arange(int(lons[0]/d_lon_range)*d_lon_range, lons[1], d_lon_range), color='k', labels=[0,0,1,1])
-		cm.drawparallels(numpy.arange(int(lats[0]/d_lat_range)*d_lat_range, lats[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
+		cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=[0,0,1,1])
+		cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
 		#
 		return cm
-	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None):
+	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None, lats_map=None, lons_map=None ):
 		n_contours = (n_contours or self.n_contours)
 		#
 		# mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=0)
 		#cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
-		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection, d_lon_range=lon_interval, d_lat_range=lat_interval)
+		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection, d_lon_range=lon_interval, d_lat_range=lat_interval, lons_map=lons_map, lats_map=lats_map)
 		#
 		X,Y = cm(numpy.array(self.lonses), numpy.array(self.latses))
 		#print("xylen: ", len(X), len(Y))
@@ -783,7 +787,7 @@ class ETAS_mpp_handler_xyz(Global_ETAS_model):
 																										# the ETAS_range parameter carefully...
 		#
 		if n_cpu is None: n_cpu = max(1, mpp.cpu_count()-1)
-		self.n_cpu = n_cpu
+		self.n_cpu = int(numpy.ceil(n_cpu))
 		#
 		# go ahead and run the base class __init__. this basically handles lats, lons, forecast_time, and some other bits and then kicks off make_etas(), where we'll
 		#kwargs['make_etas']=False

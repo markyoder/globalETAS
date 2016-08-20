@@ -32,7 +32,10 @@ nepal_mainshock = {'mag':7.8, 'lon':84.708, 'lat':28.147}
 
 class Map_drawer(object):
 	# container class to draw maps and stuff like that.
-	def __init__(self, xyz='data/global_xyz_20151129.xyz'):
+	def __init__(self, xyz='data/global_xyz_20151129.xyz', map_lats=None, map_lons=None):
+		#@map_lats/lons: lat, lon ranges for the map (aka, passed to basemap), which might be different than the lats, lons
+		# found in the xyz file.
+		#
 		#self.__dict__.update(locals())
 		#self.fignum=fignum
 		if isinstance(xyz, str):
@@ -47,6 +50,8 @@ class Map_drawer(object):
 		self.lons = (min(self.lonses), max(self.lonses))
 		self.lats = (min(self.latses), max(self.latses))
 		#
+		self.map_lats = (map_lats or self.lats)
+		self.map_lons = (map_lons or self.lons)
 		
 			
 	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=1., d_lat_range=1., lats=None, lons=None):
@@ -62,9 +67,15 @@ class Map_drawer(object):
 		plt.figure(fignum, fig_size)
 		plt.clf()
 		#
+		# lat, lon range for the map:
 		#lons, lats = self.lons, self.lats
+		lons = (lons or self.map_lons)
+		lats = (lats or self.map_lats)
+		#
+		# ... and if for some reason, we don't have those...
 		lons = (lons or self.lons)
 		lats = (lats or self.lats)
+		
 		#	
 		cntr = [numpy.mean(lons), numpy.mean(lats)]
 		cm = Basemap(llcrnrlon=self.lons[0], llcrnrlat=self.lats[0], urcrnrlon=self.lons[1], urcrnrlat=self.lats[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1])
@@ -285,7 +296,7 @@ def global_etas_and_roc(fout_xyz='global_etas.xyz', fc_len=120, out_path = 'figs
 	#
 	return{'etas':etas, 'roc':roc_glob}
 #
-# 2016-04-12 12:52:58.803348+00:00
+# etas fc end date (about 120 days before revision time): 2016-04-12 12:52:58.803348+00:00
 def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0, etas_end_date = None, mcs=6.0, fc_len=120, ls='-', marker='.', lw=2.5, x_scale='linear', y_scale='linear'):
 	#yoder, 2016_08_01:
 	# note, of course, this is for a specific run of a global ETAS, so get this all stitched together as soon as possible...
