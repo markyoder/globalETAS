@@ -346,6 +346,11 @@ def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0,
 		ax=plt.gca()
 		ax.set_xscale(x_scale)
 		ax.set_yscale(y_scale)
+		#
+		#fg_log = plt.figure(fignum+1)
+		#fg_log.clf()
+		#ax2=plt.gca()
+		
 		#		
 		for j,(mc, FH) in enumerate(FHs):
 			ax.plot(*zip(*FH), marker=marker, ls=ls, lw=lw, label='$m_c={:.2f}$'.format(mc), zorder=5)
