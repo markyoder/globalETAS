@@ -367,7 +367,13 @@ def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv', fignum=0):
 		#X = [[x,y, h-f] for x,y,f,h in rw.split() for rw in f if rw[0]!='#']
 		if os.path.splitext(data)[1]=='.json':
 			# TODO: make this file-type handling smarter...
-			X = json.load(open(data))
+			FH = json.load(open(data))
+			X = []
+			for rw in FH:
+				if rw[0]=='#': continue
+				#x,y,f,h = [float(x) for x in rw.split()]
+				x,y,f,h = rw
+				X += [[x,y,h-f]]
 		else:
 			X = []
 			for rw in f:
@@ -389,8 +395,8 @@ def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv', fignum=0):
 	Ys = sorted(list(set([rw[1] for rw in X])))
 	n_x=len(Xs)
 	n_y=len(Ys)
-	#Z=numpy.array([rw[2] for rw in X])
-	Z=numpy.array([rw[3]-rw[2] for rw in X])
+	Z=numpy.array([rw[2] for rw in X])
+	#Z=numpy.array([rw[3]-rw[2] for rw in X])
 	#Z.shape=(n_x, n_y)
 	Z.shape=(n_y, n_x)
 	#
