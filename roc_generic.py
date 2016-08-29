@@ -1,4 +1,7 @@
 '''
+# DEPRICATION: This module represents a good investigation, development, and benchmarking of some mpp methods, but a
+# much simpler, faster ROC can be found in the optimizers/roc_tools.py module.
+#
 # some generic ROC tools, and playing a bit with shared memory mpp as well.
 # (eventually, this needs to be moved into a general-tools repository). also,
 # lets see if we can't @numba.jit  compile some of these bits...
@@ -39,6 +42,10 @@ print('NOTE: the Aray() (shared memory) vs piped mpp tests are probably worth ke
 class Array_test(object):
 	def __init__(self, N=1000):
 		# just a toy, test script to work with mpp.Array() and other mpp stuff.
+		# this (shared memory) approach to Python mpp significatnly underperformed standard piping models in earlier tests.
+		# however, it might be worth looking at it for the newer, single-pass ROC methods (see optimizers.roc_tools.py).
+		# because this approach is single-pass, its spp implementation is faster than piped mpp, but shared memory (Array() ),
+		# even in Python, might be faster, especially for a simplified metric, like Molchan vs true ROC...
 		#
 		R1 = random.Random()
 		R2 = random.Random()
@@ -252,6 +259,7 @@ class ROC_generic(object):
 	#
 	def roc_sparse_approx(self):
 		# a minor approximation when not sparse:
+		# but note we repeatedly sum over the events array, so this gets really slow for large catalogs.
 		self.F, self.H = zip(* [[(self.f_start + j)/self.f_denom, sum([(z_ev>=z_fc) for z_ev in self.Z_events])/self.h_denom] for j,z_fc in enumerate(self.Z_fc)] )
 	#
 	'''
