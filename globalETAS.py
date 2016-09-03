@@ -388,10 +388,11 @@ class Global_ETAS_model(object):
 	#
 	def export_kml(self, fout='etas_contours.kml', kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5):
 		#
-		self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=fout)
+		self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=None)
 		p_name, f_name = os.path.split(fout)
 		if not os.path.isdir(p_name): os.makedirs(p_name)
-		open(fout,'w').write(self.contours_kml_str)
+		with open(fout,'w') as f:
+			f.write(self.contours_kml_str)
 		#
 	#
 	def kml_from_contours(self, contours=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
@@ -409,10 +410,15 @@ class Global_ETAS_model(object):
 		#
 		# export ETAS_array as xyx format.
 		#
-		if not os.path.isdir(os.path.split(fout)[0]):
-			os.makedirs(os.path.split(fout))
+		p_name, f_name = os.path.split(fout)
+		#
+		if not os.path.isdir(p_name):
+			os.makedirs(os.path.split(p_name))
 		#
 		with open(fout, 'w') as f:
+			f.write('#globalETAS xyz (lon, lat, z_etas) export\n')
+			f.write('#eventually, add metadata\n')
+			f.write('#!x\t\y\tz\n')
 			[f.write('\t'.join([str(x) for x in rw]) + '\n') for rw in self.ETAS_array.tolist()]
 		#
 		
@@ -704,7 +710,8 @@ class ETAS_mpp_handler(Global_ETAS_model):
 		self.etas_kwargs = {key:val for key,val in kwargs.items() if key not in ['n_proocesses']}		# or any other kwargs we want to skip. note: might need to handle
 																										# the ETAS_range parameter carefully...
 		#
-		if n_cpu is None: n_cpu = max(1, mpp.cpu_count()-1)
+		#if n_cpu is None: n_cpu = max(1, mpp.cpu_count()-1)
+		n_cpu = (n_cpu or mpp.cpu_count())
 		self.n_cpu = n_cpu
 		#
 		# go ahead and run the base class __init__. this basically handles lats, lons, forecast_time, and some other bits and then kicks off make_etas(), where we'll
@@ -787,6 +794,7 @@ class ETAS_mpp_handler_xyz(Global_ETAS_model):
 																										# the ETAS_range parameter carefully...
 		#
 		if n_cpu is None: n_cpu = max(1, mpp.cpu_count()-1)
+		n_cpu = (n_cpu or mpp.cpu_count())
 		self.n_cpu = int(numpy.ceil(n_cpu))
 		#
 		# go ahead and run the base class __init__. this basically handles lats, lons, forecast_time, and some other bits and then kicks off make_etas(), where we'll
