@@ -932,7 +932,9 @@ class Earthquake(object):
 		#
 		#self.ab_ratio = min(transform_ratio_max, max(self.e_vals)/min(self.e_vals))
 		#self.ab_ratio_raw = max(self.e_vals)/min(self.e_vals)
-		self.ab_ratio_raw = math.sqrt(abs(max(self.e_vals)/min(self.e_vals)))
+		#
+		#self.ab_ratio_raw = math.sqrt(abs(max(self.e_vals)/min(self.e_vals)))
+		self.ab_ratio_raw = (math.sqrt(abs(max(self.e_vals)/min(self.e_vals))) if not min(self.e_vals)==0. else transform_ratio_max)
 		self.set_transform()
 		#
 		#####
@@ -998,9 +1000,15 @@ class Earthquake(object):
 		# the sqrt(eigen_values) of the covariance (which makes sense; the basis lengths are approximately the standard deviation in some direction;
 		# the covariance eigenvalues are variance). 
 		# let's catch the cases where an eigenvalue=0...
+		# ... and it looks like we're calculating this twice, so let's consolidate...
+		#
+		# TODO: this ab_ratio code has seen some revision. i think this is the correct version now, so let's confirm that and clean it up.
+		#
 		#ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)
-		ab_ratio = min(transform_ratio_max, (max( (e_vals[0]/e_vals[1] if e_vals[1]!=0. else transform_ratio_max),\
-		 (e_vals[1]/e_vals[0] if e_vals[0]!=0. else transform_ratio_max) ) )**ab_ratio_expon)
+		#ab_ratio = min(transform_ratio_max, (max( abs(e_vals[0]/e_vals[1] if e_vals[1]!=0. else transform_ratio_max),\
+		# abs(e_vals[1]/e_vals[0] if e_vals[0]!=0. else transform_ratio_max) ) )**ab_ratio_expon)
+					
+		#ab_ratio = max(abs(e_vals))/min(abs(e_vals)) if not min(abs(e_vals))!=0 else transform_ratio_max
 		#																								# note: this **.5 on the e0/e1 value is quasi-arbitrary.
 		#																								# ok, so what specifically is e0/e1 supposed to be? stdev, var?
 		#																								# in any case, it seems to be pretty huge almost all the
@@ -1010,8 +1018,16 @@ class Earthquake(object):
 		#
 		# note: this is sqrt(eigen-values)**ab_ratio_expon. the basis vector lengths are sqrt(eig-vals); then the elliptical area uses the factor
 		# sqrt(ab_ratio) 
-		ab_ratio = min(transform_ratio_max, (max((abs(e_vals[0]/e_vals[1]), abs(e_vals[1]/e_vals[0])))))**(.5*ab_ratio_expon)
-		#abratio = 2.0
+		#ab_ratio = min(transform_ratio_max, (max((abs(e_vals[0]/e_vals[1]), abs(e_vals[1]/e_vals[0])))))**(.5*ab_ratio_expon)
+		abs_evals = numpy.abs(e_vals)
+		# outer max(): catch the case where the largest eigenvalue is 0.
+		# then, biggest lambda / smallest lambda, unless the small e-val is 0.
+		if min(abs_evals)==0.:
+			ab_ratio = transform_ratio_max
+		else:
+			ab_ratio = min(transform_ratio_max, (max(abs_evals)/min(abs_evals))**ab_ratio_expon)
+		#ab_ratio = max(1., min(transform_ratio_max, (max(abs_evals)/min(abs_evals))**ab_ratio_expon if min(abs_evals)!=0. else transform_ratio_max))   
+		#
 		self.ab_ratio=ab_ratio
 		#
 		if transform_type=='equal_area':
@@ -1726,8 +1742,10 @@ def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 	cat_prime = [[rw[0]*xy_factor*(math.cos(rw[1]*deg2rad) if xy_transform else 1.0)-center_lon, rw[1]*xy_factor-center_lat] for rw in cat]
 	#
 	# now, get eig_vals, eig_vectors:
-	n_dof=len(cat_prime)-1
-	cov = numpy.dot(numpy.array(list(zip(*cat_prime))),numpy.array(cat_prime))/n_dof
+	# note: we could use numpy.cov() for the covariance matrix, except that it assumes data-CM-centering; here, we can arbitrarily center,
+	# for example around the mainshock, not the CM of the data points.
+	#n_dof=max(1., len(cat_prime)-1)
+	cov = numpy.dot(numpy.array(list(zip(*cat_prime))),numpy.array(cat_prime))/max(1., len(cat_prime)-1)
 	#
 	# for now, we can't assume hermitian or symmetric matrices, so use eig(), not eigh()
 	#eig_vals, eig_vecs = numpy.linalg.eig(cov)
