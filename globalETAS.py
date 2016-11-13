@@ -160,7 +160,7 @@ class Global_ETAS_model(object):
 		t_now = (t_now or dtm.datetime.now(pytz.timezone('UTC')))
 		if cat_len != None:
 			t0=t_now - dtm.timedelta(days=cat_len)
-			print("Overriding t0 for ETAS calculations. using catalog start, t0 = t_now - catlen (%f) = %s" % (cat_len, t0))
+			print("Overriding t0 (etas catalog start date/time) for ETAS calculations. using catalog start, t0 = t_now - catlen (%f) = %s" % (cat_len, t0))
 		#
 		if lats == None and catalog == None: lats = [-89.9, 89.9]
 		if lons == None and catalog == None: lons = [-180., 180.]
@@ -294,7 +294,7 @@ class Global_ETAS_model(object):
 		#cm.drawmeridians(range(int(lons[0]), int(lons[1])), color='k', labels=[0,0,1,1])
 		#cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
 		cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=[0,0,1,1])
-		cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
+		cm.drawparallels(numpy.arange(int(lats_maovp[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
 		#
 		return cm
 	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None ):
@@ -997,7 +997,11 @@ class Earthquake(object):
 		# notes on ab_ratio: in the strictest sense, ab_ratio expon. should be 0.5, in the sense that the 'singular values' of the decomposition are equal to
 		# the sqrt(eigen_values) of the covariance (which makes sense; the basis lengths are approximately the standard deviation in some direction;
 		# the covariance eigenvalues are variance). 
-		ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)	# note: this **.5 on the e0/e1 value is quasi-arbitrary.
+		# let's catch the cases where an eigenvalue=0...
+		#ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)
+		ab_ratio = min(transform_ratio_max, (max( (e_vals[0]/e_vals[1] if e_vals[1]!=0. else transform_ratio_max),\
+		 (e_vals[1]/e_vals[0] if e_vals[0]!=0. else transform_ratio_max) ) )**ab_ratio_expon)
+		#																								# note: this **.5 on the e0/e1 value is quasi-arbitrary.
 		#																								# ok, so what specifically is e0/e1 supposed to be? stdev, var?
 		#																								# in any case, it seems to be pretty huge almost all the
 		#																								# time, so let's put a fractional power on it...
