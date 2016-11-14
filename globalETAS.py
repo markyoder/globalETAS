@@ -1058,6 +1058,16 @@ class Earthquake(object):
 		#    -- x_prime = v dot x_prime
 		#    -- y_prime = v dot y_prime
 		#
+		# yoder:
+		# TODO: it may be necessary to handle cross-international date line modulus operations here. self.lat/lon should be fine,
+		# but we might get a less than letal lat/lon in some cases (which should be handled upstream, but why not here as well?).
+		# let's just have a sloppy go at it for now:
+		# this can be done with a modulus operator (maybe abs(lon)%180 ?), but we still have to stitch together the parity case.
+		if lon>180:
+			lon -= 180
+		if lon<-180:
+			lon += 180
+		#
 		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
 		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
 		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in
