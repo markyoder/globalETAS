@@ -160,7 +160,7 @@ class Global_ETAS_model(object):
 		t_now = (t_now or dtm.datetime.now(pytz.timezone('UTC')))
 		if cat_len != None:
 			t0=t_now - dtm.timedelta(days=cat_len)
-			print("Overriding t0 for ETAS calculations. using catalog start, t0 = t_now - catlen (%f) = %s" % (cat_len, t0))
+			print("Overriding t0 (etas catalog start date/time) for ETAS calculations. using catalog start, t0 = t_now - catlen (%f) = %s" % (cat_len, t0))
 		#
 		if lats == None and catalog == None: lats = [-89.9, 89.9]
 		if lons == None and catalog == None: lons = [-180., 180.]
@@ -294,7 +294,7 @@ class Global_ETAS_model(object):
 		#cm.drawmeridians(range(int(lons[0]), int(lons[1])), color='k', labels=[0,0,1,1])
 		#cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
 		cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=[0,0,1,1])
-		cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
+		cm.drawparallels(numpy.arange(int(lats_maovp[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
 		#
 		return cm
 	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None ):
@@ -932,7 +932,9 @@ class Earthquake(object):
 		#
 		#self.ab_ratio = min(transform_ratio_max, max(self.e_vals)/min(self.e_vals))
 		#self.ab_ratio_raw = max(self.e_vals)/min(self.e_vals)
-		self.ab_ratio_raw = math.sqrt(abs(max(self.e_vals)/min(self.e_vals)))
+		#
+		#self.ab_ratio_raw = math.sqrt(abs(max(self.e_vals)/min(self.e_vals)))
+		self.ab_ratio_raw = (math.sqrt(abs(max(self.e_vals)/min(self.e_vals))) if not min(self.e_vals)==0. else transform_ratio_max)
 		self.set_transform()
 		#
 		#####
@@ -997,7 +999,17 @@ class Earthquake(object):
 		# notes on ab_ratio: in the strictest sense, ab_ratio expon. should be 0.5, in the sense that the 'singular values' of the decomposition are equal to
 		# the sqrt(eigen_values) of the covariance (which makes sense; the basis lengths are approximately the standard deviation in some direction;
 		# the covariance eigenvalues are variance). 
-		ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)	# note: this **.5 on the e0/e1 value is quasi-arbitrary.
+		# let's catch the cases where an eigenvalue=0...
+		# ... and it looks like we're calculating this twice, so let's consolidate...
+		#
+		# TODO: this ab_ratio code has seen some revision. i think this is the correct version now, so let's confirm that and clean it up.
+		#
+		#ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)
+		#ab_ratio = min(transform_ratio_max, (max( abs(e_vals[0]/e_vals[1] if e_vals[1]!=0. else transform_ratio_max),\
+		# abs(e_vals[1]/e_vals[0] if e_vals[0]!=0. else transform_ratio_max) ) )**ab_ratio_expon)
+					
+		#ab_ratio = max(abs(e_vals))/min(abs(e_vals)) if not min(abs(e_vals))!=0 else transform_ratio_max
+		#																								# note: this **.5 on the e0/e1 value is quasi-arbitrary.
 		#																								# ok, so what specifically is e0/e1 supposed to be? stdev, var?
 		#																								# in any case, it seems to be pretty huge almost all the
 		#																								# time, so let's put a fractional power on it...
@@ -1006,8 +1018,16 @@ class Earthquake(object):
 		#
 		# note: this is sqrt(eigen-values)**ab_ratio_expon. the basis vector lengths are sqrt(eig-vals); then the elliptical area uses the factor
 		# sqrt(ab_ratio) 
-		ab_ratio = min(transform_ratio_max, (max((abs(e_vals[0]/e_vals[1]), abs(e_vals[1]/e_vals[0])))))**(.5*ab_ratio_expon)
-		#abratio = 2.0
+		#ab_ratio = min(transform_ratio_max, (max((abs(e_vals[0]/e_vals[1]), abs(e_vals[1]/e_vals[0])))))**(.5*ab_ratio_expon)
+		abs_evals = numpy.abs(e_vals)
+		# outer max(): catch the case where the largest eigenvalue is 0.
+		# then, biggest lambda / smallest lambda, unless the small e-val is 0.
+		if min(abs_evals)==0.:
+			ab_ratio = transform_ratio_max
+		else:
+			ab_ratio = min(transform_ratio_max, (max(abs_evals)/min(abs_evals))**ab_ratio_expon)
+		#ab_ratio = max(1., min(transform_ratio_max, (max(abs_evals)/min(abs_evals))**ab_ratio_expon if min(abs_evals)!=0. else transform_ratio_max))   
+		#
 		self.ab_ratio=ab_ratio
 		#
 		if transform_type=='equal_area':
@@ -1722,8 +1742,10 @@ def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 	cat_prime = [[rw[0]*xy_factor*(math.cos(rw[1]*deg2rad) if xy_transform else 1.0)-center_lon, rw[1]*xy_factor-center_lat] for rw in cat]
 	#
 	# now, get eig_vals, eig_vectors:
-	n_dof=len(cat_prime)-1
-	cov = numpy.dot(numpy.array(list(zip(*cat_prime))),numpy.array(cat_prime))/n_dof
+	# note: we could use numpy.cov() for the covariance matrix, except that it assumes data-CM-centering; here, we can arbitrarily center,
+	# for example around the mainshock, not the CM of the data points.
+	#n_dof=max(1., len(cat_prime)-1)
+	cov = numpy.dot(numpy.array(list(zip(*cat_prime))),numpy.array(cat_prime))/max(1., len(cat_prime)-1)
 	#
 	# for now, we can't assume hermitian or symmetric matrices, so use eig(), not eigh()
 	#eig_vals, eig_vecs = numpy.linalg.eig(cov)
