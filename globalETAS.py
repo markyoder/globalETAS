@@ -1063,10 +1063,11 @@ class Earthquake(object):
 		# but we might get a less than letal lat/lon in some cases (which should be handled upstream, but why not here as well?).
 		# let's just have a sloppy go at it for now:
 		# this can be done with a modulus operator (maybe abs(lon)%180 ?), but we still have to stitch together the parity case.
-		if lon>180:
-			lon -= 180
-		if lon<-180:
-			lon += 180
+		# ... and now we need to see how that affects dist_to(), and in fact this might be the better place to handle these issues.
+		#if lon>180:
+		#	lon -= 180
+		#if lon<-180:
+		#	lon += 180
 		#
 		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
 		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
