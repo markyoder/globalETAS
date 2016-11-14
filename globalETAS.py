@@ -1388,7 +1388,8 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 	#
 	etas_prams['incat']=incat
 	if n_cpus is None:
-		n_cpus = max(1, mpp.cpu_count()-1)
+		#n_cpus = max(1, mpp.cpu_count()-1)
+		n_cpus = mpp.cpu_count()
 		#
 	#
 	P=mpp.Pool(n_cpus)
