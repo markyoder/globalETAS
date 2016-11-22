@@ -72,7 +72,8 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from geographiclib.geodesic import Geodesic as ggp
 #
 #
-import ANSStools as atp
+#import ANSStools as atp
+from yodiipy import ANSStools as atp
 import bindex
 import contours2kml.contours2kml as contours2kml
 #
