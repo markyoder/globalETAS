@@ -215,8 +215,12 @@ class equake_test2(object):
 #
 def grid(x, y, z, resX=100, resY=100):
     "Convert 3 column data to matplotlib grid"
+    #
     xi = numpy.linspace(min(x), max(x), resX)
     yi = numpy.linspace(min(y), max(y), resY)
     Z = mpl.mlab.griddata(x, y, z, xi, yi)
     X, Y = numpy.meshgrid(xi, yi)
     return X, Y, Z
+#
+
+	

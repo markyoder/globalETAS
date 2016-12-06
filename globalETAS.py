@@ -163,13 +163,13 @@ class Global_ETAS_model(object):
 			t0=t_now - dtm.timedelta(days=cat_len)
 			print("Overriding t0 (etas catalog start date/time) for ETAS calculations. using catalog start, t0 = t_now - catlen (%f) = %s" % (cat_len, t0))
 		#
-		if lats == None and catalog == None: lats = [-89.9, 89.9]
-		if lons == None and catalog == None: lons = [-180., 180.]
+		if lats is None and catalog is None: lats = [-89.9, 89.9]
+		if lons is None and catalog is None: lons = [-180., 180.]
 		#
 		# for now, assume the catalog is string-indexed -- aka, recarray, PANDAS,etc.
-		if lats == None and not (catalog == None or len(catalog) == 0): lats = [min(catalog['lat']), max(catalog['lat'])]
-		if lons == None and not (catalog == None or len(catalog) == 0): lons = [min(catalog['lon']), max(catalog['lon'])]
-		if mc   == None and not (catalog == None or len(catalog) == 0): mc = min(catalog['mag'])
+		if lats is None and not (catalog is None or len(catalog) is 0): lats = [min(catalog['lat']), max(catalog['lat'])]
+		if lons is None and not (catalog is None or len(catalog) is 0): lons = [min(catalog['lon']), max(catalog['lon'])]
+		if mc   is None and not (catalog is None or len(catalog) is 0): mc = min(catalog['mag'])
 		#
 		# and handle some specific cases...
 		if isinstance(t_now, float):
@@ -256,8 +256,12 @@ class Global_ETAS_model(object):
 		X.shape=(len(self.latses), len(self.lonses))
 		return X
 	#
-	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=None, d_lat_range=None, lats_map=None, lons_map=None, ax=None, do_states=True, do_rivers=True, lake_color='blue'):
+	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=None, d_lat_range=None, lats_map=None, lons_map=None, ax=None, do_states=True, do_rivers=True, lake_color='blue', lat_label_indices=[1,1,0,0], lon_label_indices=[0,0,1,1]):
 		'''
+		# TODO: we end up matching up a bunch of procedural calls, which is a big pain. we should write an ETAS_Map() class
+		# which includes the contour,etc. figures... but we can keep the variables, like lon_label_indices, etc.
+		# in one place...
+		#
 		# plot contours over a map.
 		'''
 		lons_map = (lons_map or self.lons)
@@ -290,17 +294,20 @@ class Global_ETAS_model(object):
 		cm.fillcontinents(color='beige', lake_color=lake_color, zorder=0)
 		# drawlsmask(land_color='0.8', ocean_color='w', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution='l', grid=5, **kwargs)
 		#cm.drawlsmask(land_color='0.8', ocean_color='c', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution=self.mapres, grid=5)
-		#
-		#
-		#cm.drawmeridians(range(int(lons[0]), int(lons[1])), color='k', labels=[0,0,1,1])
-		#cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
-		cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=[0,0,1,1])
-		cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
+		# lat_label_indices
+		#cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=[0,0,1,1])
+		#cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
+		cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=lon_label_indices)
+		cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=lat_label_indices)
+
 		#
 		return cm
 	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None, do_colorbar=True, do_states=True, do_rivers=True, lake_color='blue' ):
 		#
 		n_contours = (n_contours or self.n_contours)
+		if ax is None:
+			fg=plt.figure(fignum)
+			ax=fg.gca()
 		#
 		# mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=0)
 		#cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
