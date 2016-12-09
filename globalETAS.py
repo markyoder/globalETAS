@@ -163,13 +163,13 @@ class Global_ETAS_model(object):
 			t0=t_now - dtm.timedelta(days=cat_len)
 			print("Overriding t0 (etas catalog start date/time) for ETAS calculations. using catalog start, t0 = t_now - catlen (%f) = %s" % (cat_len, t0))
 		#
-		if lats == None and catalog == None: lats = [-89.9, 89.9]
-		if lons == None and catalog == None: lons = [-180., 180.]
+		if lats is None and catalog is None: lats = [-89.9, 89.9]
+		if lons is None and catalog is None: lons = [-180., 180.]
 		#
 		# for now, assume the catalog is string-indexed -- aka, recarray, PANDAS,etc.
-		if lats == None and not (catalog == None or len(catalog) == 0): lats = [min(catalog['lat']), max(catalog['lat'])]
-		if lons == None and not (catalog == None or len(catalog) == 0): lons = [min(catalog['lon']), max(catalog['lon'])]
-		if mc   == None and not (catalog == None or len(catalog) == 0): mc = min(catalog['mag'])
+		if lats is None and not (catalog is None or len(catalog) is 0): lats = [min(catalog['lat']), max(catalog['lat'])]
+		if lons is None and not (catalog is None or len(catalog) is 0): lons = [min(catalog['lon']), max(catalog['lon'])]
+		if mc   is None and not (catalog is None or len(catalog) is 0): mc = min(catalog['mag'])
 		#
 		# and handle some specific cases...
 		if isinstance(t_now, float):
@@ -256,8 +256,12 @@ class Global_ETAS_model(object):
 		X.shape=(len(self.latses), len(self.lonses))
 		return X
 	#
-	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=None, d_lat_range=None, lats_map=None, lons_map=None, ax=None):
+	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=None, d_lat_range=None, lats_map=None, lons_map=None, ax=None, do_states=True, do_rivers=True, lake_color='blue', lat_label_indices=[1,1,0,0], lon_label_indices=[0,0,1,1]):
 		'''
+		# TODO: we end up matching up a bunch of procedural calls, which is a big pain. we should write an ETAS_Map() class
+		# which includes the contour,etc. figures... but we can keep the variables, like lon_label_indices, etc.
+		# in one place...
+		#
 		# plot contours over a map.
 		'''
 		lons_map = (lons_map or self.lons)
@@ -285,32 +289,43 @@ class Global_ETAS_model(object):
 		#cm.drawlsmask(land_color='0.8', ocean_color='b', resolution=map_resolution)
 		cm.drawcoastlines(color='gray', zorder=1)
 		cm.drawcountries(color='black', zorder=1)
-		cm.drawstates(color='black', zorder=1)
-		cm.drawrivers(color='blue', zorder=1)
-		cm.fillcontinents(color='beige', lake_color='blue', zorder=0)
+		if do_states: cm.drawstates(color='black', zorder=1)
+		if do_rivers: cm.drawrivers(color='blue', zorder=1)
+		cm.fillcontinents(color='beige', lake_color=lake_color, zorder=0)
 		# drawlsmask(land_color='0.8', ocean_color='w', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution='l', grid=5, **kwargs)
 		#cm.drawlsmask(land_color='0.8', ocean_color='c', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution=self.mapres, grid=5)
-		#
-		#
-		#cm.drawmeridians(range(int(lons[0]), int(lons[1])), color='k', labels=[0,0,1,1])
-		#cm.drawparallels(range(int(lats[0]), int(lats[1])), color='k', labels=[1, 1, 0, 0])
-		cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=[0,0,1,1])
-		cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
+		# lat_label_indices
+		#cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=[0,0,1,1])
+		#cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
+		cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=lon_label_indices)
+		cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=lat_label_indices)
+
 		#
 		return cm
-	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None ):
+	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None, do_colorbar=True, do_states=True, do_rivers=True, lake_color='blue' ):
+		#
 		n_contours = (n_contours or self.n_contours)
+		if ax is None:
+			fg=plt.figure(fignum)
+			ax=fg.gca()
 		#
 		# mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=0)
 		#cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
-		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection, d_lon_range=lon_interval, d_lat_range=lat_interval, lons_map=lons_map, lats_map=lats_map, ax=ax)
+		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection, d_lon_range=lon_interval, d_lat_range=lat_interval, lons_map=lons_map, lats_map=lats_map, ax=ax, do_states=do_states, do_rivers=do_rivers, lake_color=lake_color)
+		#
+		fg=plt.gcf()
 		#
 		X,Y = cm(numpy.array(self.lonses), numpy.array(self.latses))
 		#print("xylen: ", len(X), len(Y))
 		#
-		etas_contours = plt.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
+		Z = numpy.log10(self.lattice_sites)
+		#etas_contours = ax.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
+		etas_contours = ax.contourf(X,Y, Z, n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
 		# ax.colorbar() ??
-		plt.colorbar()
+		if do_colorbar:
+			#plt.colorbar(ax)
+			plt.colorbar(etas_contours, cax=None, ax=ax, cmap=map_cmap)
+			#mpl.colorbar.ColorbarBase(ax=ax, cmap=map_cmap, values=sorted(Z.ravel()), orientation="vertical")
 		#
 		self.cm=cm
 		self.etas_contours = etas_contours
@@ -332,26 +347,29 @@ class Global_ETAS_model(object):
 		#
 		return cm
 		#
-	def plot_mainshock_and_aftershocks(self, m0=6.0, n_contours=25, mainshock=None, fignum=0):
+	def plot_mainshock_and_aftershocks(self, m0=6.0, n_contours=25, mainshock=None, fignum=0, ax=None):
 		#
-		map_etas = self.make_etas_contour_map(n_contours=n_contours, fignum=fignum)
+		map_etas = self.make_etas_contour_map(n_contours=n_contours, fignum=fignum, ax=ax)
 		if mainshock is None:
 			mainshock = self.catalog[0]
 			for rw in self.catalog:
 				if rw['mag']>mainshock['mag']: mainshock=rw
 		ms=mainshock
 		#
+		ax = (ax or plt.gca())
+		#
 		for eq in self.catalog:
 			if eq['mag']<m0 or eq['event_date']<ms['event_date']: continue
 			if eq==ms:
 				x,y = map_etas(eq['lon'], eq['lat'])
-				plt.plot([x], [y], 'k*', zorder=7, ms=20, alpha=.8)
-				plt.plot([x], [y], 'r*', zorder=8, ms=18, label='mainshock', alpha=.8)
+				ax.plot([x], [y], 'k*', zorder=7, ms=20, alpha=.8)
+				ax.plot([x], [y], 'r*', zorder=8, ms=18, label='mainshock', alpha=.8)
 			if eq['event_date']>eq['event_date']:
 				x,y = map_etas(eq['lon'], eq['lat'])
-				plt.plot([x], [y], 'o', zorder=7, ms=20, alpha=.8)	
+				ax.plot([x], [y], 'o', zorder=7, ms=20, alpha=.8)	
 		#
-		return plt.gca()
+		#return plt.gca()
+		return ax
 	#
 	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
@@ -1406,14 +1424,24 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 	#
 	P=mpp.Pool(n_cpus)
 	cat_len=len(incat)
-	n = cat_len/n_cpus
+	# yoder (2016-12-4):
+	#n = cat_len/n_cpus
+	n = int(numpy.ceil(cat_len/n_cpus))
 	#
 	pool_handlers = []
 	pool_results = []
 	for k in range(n_cpus):
-		etas_prams['catalog_range']=[k*n, min((k+1)*n, cat_len)]
-		#print("parameters: ", etas_prams)
+		# yoder (2016-12-4: int() and ceil() teh catalog_range terms. otherwise, this breaks when we try to process
+		# a length 1 catalog.
+		#etas_prams['catalog_range']=[k*n, min((k+1)*n, cat_len)]
+		etas_prams['catalog_range']=[int(k*n), int(numpy.ceil(min((k+1)*n, cat_len)))]
+		#
+		#print("*debug** parameters: ", etas_prams)
+		#print("*debug** catalog_range: ", etas_prams['catalog_range'])
+		#
 		#pool_handlers += [P.apply_async(make_ETAS_catalog), kwds=etas_prams]
+		#pool_handlers += [P.apply_async(make_ETAS_catalog,args=[incat, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n, cat_len)]])]
+		# TODO: convert thsi call to use "kwds" instead of "args"
 		pool_handlers += [P.apply_async(make_ETAS_catalog,args=[incat, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n, cat_len)]])]
 		# i think this version, where we pass incat to the child processes, works properly, though it should be checked.
 		 # ... or maybe it doesn't; maybe the recarrays don't pickle (i may have pickled one somewhere else... or maybe not). probably need to build in some smart header handlers for mpp.
@@ -1431,8 +1459,9 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 		#pool_results+=[R.get()[0]]
 	
 	print("results fetched.")
-	#pool_results = functools.reduce(numpy.append, [pr for pr in pool_results if pr!=None])
-	pool_results = functools.reduce(numpy.append, pool_results)
+	pool_results = functools.reduce(numpy.append, [pr for pr in pool_results if not pr is None])
+	
+	#pool_results = functools.reduce(numpy.append, pool_results)
 	pool_results.sort(order='event_date_float')
 	
 	#output_catalog.sort(order='event_date_float')
@@ -1451,6 +1480,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	'''
 	#
 	# save a copy of the input parameters to ammend to the output array as metadata. we can do this in lieu of creating a derived class -- sort of a (sloppy?) shortcut...
+	#
 	if incat is None:
 		# use all the local inputs:
 		meta_parameters = locals().copy()
@@ -1600,6 +1630,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# at some point, we'll want to allow multiple options for fitting and transforms. for now, start by getting PCA eigen-vals/vectors.
 		# note: if center_lat/lon=None (default), we subtract mean value to get PCA. if we specify center_lat/lon, we subtract those values.
 		# note: if there aren't any data, don't bother fitting (though we could just leave this to the PCA code)
+		#print('***debug: included_indices: ', included_indices)
 		if len(included_indices)>10 or True:
 			# since we're just getting the eigen- vals, vecs, it might be faster to just do the covariance calculation in place here.
 			# note that in general, whether or not it's faster to re-calc cov(X) in place or save a copy will depend on the size of the array,
@@ -1607,6 +1638,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 			# cov_pca = numpy.cov([[incat['lon'][j], incat['lat'][j]] for j in included_indices])
 			# eig_vals, eig_vecs = numpy.eigh(numpy.dot(cov_pca.transpose(), cov_pca ))
 			#
+			#print('***debug: gettng pca: ', incat['lon'], incat['lat'])
 			eig_vals, eig_vecs = get_pca(cat=[[incat['lon'][j], incat['lat'][j]] for j in included_indices], center_lat=rw['lat'], center_lon=rw['lon'], xy_transform=True)
 		else:
 			eig_vals = [1.0, 1.0]
@@ -1619,7 +1651,11 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		
 		# (and strike_theta (or at least something like it -- setting aside conventions) = atan(eig_vecs[0][1]/eig_vecs[0][1])
 		#
-			
+	if len(output_catalog)==0:
+		# if we give parameters that return no events or if we mpp a catalog with only a few events, we get an
+		# empty catalog, and the rec_array conversion will pitch a fit. so let's kick back a None and handle it on the return.
+		return None
+	#	
 	if do_recarray:
 		output_catalog = numpy.core.records.fromarrays(zip(*output_catalog), dtype=my_dtype)
 		output_catalog.meta_parameters = meta_parameters
@@ -1742,6 +1778,9 @@ def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 	# if xy_transform, then transform from lat/lon to x,y
 	# we really need to find a good PCA library or write an extension for this. maybe a good D project?
 	# ... or maybe since most of the work gets done in numpy, it's ok speed-wise, but it would still make a nice D project.
+	#
+	if len(cat)<2:
+		return numpy.array([1.,1.]), numpy.identity(2)
 	#
 	xy_factor=1.0
 	if xy_transform:
