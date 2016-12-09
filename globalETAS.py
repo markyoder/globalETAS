@@ -949,11 +949,11 @@ class Earthquake(object):
 		# a_ea = r*(\lambda_1 / \lambda_2)**.25
 		# b_ea = r*(\lambda_2 / \lambda_1)**.25
 		#
-		#self.ab_ratio = min(transform_ratio_max, max(self.e_vals)/min(self.e_vals))
-		#self.ab_ratio_raw = max(self.e_vals)/min(self.e_vals)
+		# just the raw a/b ratio (aka, sqrt(lambda1/lambda2) ).
 		#
 		#self.ab_ratio_raw = math.sqrt(abs(max(self.e_vals)/min(self.e_vals)))
-		self.ab_ratio_raw = (math.sqrt(abs(max(self.e_vals)/min(self.e_vals))) if not min(self.e_vals)==0. else transform_ratio_max)
+		#self.ab_ratio_raw = (math.sqrt(abs(max(self.e_vals)/min(self.e_vals))) if not min(self.e_vals)==0. else transform_ratio_max)
+		self.ab_ratio_raw = ((abs(max(self.e_vals)/min(self.e_vals)))**.5 if not min(self.e_vals)==0. else transform_ratio_max)
 		self.set_transform()
 		#
 		#####
@@ -1051,7 +1051,9 @@ class Earthquake(object):
 		#
 		if transform_type=='equal_area':
 			# so that pi*r^2 = pi*ab = pi*b*(ab_ratio)*b
-			self.e_vals_n = [math.sqrt(abs(ab_ratio)), 1./math.sqrt(abs((ab_ratio)))]
+			# we've already taken the sqrt (or more specifically, applied **ab_ratio_expon, so now this can just be ab_ratio, 1/ab_ratio.
+			#self.e_vals_n = [math.sqrt(abs(ab_ratio)), 1./math.sqrt(abs((ab_ratio)))]
+			self.e_vals_n = [abs(ab_ratio), 1./abs((ab_ratio))]
 			self.spatial_intensity_factor = 1.0
 			#
 		#	
@@ -1062,7 +1064,10 @@ class Earthquake(object):
 			#
 			#self.e_vals_n = [min(transform_ratio_max, x/min(e_vals)) for x in e_vals]
 			self.e_vals_n  = [ab_ratio, 1.]
-			self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))**.5		# area of "core" (rupture area) is reduced, so intensity increases.
+			#self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))**.5		# area of "core" (rupture area) is reduced, so intensity increases.
+			# ... and again, we've already applied the **ab_ratio_expon at this point.
+			#self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))**ab_ratio_expon
+			self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))
 			#
 		else:
 			return self.set_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
@@ -1088,15 +1093,28 @@ class Earthquake(object):
 		#if lon<-180:
 		#	lon += 180
 		#
-		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
-		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
+		# this is, i think, killing us. let's use a spherical solution.
+		# internally, we use: spherical_dist(lon_lat_from, lon_lat_to), but dist_to() fecthes some other values.
+		# substitute 'goe' with 'spherical' for the spherical solution...
+		#dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
+		#R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
+		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['spherical', 'xy', 'dx_dy'])
+		R = dists['spherical']	
 		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in
 		#
 		v = [dx, dy]
 		#v_prime = numpy.dot(self.e_vecs.transpose(),v)
 		#
+		# this should probably be reorganized to look like a prober singular value decomposition (SVD).
+		# 1) rotate to pca frame (v' = numpy.dot(e_vecs.T, v)
+		# 2) elongate: v'' = numpy.dot(numpy.diag(reversed(self.e_vals_n)), v' ) ## check reversed, etc.
+		# 3) now, rotate back to original frame: v''' = numpy.dot(e_vecs, v'')
 		dx_prime = self.e_vals_n[1]*numpy.dot(v,self.e_vecs.transpose()[0])
 		dy_prime = self.e_vals_n[0]*numpy.dot(v,self.e_vecs.transpose()[1])		# ... but isn't this the rotation transform?
+		#
+		#dx_prime = self.e_vals_n[0]*numpy.dot(v,self.e_vecs.transpose()[0])
+		#dy_prime = self.e_vals_n[1]*numpy.dot(v,self.e_vecs.transpose()[1])		# ... but isn't this the rotation transform?
+		
 		#
 		R_prime = R * numpy.linalg.norm([dx_prime,dy_prime])/numpy.linalg.norm([dx,dy])
 		
@@ -1639,6 +1657,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 			# eig_vals, eig_vecs = numpy.eigh(numpy.dot(cov_pca.transpose(), cov_pca ))
 			#
 			#print('***debug: gettng pca: ', incat['lon'], incat['lat'])
+			# TODO: not sure this is happening correctly in some cases. maybe we just code the pca from scratch? otherwise, check get_pca()
 			eig_vals, eig_vecs = get_pca(cat=[[incat['lon'][j], incat['lat'][j]] for j in included_indices], center_lat=rw['lat'], center_lon=rw['lon'], xy_transform=True)
 		else:
 			eig_vals = [1.0, 1.0]
@@ -1662,10 +1681,13 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	
 	return output_catalog
 #
-def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, max_ratio=2.0, fignum=0):
+def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, dm=2., max_ratio=2.0, fignum=0):
 	# script to test elliptical transforms...
 	# keep this simple. we'll line up n_quakes along a line with angle theta, length L.
 	# then, run them through catalog pre-processing then etas and see what we get... halos should line up along the line of events.
+	#
+	# TODO: plot a few points on the contour map to define the map dimensions so we can better evaluate the rotation.
+	# TODO: move this to a unit_tests module.
 	#
 	if abs(theta)>math.pi*2.1: theta*=deg2rad
 	dx = math.cos(theta)
@@ -1696,20 +1718,21 @@ def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, max
 		#
 		#x = x1 + 2.*L*dx*Rx.random()
 		#y = y1 + 2.*L*dy*Ry.random()
-		L_prime = L*2.0*R_l.random()
+		L_prime = 3.*L*2.0*R_l.random()
 		x = x1 + L_prime*math.cos(theta)
 		y = y1 + L_prime*math.sin(theta)
 		#pass
 		#
 		dt = t_now - dtm.timedelta(days=10)
 		#
-		catalog += [[dt, y, x, m-2.0, 42., mpd.date2num(dt)]]
+		catalog += [[dt, y, x, m-dm, 42., mpd.date2num(dt)]]
 		#
 	#
 	dt = dtm.datetime.now(pytz.timezone('UTC'))
 	# grab a dummy catalog --  a stupid way to get a dtype array.
 	ct = atp.catfromANSS(dates0=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=10), dtm.datetime.now(pytz.timezone('UTC'))], lat=[31., 33.], lon=[-117., -115.])
 	catalog += [[dt, y0, x0, m, 21., mpd.date2num(dt)]]
+	#
 	catalog = numpy.core.records.fromarrays(zip(*catalog), dtype=ct.dtype)
 	#
 	print("cat_len: ", len(catalog))
@@ -1733,7 +1756,8 @@ def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, max
 	x,y = etas.cm(catalog['lon'], catalog['lat'])
 	plt.plot(x,y, marker='o', ls='')
 	x,y = etas.cm(catalog['lon'][-1], catalog['lat'][-1])
-	plt.plot([x],[y], marker='*', ms=18., ls='')
+	ax2.plot([x],[y], marker='*', ms=18., ls='')
+	ax1.plot(*etas.cm(x,y), marker='*', ms=18., ls='')
 	#
 	#plt.figure(1)
 	#plt.clf()
@@ -1762,7 +1786,7 @@ def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, max
 	#
 	print('x_prime dot y_prime: ', numpy.dot(x_prime, y_prime), numpy.dot(y_prime, x_prime), x_pp, y_pp, numpy.dot(x_pp, y_pp))
 	
-	
+	return {'catalog':ct, 'etas':etas}
 #
 # helper scripts
 # can we numba.jit compile this? it looks like... no. we can't probably because of the compiled numpy.linalg bits.
@@ -1790,14 +1814,16 @@ def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
 	if center_lon is None:
 		center_lon = numpy.mean([x[0]*(math.cos(x[1]*deg2rad) if xy_transform else 1.0) for x in cat])*xy_factor
 	#
+	# note: numpy.cov(XY) gives the covariance of XY, but assume mean-centering.
 	# subtract off center:
-	cat_prime = [[rw[0]*xy_factor*(math.cos(rw[1]*deg2rad) if xy_transform else 1.0)-center_lon, rw[1]*xy_factor-center_lat] for rw in cat]
+	cat_prime = numpy.array([[rw[0]*xy_factor*(math.cos(rw[1]*deg2rad) if xy_transform else 1.0)-center_lon, rw[1]*xy_factor-center_lat] for rw in cat])
 	#
 	# now, get eig_vals, eig_vectors:
-	# note: we could use numpy.cov() for the covariance matrix, except that it assumes data-CM-centering; here, we can arbitrarily center,
+	# note: we could use numpy.cov() for the covariance matrix, but it assumes data-CM-centering; here, we can arbitrarily center,
 	# for example around the mainshock, not the CM of the data points.
 	#n_dof=max(1., len(cat_prime)-1)
-	cov = numpy.dot(numpy.array(list(zip(*cat_prime))),numpy.array(cat_prime))/max(1., len(cat_prime)-1)
+	#cov = numpy.dot(numpy.array(list(zip(*cat_prime))),numpy.array(cat_prime))/max(1., len(cat_prime)-1)
+	cov = numpy.dot(cat_prime.T,cat_prime)/max(1., len(cat_prime)-1)
 	#
 	# for now, we can't assume hermitian or symmetric matrices, so use eig(), not eigh()
 	#eig_vals, eig_vecs = numpy.linalg.eig(cov)
