@@ -79,6 +79,8 @@ import contours2kml.contours2kml as contours2kml
 #
 import rtree
 from rtree import index
+import geopy
+from geopy.distance import great_circle
 #
 # python3 vs python2 issues:
 # a bit of version 3-2 compatibility:
@@ -1188,6 +1190,10 @@ class Earthquake(object):
 		# to avoid near-field artifacts (where a recent earthquake dominates the ETAS).
 		# calculate local ETAS density-rate (aka, earthquakes per (km^2 sec)
 		# take time in days.
+		#
+		# TODO: we can speed up large ETAS by pre-calculating (or more specifically, calculating only once) the temporal rate.
+		#       this could be done pre-mpp, but since the remaining processes would then have to wait for this to finish, 
+		#       not much gain would be realized; we're probably better off just computing the rates on each process (keep it simple...)
 		'''
 		#print("inputs: ", t, lon, lat, p, q)
 		t = (t or mpd.date2num(dtm.datetime.now(pytz.timezone('UTC'))))
@@ -1868,7 +1874,8 @@ def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'],
 	dist_types = [types_dict.get(key, key) for key in dist_types]
 	#
 	if 'spherical' in dist_types:
-		return_distances['spherical'] = spherical_dist(lon_lat_from, lon_lat_to)
+		#return_distances['spherical'] = spherical_dist(lon_lat_from, lon_lat_to)
+		return_distances['spherical'] = great_circle(reversed(lon_lat_from), reversed(lon_lat_to)).km
 	#
 	'''
 	if 'cartesian2' in dist_types or 'dx_dy' in dist_types:
@@ -1928,10 +1935,18 @@ def spherical_dist(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], Rearth = 6378.1):
 	# return a vector [dLon, dLat] or [r, theta]
 	# return distances in km.
 	#
+	# TODO: this may be responsible for wonky elliptical transforms; at one point i know i'd reversd the phi,lambda variables
+	# ... so just double-check it. it would be nice to use this instead of the 'geo' model; also look at geopy for a spherical
+	# distance formula... for example:
+	# >>> from geopy.distance import great_circle
+	# >>> newport_ri = (41.49008, -71.312796)
+	# >>> cleveland_oh = (41.499498, -81.695391)
+	# >>> print(great_circle(newport_ri, cleveland_oh).miles)
+	#
 	# also, we need to get the proper spherical angular displacement (from the parallel)
 	#
 	#Rearth = 6378.1	# km
-	deg2rad=2.0*math.pi/360.
+	#deg2rad=2.0*math.pi/360.
 	#
 	# note: i usually use phi-> longitude, lambda -> latitude, but at some point i copied a source where this is
 	# reversed. oops. so just switch them here.
