@@ -1026,6 +1026,11 @@ class Earthquake(object):
 		ab_ratio_expon = (ab_ratio_expon or self.ab_ratio_expon)
 		ab_ratio_expon = (ab_ratio_expon or .5)
 		#
+		# now, sort eigenvectors by eigenvalue:
+		
+		#e_vals, e_vecs = list(zip(*sorted([[lamb, evec] for lamb, evec in zip(e_vals, e_vecs)], key=lambda rw:rw[0])))
+		print('**debug, evals, evecs: ', e_vals, e_vecs)
+		#
 		# notes on ab_ratio: in the strictest sense, ab_ratio expon. should be 0.5, in the sense that the 'singular values' of the decomposition are equal to
 		# the sqrt(eigen_values) of the covariance (which makes sense; the basis lengths are approximately the standard deviation in some direction;
 		# the covariance eigenvalues are variance). 
@@ -1035,6 +1040,8 @@ class Earthquake(object):
 		# and strip off the imaginary component.
 		abs_evals = numpy.abs(numpy.real(e_vals))
 		# then, biggest lambda / smallest lambda, unless the small e-val is 0.
+		# ... and i think this is carried over from anther way of doing this, long long ago. the better approach is to just get
+		# the ratio of the eigen-values, limit it to too big/too small, and apply in a proper linear transformation... later
 		if min(abs_evals)==0.:
 			ab_ratio = transform_ratio_max**ab_ratio_expon
 		else:
@@ -1050,13 +1057,15 @@ class Earthquake(object):
 			# of the ellipitical axes.
 			#self.e_vals_n = list(reversed(sorted([abs(ab_ratio), 1./abs((ab_ratio))])))
 			#
-			# this works, but it's sloppy; the right thing to do is, i think, to just do a proper linear transformation,
+			# this works, but it's sloppy; clearly, i'm missing someting (in my current foggy condition) about the right way to sort
+			# and dot these vectors. the right thing to do is, i think, to just do a proper linear transformation,
 			# M = diag( (lambda1/lambda2)**b, (lambda2/lambda1)**b ), but also handle the large/small value exceptions. maybe use
 			#  a min/max inside: norm_eval_0 = max(1/x0, min(x0, lambda1/lambda2)), norm_eval_1 = max(1/x0, min(x0, lambda1/lambda2)),
 			# or maybe sort the eigen-vectors by eigen_values (but be careful we're still getting the correct transformation)
 			# when we consider that we have to catch the 0 valued eigenvalue as well as extreme values, this approach is maybe
 			# not so bad...
 			#
+			#self.e_vals_n = [1./abs(ab_ratio), abs((ab_ratio))]
 			if abs_evals[0]<abs_evals[1]:
 				self.e_vals_n = [abs(ab_ratio), 1./abs((ab_ratio))]
 			else:
@@ -1065,16 +1074,18 @@ class Earthquake(object):
 			#
 		#	
 		elif transform_type=='rotation':
+			# TODO: this rotation projection is not properly tested just yet... and it should be.
+			#
 			# set the *small* eigen-value --> 1; scale the large one.
 			# remember (i think) that this geometry is inverted. we leave the short eigen-vector=1, so when we calc r', it is unchanged in this direction.
 			# in the orothogonal direction, r'>>r, and we have etas halos elongated along the "short" (rupture) axis).
 			#
-			# TODO: might need to check the sorting situation on this transform as well...
 			#self.e_vals_n = [min(transform_ratio_max, x/min(e_vals)) for x in e_vals]
-			if abs_evals[0]<abs_evals[1]:
-				self.e_vals_n  = [ab_ratio, 1.]
-			else:
-				self.e_vals_n  = [1., ab_ratio]
+			self.e_vals_n  = [1., ab_ratio]
+			#if abs_evals[0]<abs_evals[1]:
+			#	self.e_vals_n  = [ab_ratio, 1.]
+			#else:
+			#	self.e_vals_n  = [1., ab_ratio]
 			#
 			#self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))
 			self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))
