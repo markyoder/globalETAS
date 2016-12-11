@@ -132,7 +132,7 @@ class Global_ETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, p_etas=None,**kwargs):
+	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None,**kwargs):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -487,7 +487,10 @@ class Global_ETAS_model(object):
 			#
 			if quake['event_date_float']>self.t_forecast: continue
 			#
-			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
+			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max,			ab_ratio_expon=self.ab_ratio_expon)
+			#
+			# ab_ratio_expon is, indeed, making it successfully to Earthquake(). 
+			#print('**debug: eq abexpon: {}'.format(eq.ab_ratio_expon))
 			#
 			# get lat/lon range:
 			# TODO: introduce a new lat/lon range model; use the spatial-omori distribution; calc. to r = r(x=.9x0)
@@ -527,6 +530,7 @@ class Global_ETAS_model(object):
 			for site_index in site_indices:
 				X = lattice_dict[site_index]
 				#
+				# do we need to do this, or does the Earthquake self-transform?
 				et = eq.elliptical_transform(lon=X['lon'], lat=X['lat'])
 				#
 				# this looks right:
@@ -581,7 +585,7 @@ class Global_ETAS_model(object):
 			if quake['mag']<self.mc_etas: continue
 			if quake['event_date_float']>self.t_forecast: continue
 			#
-			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
+			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max, 		ab_ratio_expon=self.ab_ratio_expon)
 			#for j, lat_lon in enumerate(itertools.product(latses, lonses)):
 			for j, (lat,lon) in enumerate(itertools.product(latses, lonses)):
 				# TODO: for some reason, this is running over the site index (j=len(catalog) or something).
@@ -620,7 +624,7 @@ class Global_ETAS_model(object):
 		for quake in self.catalog[etas_cat_range[0]:etas_cat_range[1]]:
 			if quake['mag']<self.mc_etas: continue
 			#
-			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
+			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max, 			ab_ratio_expon=self.ab_ratio_expon)
 			# calculate the bins within range of this earthquake:
 			# nominally, the proper thing to do now (or at lest one proper approach) is to compute a proper geodesic north and east to get the lat/lon bounds
 				# near the poles, however, this will create a problem, that is a bit difficult to track, where the geodesic reaches over the pole and to lat<90
@@ -955,7 +959,9 @@ class Earthquake(object):
 		#
 		#self.ab_ratio_raw = math.sqrt(abs(max(self.e_vals)/min(self.e_vals)))
 		#self.ab_ratio_raw = (math.sqrt(abs(max(self.e_vals)/min(self.e_vals))) if not min(self.e_vals)==0. else transform_ratio_max)
-		self.ab_ratio_raw = ((abs(max(self.e_vals)/min(self.e_vals)))**.5 if not min(self.e_vals)==0. else transform_ratio_max)
+		#
+		# yoder: but we don't need to set ab_ratio (in any form) here. let's do all of this in set_transform()
+		#self.ab_ratio_raw = ((abs(max(self.e_vals)/min(self.e_vals)))**.5 if not min(self.e_vals)==0. else transform_ratio_max)
 		self.set_transform()
 		#
 		#####
@@ -1010,6 +1016,8 @@ class Earthquake(object):
 		#
 		'''
 		#
+		# get transform variables. all raw, proper values, so the eigenvalues are the variances, on par
+		# with a/b ~ sqrt(lambda_1/lambda_2)
 		e_vals = (e_vals or self.e_vals)
 		e_vecs = (e_vecs or self.e_vecs)
 		transform_ratio_max = float(transform_ratio_max or self.transform_ratio_max)
@@ -1021,41 +1029,37 @@ class Earthquake(object):
 		# the sqrt(eigen_values) of the covariance (which makes sense; the basis lengths are approximately the standard deviation in some direction;
 		# the covariance eigenvalues are variance). 
 		# let's catch the cases where an eigenvalue=0...
-		# ... and it looks like we're calculating this twice, so let's consolidate...
 		#
-		# TODO: this ab_ratio code has seen some revision. i think this is the correct version now, so let's confirm that and clean it up.
-		#
-		#ab_ratio = min(transform_ratio_max, (max(e_vals[0]/e_vals[1], e_vals[1]/e_vals[0]))**ab_ratio_expon)
-		#ab_ratio = min(transform_ratio_max, (max( abs(e_vals[0]/e_vals[1] if e_vals[1]!=0. else transform_ratio_max),\
-		# abs(e_vals[1]/e_vals[0] if e_vals[0]!=0. else transform_ratio_max) ) )**ab_ratio_expon)
-					
-		#ab_ratio = max(abs(e_vals))/min(abs(e_vals)) if not min(abs(e_vals))!=0 else transform_ratio_max
-		#																								# note: this **.5 on the e0/e1 value is quasi-arbitrary.
-		#																								# ok, so what specifically is e0/e1 supposed to be? stdev, var?
-		#																								# in any case, it seems to be pretty huge almost all the
-		#																								# time, so let's put a fractional power on it...
-		#																								# ... and as it so happens, e0,e1 are the eigen-values of the
-		#																								# variance, so the basis vector lengths should be sqrt(e[j]):
-		#
-		# note: this is sqrt(eigen-values)**ab_ratio_expon. the basis vector lengths are sqrt(eig-vals); then the elliptical area uses the factor
-		# sqrt(ab_ratio) 
-		#ab_ratio = min(transform_ratio_max, (max((abs(e_vals[0]/e_vals[1]), abs(e_vals[1]/e_vals[0])))))**(.5*ab_ratio_expon)
-		abs_evals = numpy.abs(e_vals)
-		# outer max(): catch the case where the largest eigenvalue is 0.
+		# are we getting negative eigenvalues (i think we shouldn't, but f we do, just keep the magnitude)
+		# and strip off the imaginary component.
+		abs_evals = numpy.abs(numpy.real(e_vals))
 		# then, biggest lambda / smallest lambda, unless the small e-val is 0.
 		if min(abs_evals)==0.:
-			ab_ratio = transform_ratio_max
+			ab_ratio = transform_ratio_max**ab_ratio_expon
 		else:
-			ab_ratio = min(transform_ratio_max, (max(abs_evals)/min(abs_evals))**ab_ratio_expon)
-		#ab_ratio = max(1., min(transform_ratio_max, (max(abs_evals)/min(abs_evals))**ab_ratio_expon if min(abs_evals)!=0. else transform_ratio_max))   
+			ab_ratio = min(transform_ratio_max, (max(abs_evals)/min(abs_evals)))**ab_ratio_expon
 		#
 		self.ab_ratio=ab_ratio
+		#print('**debug: self.ab_ratio: ', self.ab_ratio)
 		#
 		if transform_type=='equal_area':
 			# so that pi*r^2 = pi*ab = pi*b*(ab_ratio)*b
-			# we've already taken the sqrt (or more specifically, applied **ab_ratio_expon, so now this can just be ab_ratio, 1/ab_ratio.
-			#self.e_vals_n = [math.sqrt(abs(ab_ratio)), 1./math.sqrt(abs((ab_ratio)))]
-			self.e_vals_n = [abs(ab_ratio), 1./abs((ab_ratio))]
+			# 
+			# "normalized eigenvalues" is not the best name, but it's what we have right now... but now, these are the lengths
+			# of the ellipitical axes.
+			#self.e_vals_n = list(reversed(sorted([abs(ab_ratio), 1./abs((ab_ratio))])))
+			#
+			# this works, but it's sloppy; the right thing to do is, i think, to just do a proper linear transformation,
+			# M = diag( (lambda1/lambda2)**b, (lambda2/lambda1)**b ), but also handle the large/small value exceptions. maybe use
+			#  a min/max inside: norm_eval_0 = max(1/x0, min(x0, lambda1/lambda2)), norm_eval_1 = max(1/x0, min(x0, lambda1/lambda2)),
+			# or maybe sort the eigen-vectors by eigen_values (but be careful we're still getting the correct transformation)
+			# when we consider that we have to catch the 0 valued eigenvalue as well as extreme values, this approach is maybe
+			# not so bad...
+			#
+			if abs_evals[0]<abs_evals[1]:
+				self.e_vals_n = [abs(ab_ratio), 1./abs((ab_ratio))]
+			else:
+				self.e_vals_n = [1./abs(ab_ratio), abs((ab_ratio))]
 			self.spatial_intensity_factor = 1.0
 			#
 		#	
@@ -1064,17 +1068,20 @@ class Earthquake(object):
 			# remember (i think) that this geometry is inverted. we leave the short eigen-vector=1, so when we calc r', it is unchanged in this direction.
 			# in the orothogonal direction, r'>>r, and we have etas halos elongated along the "short" (rupture) axis).
 			#
+			# TODO: might need to check the sorting situation on this transform as well...
 			#self.e_vals_n = [min(transform_ratio_max, x/min(e_vals)) for x in e_vals]
-			self.e_vals_n  = [ab_ratio, 1.]
-			#self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))**.5		# area of "core" (rupture area) is reduced, so intensity increases.
-			# ... and again, we've already applied the **ab_ratio_expon at this point.
-			#self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))**ab_ratio_expon
+			if abs_evals[0]<abs_evals[1]:
+				self.e_vals_n  = [ab_ratio, 1.]
+			else:
+				self.e_vals_n  = [1., ab_ratio]
+			#
+			#self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))
 			self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))
 			#
 		else:
 			return self.set_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
 		#
-
+	#
 	def elliptical_transform(self, lon=0., lat=0.):
 		#
 		# ... no idea if this works, but it should be about right. perhaps a bit redundant in the LT's ??
@@ -1104,19 +1111,18 @@ class Earthquake(object):
 		R = dists['spherical']	
 		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in
 		#
-		v = [dx, dy]
+		#v = [dx, dy]
 		#v_prime = numpy.dot(self.e_vecs.transpose(),v)
 		#
 		# this should probably be reorganized to look like a prober singular value decomposition (SVD).
 		# 1) rotate to pca frame (v' = numpy.dot(e_vecs.T, v)
 		# 2) elongate: v'' = numpy.dot(numpy.diag(reversed(self.e_vals_n)), v' ) ## check reversed, etc.
 		# 3) now, rotate back to original frame: v''' = numpy.dot(e_vecs, v'')
-		dx_prime = self.e_vals_n[1]*numpy.dot(v,self.e_vecs.transpose()[0])
-		dy_prime = self.e_vals_n[0]*numpy.dot(v,self.e_vecs.transpose()[1])		# ... but isn't this the rotation transform?
-		#
-		#dx_prime = self.e_vals_n[0]*numpy.dot(v,self.e_vecs.transpose()[0])
-		#dy_prime = self.e_vals_n[1]*numpy.dot(v,self.e_vecs.transpose()[1])		# ... but isn't this the rotation transform?
-		
+		# TODO: is this right, or should we be dotting to e_vecs.not_transpose()?
+		#dx_prime = self.e_vals_n[1]*numpy.dot(v,self.e_vecs.transpose()[0])
+		#dy_prime = self.e_vals_n[0]*numpy.dot(v,self.e_vecs.transpose()[1])		# ... but isn't this the rotation transform?
+		dx_prime = self.e_vals_n[0]*numpy.dot([dx, dy],self.e_vecs.T[0])
+		dy_prime = self.e_vals_n[1]*numpy.dot([dx, dy],self.e_vecs.T[1])		# ... but isn't this the rotation transform?
 		#
 		R_prime = R * numpy.linalg.norm([dx_prime,dy_prime])/numpy.linalg.norm([dx,dy])
 		
@@ -1408,7 +1414,7 @@ class Ellipse(Shape):
 #
 # Working scripts
 #
-def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, n_cpus=None):
+def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=False, n_cpus=None):
 	# multiprocessing wrapper for make_ETAS_catalog(). note, this would be more efficient and faster if we can figure out how to use shared memory
 	# (don't have to make multiple copies of catalog; don't have to pickle back entire catalog). maybe we need to learn python mpi, rather
 	# than multiprocessing?
@@ -1458,26 +1464,29 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 		# yoder (2016-12-4: int() and ceil() teh catalog_range terms. otherwise, this breaks when we try to process
 		# a length 1 catalog.
 		#etas_prams['catalog_range']=[k*n, min((k+1)*n, cat_len)]
-		etas_prams['catalog_range']=[int(k*n), int(numpy.ceil(min((k+1)*n, cat_len)))]
+		catalog_range = [int(k*n), int(numpy.ceil(min((k+1)*n, cat_len)))]
+		etas_prams['catalog_range']=catalog_range
 		#
 		#print("*debug** parameters: ", etas_prams)
 		#print("*debug** catalog_range: ", etas_prams['catalog_range'])
 		#
-		#pool_handlers += [P.apply_async(make_ETAS_catalog), kwds=etas_prams]
-		#pool_handlers += [P.apply_async(make_ETAS_catalog,args=[incat, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n, cat_len)]])]
 		# TODO: convert thsi call to use "kwds" instead of "args"
-		pool_handlers += [P.apply_async(make_ETAS_catalog,args=[incat, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n, cat_len)]])]
-		# i think this version, where we pass incat to the child processes, works properly, though it should be checked.
-		 # ... or maybe it doesn't; maybe the recarrays don't pickle (i may have pickled one somewhere else... or maybe not). probably need to build in some smart header handlers for mpp.
-		 #
-		#pool_handlers += [P.apply_async(make_ETAS_catalog,args=[incat, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n,cat_len)]])]
+		# i think, however, we could skip all the lats, lons, etc. and just pass the catalog, catatalog_range, and the omori parameters.
+		my_etas_prams = {'incat':incat, 'lats':lats, 'lons':lons, 'mc':mc, 'date_range':['1990-1-1', None], 'D_fract':1.5, 'd_lambda':1.76, 'd_tau': 2.28, 'fit_factor':1.5, 'p':1.1, 'q':1.5, 'dmstar':1.0, 'b1':1.0, 'b2':1.5, 'do_recarray':True, 'catalog_range':catalog_range}
+		#
+		# new syntax (older syntax being depricated? undepricated? keep an eye on this in the future...)
+		#pool_handlers += [P.apply_async(make_ETAS_catalog(**my_etas_prams))]
+		pool_handlers += [P.apply_async(make_ETAS_catalog, kwds=my_etas_prams)]
+		#
 	P.close()
 	#
 	for R in pool_handlers:
-		print("R: ", R)
+		#print("*R: ", R)
 		R_return = R.get()
 		if hasattr(R_return, '__len__'):
 			pool_results+=[R_return]
+			#pool_results += [numpy.core.records.fromarrays(zip(*R_return[1:]), dtype = R_return[0])]
+			
 		#else:
 		#	pool_results+=[None]
 		#pool_results+=[R.get()[0]]
@@ -1512,6 +1521,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		meta_parameters = {}
 		if hasattr(incat, 'meta_parameters'): incat.meta_parameters.copy()
 		meta_parameters.update({'D_fract':D_fract, 'd_lambda':d_lambda, 'd_tau':d_tau, 'fit_factor':fit_factor, 'p':p, 'q':q, 'dmstar':dmstar, 'b1':b1, 'b2':b2})
+		#print('**debug: source catalog provided... {}'.format(len(incat)))
 	#
 	#dmstar = 1.0
 	dm_tau = 0.0		# constant sort of like dm_star but for temporal component. we usually treat this as 0, but don't really know...
@@ -1551,7 +1561,8 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	# catalog_range parameter, for MPP applications (usually None).
 	if catalog_range is None or len(catalog_range)==0:
 		catalog_range = [0,len(incat)]
-
+	#
+	#print('**debug: catalog_processing range: {}/{}'.format(catalog_range, len(incat)))
 	#
 	# first, make a spatial index of the catalog:
 	anss_index = index.Index()
@@ -1575,6 +1586,9 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	#
 	#for k_cat, rw in enumerate(incat):
 	for k_cat, rw in enumerate(incat[catalog_range[0]:catalog_range[1]]):
+		#
+		# right now, we don't use k_cat for anything, but note it's the index of the sub-catalog that we're calculating.
+		# we actually pull the entire catalog, so we can do orientation fitting.
 		#
 		# tentatively, let's just make a catalog of this and calculate the rupture length, etc.
 		# this way, we can specify (different) rupture length, etc. later.
@@ -1610,7 +1624,9 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		#
 		## this version is in use with BASScast:
 		# ... and these appear to result in different initial rate-densities, though the maps are qualitatively similar beyond that.
-		# not sure at this point which version was actually published.
+		# not sure at this point which version was actually published...
+		# ... looks like this is not the publised version, and that it's not the best approach to compting these parameters.
+		# go with the apporoach from Yoder et al. (2015).
 		#l_r0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar+ + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
 		# r_0 = 10.**l_r0
 		#
@@ -1627,7 +1643,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# temporal Omori parameters:
 		# (something is not correct here; getting negative rate_max (i think))
 		# ... but isn't this supposed to be the exponent (log)?
-		rate_max = 10.**(l_15_factor + d_tau - mag/6. - (dm_tau + mc)/3.)
+		rate_max = 10.**(l_15_factor + d_tau - mag/6. - (dm_tau + mc)/3.)   
 		t_0 = N_om*(p-1.)/rate_max		# note, however, that we can really use just about any value for t_0, so long as we are consistent with tau.
 		# something is wrong with this tau calc; we're getting t_0<0. needs fixin...
 		tau = (t_0**(1.-p))/(N_om*(p-1.))
@@ -1654,8 +1670,8 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# at some point, we'll want to allow multiple options for fitting and transforms. for now, start by getting PCA eigen-vals/vectors.
 		# note: if center_lat/lon=None (default), we subtract mean value to get PCA. if we specify center_lat/lon, we subtract those values.
 		# note: if there aren't any data, don't bother fitting (though we could just leave this to the PCA code)
-		#print('***debug: included_indices: ', included_indices)
-		if len(included_indices)>10 or True:
+		#		
+		if len(included_indices)>10:
 			# since we're just getting the eigen- vals, vecs, it might be faster to just do the covariance calculation in place here.
 			# note that in general, whether or not it's faster to re-calc cov(X) in place or save a copy will depend on the size of the array,
 			# but since we're always doing dim(cov)=(2,2), it should be faster to make a copy.
@@ -1664,7 +1680,11 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 			#
 			#print('***debug: gettng pca: ', incat['lon'], incat['lat'])
 			# TODO: not sure this is happening correctly in some cases. maybe we just code the pca from scratch? otherwise, check get_pca()
-			eig_vals, eig_vecs = get_pca(cat=[[incat['lon'][j], incat['lat'][j]] for j in included_indices], center_lat=rw['lat'], center_lon=rw['lon'], xy_transform=True)
+			# this cov, then eig_vals/vecs works, so there's a problem with get_pca()... also, using numpy.cov() will be faster
+			# than our all-python method, so let's keep it for a while.
+			cov = numpy.cov(incat['lon'], incat['lat'])
+			eig_vals, eig_vecs = numpy.linalg.eig(cov)
+			#eig_vals, eig_vecs = get_pca(cat=[[incat['lon'][j], incat['lat'][j]] for j in included_indices], center_lat=rw['lat'], center_lon=rw['lon'], xy_transform=True)
 		else:
 			eig_vals = [1.0, 1.0]
 			eig_vecs = [[1.0, 0.], [0., 1.0]]
@@ -1684,6 +1704,12 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	if do_recarray:
 		output_catalog = numpy.core.records.fromarrays(zip(*output_catalog), dtype=my_dtype)
 		output_catalog.meta_parameters = meta_parameters
+	else:
+		# 2016_12_10 yoder: subcats don't seem to be piping back correctly. might be that we need to change our call signature
+		# from apply_async(function, args, kwargs) to apply_async(function(*args, **kwargs)) for mpp calls... and recarrays nor porting back?
+		# so for list-returns, let's return the first row/two rows as the dtype parameters:
+		#print('***debug: returning list with dtype appended...')
+		output_catalog = [my_dtype] + output_catalog
 	
 	return output_catalog
 #
