@@ -1028,7 +1028,7 @@ class Earthquake(object):
 		# now, sort eigenvectors by eigenvalue:
 		
 		#e_vals, e_vecs = list(zip(*sorted([[lamb, evec] for lamb, evec in zip(e_vals, e_vecs)], key=lambda rw:rw[0])))
-		print('**debug, evals, evecs: ', e_vals, e_vecs)
+		#print('**debug, evals, evecs: ', e_vals, e_vecs)
 		#
 		# notes on ab_ratio: in the strictest sense, ab_ratio expon. should be 0.5, in the sense that the 'singular values' of the decomposition are equal to
 		# the sqrt(eigen_values) of the covariance (which makes sense; the basis lengths are approximately the standard deviation in some direction;
@@ -1064,11 +1064,21 @@ class Earthquake(object):
 			# when we consider that we have to catch the 0 valued eigenvalue as well as extreme values, this approach is maybe
 			# not so bad...
 			#
+			# this works, except we need to (properly) incorporate the min/max ab_ratio filtering.
+			'''
+			if min(abs_evals)==0:
+				self.e_vals_n = [transform_ratio_max, 1./transform_ratio_max]
+			else:
+				#self.e_vals_n = [(abs_evals[1]/abs_evals[0])**ab_ratio, (abs_evals[0]/abs_evals[1])**ab_ratio]
+				self.e_vals_n = [max(1./transform_ratio_max, min(transform_ratio_max, (abs_evals[1]/abs_evals[0])))**ab_ratio, max(1./transform_ratio_max, min(transform_ratio_max, (abs_evals[0]/abs_evals[1])))**ab_ratio]
+			'''
+			#
 			#self.e_vals_n = [1./abs(ab_ratio), abs((ab_ratio))]
 			if abs_evals[0]<abs_evals[1]:
 				self.e_vals_n = [abs(ab_ratio), 1./abs((ab_ratio))]
 			else:
 				self.e_vals_n = [1./abs(ab_ratio), abs((ab_ratio))]
+			#
 			self.spatial_intensity_factor = 1.0
 			#
 		#	
