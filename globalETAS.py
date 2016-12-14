@@ -1044,7 +1044,7 @@ class Earthquake(object):
 		if min(abs_evals)==0.:
 			ab_ratio = transform_ratio_max**ab_ratio_expon
 		else:
-			ab_ratio = min(transform_ratio_max, (max(abs_evals)/min(abs_evals)))**ab_ratio_expon
+			ab_ratio = min(transform_ratio_max**ab_ratio_expon, (max(abs_evals)/min(abs_evals))**ab_ratio_expon)
 		#
 		self.ab_ratio=ab_ratio
 		#print('**debug: self.ab_ratio: ', self.ab_ratio)
@@ -1075,9 +1075,11 @@ class Earthquake(object):
 			#
 			#self.e_vals_n = [1./abs(ab_ratio), abs((ab_ratio))]
 			if abs_evals[0]<abs_evals[1]:
-				self.e_vals_n = [abs(ab_ratio), 1./abs((ab_ratio))]
+				#self.e_vals_n = [abs(ab_ratio), 1./abs((ab_ratio))]
+				self.e_vals_n = [ab_ratio, 1./ab_ratio]
 			else:
-				self.e_vals_n = [1./abs(ab_ratio), abs((ab_ratio))]
+				#self.e_vals_n = [1./abs(ab_ratio), abs((ab_ratio))]
+				self.e_vals_n = [1./ab_ratio, ab_ratio]
 			#
 			self.spatial_intensity_factor = 1.0
 			#
@@ -1096,8 +1098,7 @@ class Earthquake(object):
 			#else:
 			#	self.e_vals_n  = [1., ab_ratio]
 			#
-			#self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))
-			self.spatial_intensity_factor = min(abs(self.e_vals_n)/max(self.e_vals_n))
+			self.spatial_intensity_factor = min(self.e_vals_n)/max(self.e_vals_n)
 			#
 		else:
 			return self.set_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
