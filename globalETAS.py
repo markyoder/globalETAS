@@ -1525,7 +1525,7 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 	#
 	#
 # make a class out of this; derive from recarray; keep universal valuess like p,q,dmstar, etc. as member variables.
-def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, catalog_range=None):
+def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, catalog_range=None, N_min_ellip_fit=5):
 	'''
 	# fetch (or receive) an earthquake catalog. for each event, calculate ETAS relevant constants including rupture_length,
 	# spatial orientation, elliptical a,b, etc. This catalog will then be provided to other processes to calculate ETAS rates
@@ -1693,7 +1693,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# note: if center_lat/lon=None (default), we subtract mean value to get PCA. if we specify center_lat/lon, we subtract those values.
 		# note: if there aren't any data, don't bother fitting (though we could just leave this to the PCA code)
 		#		
-		if len(included_indices)>10:
+		if len(included_indices)>N_min_ellip_fit:
 			# since we're just getting the eigen- vals, vecs, it might be faster to just do the covariance calculation in place here.
 			# note that in general, whether or not it's faster to re-calc cov(X) in place or save a copy will depend on the size of the array,
 			# but since we're always doing dim(cov)=(2,2), it should be faster to make a copy.

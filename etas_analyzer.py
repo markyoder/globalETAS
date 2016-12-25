@@ -447,7 +447,7 @@ def get_nepal_etas_fc(n_procs=None, cat_len=5.*365., p_cat=1.1, q_cat=1.5, t_0 =
 	# emulating the 2015-5-7 forecast issued to NASA...
 	#
 	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':t_0, 't_now':t_now, 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_processes':n_procs, 'p_cat':p_cat, 'q_cat':q_cat})
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':25.0, 'etas_range_padding':1.25, 'etas_fit_factor':1.5, 't_0':t_0, 't_now':t_now, 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':cat_len, 'calc_etas':True, 'n_contours':15, 'n_processes':n_procs, 'p_cat':p_cat, 'q_cat':q_cat})
 	#
 	# ... and any params we've passed along...
 	np_prams.update(pram_updates)
@@ -466,7 +466,7 @@ def get_nepal_etas_test(p_cat=1.1, q_cat=1.5, t_start=dtm.datetime(2015,5,7, tzi
 	t_now = t_start + dtm.timedelta(days=delta_t)
 	#
 	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':10.0, 'etas_range_padding':.25, 'etas_fit_factor':1.5, 't_0':t_start, 't_now':t_now, 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':False, 'n_contours':15})
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':25.0, 'etas_range_padding':1.25, 'etas_fit_factor':1.5, 't_0':t_start, 't_now':t_now, 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':False, 'n_contours':15})
 	#
 	np_prams_test = np_prams
 	# 
