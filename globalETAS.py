@@ -132,7 +132,7 @@ class Global_ETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None,**kwargs):
+	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=25.0, etas_range_padding=1.5, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None,**kwargs):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -158,12 +158,12 @@ class Global_ETAS_model(object):
 		#self.__dict__.update(locals())
 		#
 		# we might just want the last N days, as a consistent standard. note we might, later on, make this a bit more sophisticated
-		# by processing the full t0 -> t_now catalog, but only doing ETAS for the most recent cat_len days. BUT, to do this, we have
+		# by processing the full t_0 -> t_now catalog, but only doing ETAS for the most recent cat_len days. BUT, to do this, we have
 		# to enforce in all the do_ETAS() functions
 		t_now = (t_now or dtm.datetime.now(pytz.timezone('UTC')))
 		if cat_len != None:
-			t0=t_now - dtm.timedelta(days=cat_len)
-			print("Overriding t0 (etas catalog start date/time) for ETAS calculations. using catalog start, t0 = t_now - catlen (%f) = %s" % (cat_len, t0))
+			t_0=t_now - dtm.timedelta(days=cat_len)
+			print("Overriding t_0 (etas catalog start date/time) for ETAS calculations. using catalog start, t_0 = t_now - catlen (%f) = %s" % (cat_len, t_0))
 		#
 		if lats is None and catalog is None: lats = [-89.9, 89.9]
 		if lons is None and catalog is None: lons = [-180., 180.]
@@ -227,7 +227,7 @@ class Global_ETAS_model(object):
 								# that said, let's take the next step and return dict. type earthquake entries.
 		#
 		if catalog is None:
-			print("fetch and process catalog.")
+			print("fetch and process catalog for dates: {}".format([t_0, t_now]))
 			#catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
 			catalog = make_ETAS_catalog_mpp(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor, p=p_cat, q=q_cat)	# and note there are other variables to consider...
 			print("catalog fetched and processed.")
