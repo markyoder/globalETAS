@@ -632,6 +632,7 @@ def roc_plots_from_gsroc(FH, fignum=0):
 	if len(FH[0])==4: cols = {key:val for key,val in zip(['q_fc', 'q_t', 'F', 'H'], range(4))}
 	if len(FH[0])==3: cols = {key:val for key,val in zip(['q_t', 'F', 'H'], range(3))}
 	#
+	# skill = sum(h-f)
 	skl = [rw[-1]-rw[-2] for rw in FH]
 	#
 	fg=plt.figure(fignum)
