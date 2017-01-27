@@ -1,4 +1,7 @@
 '''
+# DEPRICATION: This module represents a good investigation, development, and benchmarking of some mpp methods, but a
+# much simpler, faster ROC can be found in the optimizers/roc_tools.py module.
+#
 # some generic ROC tools, and playing a bit with shared memory mpp as well.
 # (eventually, this needs to be moved into a general-tools repository). also,
 # lets see if we can't @numba.jit  compile some of these bits...
@@ -28,10 +31,21 @@ except:
 	have_numba=False
 	print('numba not available. you should install it.')
 #
+print('***************** roc_generic.py ***********************')
+print('*****************\nDEPRICATION WARNING:\nThis module is being depricated; look at yodiipy.optimizers.roc_tools()')
+print('and possibly something like etas_roc_tools.py in the globalETAS folder.')
+print('this module contains some working code... and some not working code, so be very very careful,')
+print('particularly when running the more optimized codes.')
+print('NOTE: the Aray() (shared memory) vs piped mpp tests are probably worth keeping, particularly the Array() code sample.')
+#
 #
 class Array_test(object):
 	def __init__(self, N=1000):
 		# just a toy, test script to work with mpp.Array() and other mpp stuff.
+		# this (shared memory) approach to Python mpp significatnly underperformed standard piping models in earlier tests.
+		# however, it might be worth looking at it for the newer, single-pass ROC methods (see optimizers.roc_tools.py).
+		# because this approach is single-pass, its spp implementation is faster than piped mpp, but shared memory (Array() ),
+		# even in Python, might be faster, especially for a simplified metric, like Molchan vs true ROC...
 		#
 		R1 = random.Random()
 		R2 = random.Random()
@@ -183,6 +197,8 @@ class ROC_generic(object):
 	def roc_simple_sparse(self, h_denom=None, f_denom=None, f_start=0, f_stop=None, do_sort=True):
 		# ... actually, this needs to be re-done or removed. i don't think we can actually solve for the correct F with the information provided.
 		# simple ROC calculator.
+		# ... this is not quite right, however, because it does not account for multiple events in a single bin...
+		# but it's close for fine lattices.
 		#@do_normalize: normalise F,H. for mpp calculations, it might be simpler to return the total sums and normalize in the parent class/calling funct.
 		h_denom = (h_denom or self.h_denom)
 		f_denom = (f_denom or self.f_denom)
@@ -243,6 +259,7 @@ class ROC_generic(object):
 	#
 	def roc_sparse_approx(self):
 		# a minor approximation when not sparse:
+		# but note we repeatedly sum over the events array, so this gets really slow for large catalogs.
 		self.F, self.H = zip(* [[(self.f_start + j)/self.f_denom, sum([(z_ev>=z_fc) for z_ev in self.Z_events])/self.h_denom] for j,z_fc in enumerate(self.Z_fc)] )
 	#
 	'''

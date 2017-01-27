@@ -4,7 +4,7 @@
 '''
 
 import globalETAS as gep
-import ANSStools as atp
+import yodiipy.ANSStools as atp
 import datetime as dtm
 import pytz
 import math
@@ -24,9 +24,9 @@ alpha_0 = 2.28
 def auto_etas(lon_center=None, lat_center=None, d_lat_0=.25, d_lon_0=.5, dt_0=10, Lr_factor=4.0, mc=2.5, mc_0=4.5, d_lat=.1, d_lon=.1, to_dt=None, fnameroot='etas_auto', catlen=5.0*365.0, doplot=False, kmldir='kml_auto', **kwargs):
 	my_prams = locals()
 	#
-	etas_params = auto_etas_global_params(**my_prams)
+	etas = auto_etas_global_params(**my_prams)
 	#
-	
+	return etas
 	
 def auto_etas_global_params(lon_center=None, lat_center=None, d_lat_0=.25, d_lon_0=.5, dt_0=10,  mc=2.5, mc_0=4.5, d_lat=.1, d_lon=.1, to_dt=None, fnameroot='etas_auto', catlen=5.0*365.0, doplot=False, kmldir='kml_auto', etas_range_factor=10., etas_range_padding=.5, etas_fit_factor=2.0, transform_type='equal_area',transform_ratio_max=2.5, calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, p_etas=None, Lr_factor=3., **kwargs):
 	'''
@@ -47,7 +47,7 @@ def auto_etas_global_params(lon_center=None, lat_center=None, d_lat_0=.25, d_lon
 		lat_center = 0.
 		lon_center = 0.
 		d_lat_0 = 88.
-		d_lon_0 = -180.
+		d_lon_0 = 180.
 	#
 	# get a preliminary catalog:
 	cat_0 = atp.catfromANSS(lon=[lon_center-d_lon_0, lon_center+d_lon_0], lat=[lat_center - d_lat_0, lat_center+d_lat_0], minMag=mc_0, dates0=[to_dt-dtm.timedelta(days=dt_0), to_dt], fout=None, rec_array=True)
@@ -77,4 +77,6 @@ def auto_etas_global_params(lon_center=None, lat_center=None, d_lat_0=.25, d_lon
 	#root_prams = {}
 	print("now execute with root_prams: ", root_prams)
 	#my_kwargs = {}
+	#
+	return etas
 
