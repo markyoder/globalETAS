@@ -20,7 +20,7 @@ import multiprocessing as mpp
 #
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.mpl as mpl
+import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
 #import functools
 #
@@ -32,14 +32,19 @@ from geographiclib.geodesic import Geodesic as ggp
 #
 #
 import ANSStools as atp
+#from yodiipy import ANSStools as atp
 #import bindex
 import contours2kml
 import globalETAS as gep
 from eq_params import *
-import roc_generic
-import random
+import roc_generic            # we'll eventually want to move to a new library of roc tools.
+
 #
-colors_ =  mpl.rcParams['axes.color_cycle']
+# optimizers included as submodule...
+from optimizers import roc_tools
+#
+#colors_ =  mpl.rcParams['axes.color_cycle']
+colors_ = ['b', 'g', 'r', 'c', 'm', 'y', 'k']		# make sure these are correct...
 #
 
 sischuan_prams = {'to_dt':dtm.datetime(2008,6,12, tzinfo=pytz.timezone('UTC')), 'mainshock_dt':dtm.datetime(2008,5,13, tzinfo=pytz.timezone('UTC')), 'lat_center':31.021, 'lon_center':103.367, 'Lr_map_factor':4.0, 'mc':4.0, 'mc_0':None, 'dm_cat':2.0, 'gridsize':.1, 'fnameroot':'etas_auto_sichuan', 'catlen':10.0*365., 'd_lambda':1.76, 'doplot':True}
@@ -67,18 +72,27 @@ class Toy_etas(object):
 		#
 	#
 class  Toy_etas_invr(Toy_etas):
+	'''
+	# this is a "toy" object meant to emulate a GlobalETAS() class object for certain purposes.
+	# it is basically meant to facilitate comparison of an actual ETAS forecast to a simple pseudo-null
+	# model in which ETAS rates are like z~1/r
+	'''
 	def __init__(self, *args, **kwargs):
 		super(Toy_etas_invr,self).__init__(*args, **kwargs)
 		self.L_r = 10.**(.5*self.mainshock['mag']-1.76)
+		q=(1. or q)
 		#
 		for j,rw in enumerate(self.ETAS_array):
 			g1=ggp.WGS84.Inverse(self.mainshock['lat'], self.mainshock['lon'], rw['y'], rw['x'])
 			#r_prime = (g1['s12']/1000.) + .5*L_r
-			self.ETAS_array['z'][j] = 1./((g1['s12']/1000.) + .5*self.L_r)
+			self.ETAS_array['z'][j] = 1./((g1['s12']/1000.) + .5*self.L_r)**q
 		#
 		self.normalize()
 #
 class Toy_etas_random(Toy_etas):
+	'''
+	# (see Toy_etas() above for basic explanation)
+	'''
 	def __init__(self, *args, **kwargs):
 		#super(Toy_etas_random, self).__init__(None,*args, **kwargs)
 		super(Toy_etas_random, self).__init__(*args, **kwargs)
@@ -89,6 +103,10 @@ class Toy_etas_random(Toy_etas):
 		self.normalize()
 #class Toy_etas_fromxyz(Toy_etas):
 class Toy_etas_fromxyz(object):
+	'''
+	# (see Toy_etas() above for basic explanation)
+	'''
+
 	# maybe inherit from Toy_etas later...
 	# (still needs testing and development)
 	def __init__(self, fname='global_map_20151129.xyz', *args, **kwargs):
@@ -106,6 +124,8 @@ class Toy_etas_fromxyz(object):
 #
 class ROC_base(object):
 	# a base class object for MPP ROC stuff. we'll inherit this for both the worker and handerl mpp classes.
+	# note: this is a ROC tool specific to these map forecast analyses. we should separate the get_site() part and then use
+	# the roc_tools() optimizers.roc_tools bits.
 	#
 	def __init__(self, fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
 		#
@@ -157,6 +177,9 @@ class ROC_base(object):
 		#
 	#
 	def get_site(self, x,y):
+		# TODO: this binning needs to be double-checked. do lons[0], lats[0] define the edge of a bin or the boundary in which we
+		# select earthquakes (in which case, their outer edges are +/- dx/2.
+		# ... but i think this is correct.
 		return int(round((x-self.lons[0]+.5*self.d_lon)/self.d_lon)) + int(round((y-self.lats[0]+.5*self.d_lat)/self.d_lat))*self.nx
 
 	def calc_ROCs(self, H_denom=None, F_denom=None, m_c=None):
@@ -694,9 +717,15 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	#eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
 	eq_site_zs = [Zs[get_site(eq['lon'], eq['lat'])] for eq in test_catalog]
 	#
-	roc_obj = roc_generic.ROC_mpp(n_procs=n_cpus, Z_events=eq_site_zs, Z_fc=Zs, h_denom=None, f_denom=None, f_start=0., f_stop=None)
-	roc = roc_obj.calc_roc()
-	Fs, Hs = roc_obj.F, roc_obj.H
+	# yoder: 2016_07_01:
+	# mpp gives no real gain. roc_generic bits are fixed, but let's try using the new optimizer tool.
+	FH = roc_tools.calc_roc(Z_fc=Zs, Z_ev=eq_site_zs, f_denom=None, h_denom=None, j_fc0=0, j_eq0=0, do_sort=True)
+	
+	#roc_obj = roc_generic.ROC_mpp(n_procs=n_cpus, Z_events=eq_site_zs, Z_fc=Zs, h_denom=None, f_denom=None, f_start=0., f_stop=None)
+	#roc = roc_obj.calc_roc()
+	#Fs, Hs = roc_obj.F, roc_obj.H
+	#
+	#
 	#print("eZs: ", etas_fc.ETAS_array['z'][0:10], len(etas_fc.ETAS_array['z']))
 	#
 	'''
@@ -766,11 +795,13 @@ def roc_normal_from_xyz(fc_xyz, test_catalog=None, from_dt=None, to_dt=None, dx=
 	if fignum!=None:
 		plt.figure(fignum)
 		if do_clf: plt.clf()
-		plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
+		#plt.plot(Fs,Hs, '-', label='ROC_approx.', lw=2., alpha=.8)
+		plt.plot(*zip(*FH), ls='-', label='ROC_approx.', lw=2., alpha=.8)
 		#plt.plot(Fs2, Hs2, '-', label='ROC', lw=2., alpha=.8)
 		plt.plot(range(2), range(2), 'r--', lw=2.5, alpha=.6)
 	#
-	return list(zip(Fs,Hs))
+	#return list(zip(Fs,Hs))
+	return FH
 #	
 #
 def roc_normal(etas_fc, test_catalog=None, from_dt=None, to_dt=None, cat_len=120., mc_roc=5.0, fignum=0, do_clf=True):
@@ -955,7 +986,7 @@ def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5
 	#
 	return FH
 			
-def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=3.5, q_test_min=1.1, q_test_max=2.5, do_log=True, dq_fc=.1, dq_test=.1, fignum=0, fout='roc_geospatial.csv'):
+def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=3.5, q_test_min=1.1, q_test_max=3.5, do_log=True, dq_fc=.1, dq_test=.1, fignum=0, fout='roc_geospatial_fast.csv'):
 	#
 	#if etas_fc==None: 
 	etas_fc=get_nepal_etas_fc()
@@ -1264,4 +1295,57 @@ def plot_mainshock_and_aftershocks(etas, m0=6.0, mainshock=None, fignum=0):
 		if eq['event_date']>eq['event_date']:
 			x,y = map_etas(eq['lon'], eq['lat'])
 			plt.plot([x], [y], 'o', zorder=7, ms=20, alpha=.8)	
-	
+
+def get_Z_fc_Z_ev(fc_xyz=None, test_catalog=None, from_dt=None, to_dt=None, dx=None, dy=None, cat_len=120., mc=5.0):
+		#
+		if isinstance(fc_xyz, str):
+			# if we're given a filename...
+			with open(fc_xyz, 'r') as froc:
+				fc_xyz= [[float(x) for x in rw.split()] for rw in froc if rw[0] not in('#', ' ', '\t', '\n')]
+		#
+		if to_dt   == None: to_dt = dtm.datetime.now(pytz.timezone('UTC'))
+		if from_dt == None: from_dt = to_dt-dtm.timedelta(days=120)			# but this really doesn't make much sense for this version of ROC...
+		#
+		#return fc_xyz
+		if not hasattr(fc_xyz, 'dtype'):
+			fc_xyz = numpy.core.records.fromarrays(zip(*fc_xyz), names=('x','y','z'), formats=['>f8', '>f8', '>f8'])
+		#
+		lats = [min(fc_xyz['y']), max(fc_xyz['y'])]
+		lons = [min(fc_xyz['x']), max(fc_xyz['x'])]
+		#
+		#mc   = mc_roc
+		X_set = sorted(list(set(fc_xyz['x'])))
+		Y_set = sorted(list(set(fc_xyz['y'])))
+		d_lon = (dx or abs(X_set[1] - X_set[0]))
+		d_lat = (dy or abs(Y_set[1] - Y_set[0]))
+		nx = len(X_set)
+		ny = len(Y_set)
+		#
+		
+		#
+		#
+		print("get cataog: ", lons, lats, mc, from_dt, to_dt)
+		if test_catalog==None: test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[from_dt, to_dt])
+		print("catlen: ", len(test_catalog))
+		#
+		# note: this will reduce the number of z values a bit, but what we really need to do is bin them into N bins... or maybe
+		# we do explicitly want to remove each site, one at a time to get a proper ROC...
+		Z_fc = sorted(list(fc_xyz['z'].copy()))
+		
+		# nominally, we'd make a copy of the whole catalog, but for memory conservation, just index the lsit.
+		#eq_ks = [[get_site(eq['lon'], eq['lat']), eq] for eq in test_catalog]
+		#eq_site_indices = [get_site(eq['lon'], eq['lat']) for eq in test_catalog]
+		#
+		get_site = lambda x,y: int(round((x-lons[0]+.5*d_lon)/d_lon)) + int(round((y-lats[0]+.5*d_lat)/d_lat))*nx
+		#
+		Z_ev = [Z_fc[get_site(eq['lon'], eq['lat'])] for eq in test_catalog]
+		#
+		return {'Z_fc': Z_fc, 'Z_ev':Z_ev}
+	#
+'''
+def get_site(self, x,y, d_lon, d_lat):
+	# TODO: this binning needs to be double-checked. do lons[0], lats[0] define the edge of a bin or the boundary in which we
+	# select earthquakes (in which case, their outer edges are +/- dx/2.
+	# ... but i think this is correct.
+	return int(round((x-self.lons[0]+.5*self.d_lon)/self.d_lon)) + int(round((y-self.lats[0]+.5*self.d_lat)/self.d_lat))*self.nx
+	'''

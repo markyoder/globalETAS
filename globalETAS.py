@@ -24,6 +24,19 @@
 # 4) eventually add temporal indexing as well?
 # 5) we're also interested in convolving ETAS with finite source models (aka, map ETAS to faults or some other
 #    irregular geometry). we may do something with that here.
+#
+# TODO notes:
+# 1: revisit Bindex model; i think it will be faster, simpler, and lower memory footprint than rtree, and i think the main obstacles to making it work properly
+#    have actually been resolved.
+# 2: revise the boundary selection framework for rtree. basically, there is a problem constraining the boundaries when lat/lon parameters are provided to ETAS.
+# 3: implement (or confirm implementation of) the brute-force version of ETAS, where we loop-loop over all events,locations. for small ETAS, we probably
+#    want to do this anyway and it will be faster because we forego calculating indices.
+# 4: revise the spatial limits: instead of just using n*L_r for spatial extetns, actually calculate the distance for z -> x*z0, aka the distance for 90% reduction.
+#    this will be similar to the L_r approach, bit will account for proper scaling and should improve the output appearance.
+# 5: modify the MPP handler(s) to inherit from Pool() and actually work like a Pool(), rather than explicitly handling Process() objects. the problem is that when
+#    we divide up the job, we inevitably give one processor a light job and one processor a heavy job, so we spend a lot of time waiting for one process to finish.
+#    yes, there is a bit of overhead in running with n_processes > n_processors, but it is minor in comparison. also, by dividing the job into lots of small little
+#    jobs, we can probably also reduce the real-time memory footprint, so we can run on smaller systems.
 '''
 #
 import datetime as dtm
@@ -45,10 +58,12 @@ import os
 #from PIL import Image as ipp
 import multiprocessing as mpp
 #
-import matplotlib
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-import matplotlib.mpl as mpl
 import functools
+#
+# let's see if we can compile some of thes functions.
+import numba
 #
 #import shapely.geometry as sgp
 #
@@ -114,7 +129,7 @@ class Global_ETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, p_etas=None,**kwargs):
+	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=10.0, etas_range_padding=.25, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, p_etas=None,**kwargs):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -147,10 +162,13 @@ class Global_ETAS_model(object):
 			t0=t_now - dtm.timedelta(days=cat_len)
 			print("Overriding t0 for ETAS calculations. using catalog start, t0 = t_now - catlen (%f) = %s" % (cat_len, t0))
 		#
-		#lats = (lats or [-89.9, 89.9])
-		#lons = (lons or [-180., 180.])
-		if lats == None: lats = [-89.9, 89.9]
-		if lons == None: lons = [-180., 180.]
+		if lats == None and catalog == None: lats = [-89.9, 89.9]
+		if lons == None and catalog == None: lons = [-180., 180.]
+		#
+		# for now, assume the catalog is string-indexed -- aka, recarray, PANDAS,etc.
+		if lats == None and not (catalog == None or len(catalog) == 0): lats = [min(catalog['lat']), max(catalog['lat'])]
+		if lons == None and not (catalog == None or len(catalog) == 0): lons = [min(catalog['lon']), max(catalog['lon'])]
+		if mc   == None and not (catalog == None or len(catalog) == 0): mc = min(catalog['mag'])
 		#
 		# and handle some specific cases...
 		if isinstance(t_now, float):
@@ -308,7 +326,7 @@ class Global_ETAS_model(object):
 		#
 		
 	#
-	def calc_etas_codntours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
+	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
 		# (and these calc_contours schemes need to be cleaned up a bit. there is a bit of redundancy and disorganization)
 		#
@@ -411,6 +429,8 @@ class Global_ETAS_model(object):
 		for quake in self.catalog[self.etas_cat_range[0]:self.etas_cat_range[1]]:
 			if quake['mag']<self.mc_etas: continue
 			#
+			if quake['event_date_float']>self.t_forecast: continue
+			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max)
 			#
 			# get lat/lon range:
@@ -422,12 +442,16 @@ class Global_ETAS_model(object):
 			#
 			# and let's also assume we want to limit our ETAS map to the input lat/lon:
 			# this formulation can get confused if lons, lats, and a catalog are provided separately. look for a smarter way...
-			lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
-			lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
+			#lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
+			#lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
+			# for now, just let the space be big.
+			lon_min, lon_max = eq.lon - delta_lon, eq.lon + delta_lon
+			lat_min, lat_max = eq.lat - delta_lat, eq.lat + delta_lat
+			
 			#
 			#print('rtree indexing: ', quake, lon_min, lat_min, lon_max, lat_max, self.lons, self.lats, delta_lon, delta_lat)
 			#
-			site_indices = lattice_index.intersection((lon_min, lat_min, lon_max, lat_max))
+			site_indices = list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max)))
 			# ... and if we wrap around the other side of the world...
 			# there's probably a smarter way to do this...
 			if lon_min<-180.:
@@ -468,6 +492,7 @@ class Global_ETAS_model(object):
 				self.ETAS_array[site_index][2] += local_intensity
 				#
 		#
+		print('finished calculateing ETAS (rtree). wrap up in recarray and return.')
 		# this conversion to the 2d array should probably be moved to a function or @property in the main class scope.
 		
 		#self.lattice_sites = numpy.array([rw[2] for rw in self.ETAS_array])
@@ -1030,7 +1055,7 @@ class Earthquake(object):
 		#et = self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse)
 		et = self.elliptical_transform(lon=lon, lat=lat)
 		#
-		# in some cases, let's adjust t0 so maybe we dont' get nearfield artifacts...
+		# in some cases, let's adjust t0 so maybe we dont' get near-field artifacts...
 		'''
 		if t0_prime!=None:
 			t_0_prime = 60.*10.	# ten minutes...
@@ -1042,6 +1067,8 @@ class Earthquake(object):
 			tau_prime = self.tau
 			t_0_prime = self.t_0
 		'''
+		#
+		# note: everything from here down can (i think) be compiled with numba.jit, if we are so inclined.
 		#
 		#orate = 1./(tau_prime * (t_0_prime + delta_t)**p)
 		orate = 1./(self.tau * (self.t_0 + delta_t)**p)
@@ -1063,22 +1090,22 @@ class Earthquake(object):
 		# - normalize with r -> r0 + r_prime, (aka, the distance as "seen" by the earthquake). if we normalize with geometric distances, we get singularities around the earthquakes. 
 		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R'], b=self.e_vals_n[1]*et['R'])
 		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*et['R_prime'], b=self.e_vals_n[1]*et['R_prime'])
-		
+		#
+		# ummm... this is area? i think this arose from some desperate trouble-shooting to find the singular behavior
+		#  (that is resolved by including the r0 term in the effective radius).
 		#circumf = ellipse_circumference_approx1(a=self.e_vals_n[0]*(self.r_0 + et['R_prime']), b=self.e_vals_n[1]*(et['R_prime'] + self.r_0))
 		#circumf = math.pi*et['R']**2.
-		circumf = math.pi*(self.r_0 + et['R_prime'])**2.
-		#circumf = max(circumf, .628)	# limit spatial density. in ETASmf, we use the transformed distance r_prime = R_prime + r_0
+		#circumf = math.pi*(self.r_0 + et['R_prime'])**2.
+		
+		circumf = 2.*math.pi*(self.r_0 + et['R_prime'])
 		#
+		# @spatial_intensity_factor: corrects for local aftershock density in rotational type transforms.
+		#  aka, in rotations, space is effectively compressed (by trigonometry), so intensity is boosted. for equal-area
+		#  transforms, spatil_intensity_factor=1.0
 		spatialdensity = self.spatial_intensity_factor*radial_density/circumf
-		#
-		#print "diag: ", orate, circumf, self.spatial_intensity_factor*radial_density, spatialdensity
-		#
-		#spatialdensity = 1.0*(et['R_prime'] + self.r_0)**(-q)
-		
+		#		
 		return spatialdensity*orate
-		
-		#
-		#return (self.r_0 + et['R_prime'])**(-q)
+		#return orate*self.spatial_intensity_factor*radial_density/circumf		
 	#
 	# some diagnostics:
 	def plot_linear_density(self, r_max=None, r_max_factor=5., fignum=0, n_points=1000):
@@ -1271,7 +1298,7 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 		etas_prams['catalog_range']=[k*n, min((k+1)*n, cat_len)]
 		#print("parameters: ", etas_prams)
 		#pool_handlers += [P.apply_async(make_ETAS_catalog), kwds=etas_prams]
-		pool_handlers += [P.apply_async(make_ETAS_catalog,args=[None, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n, cat_len)]])]
+		pool_handlers += [P.apply_async(make_ETAS_catalog,args=[incat, lats, lons, mc, date_range, D_fract, d_lambda, d_tau, fit_factor, p, q, dmstar, b1,b2, do_recarray, [k*n, min((k+1)*n, cat_len)]])]
 		# i think this version, where we pass incat to the child processes, works properly, though it should be checked.
 		 # ... or maybe it doesn't; maybe the recarrays don't pickle (i may have pickled one somewhere else... or maybe not). probably need to build in some smart header handlers for mpp.
 		 #
@@ -1335,7 +1362,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# other date-handling....
 	#
 	start_date = date_range[0]
-	end_date = date_range[1]
+	end_date   = date_range[1]
 	#
 	if incat==None or (hasattr(incat, '__len__') and len(incat)==0):
 		n_tries = 0
@@ -1359,7 +1386,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	# first, make a spatial index of the catalog:
 	anss_index = index.Index()
 	[anss_index.insert(j, (rw['lon'], rw['lat'], rw['lon'], rw['lat'])) for j,rw in enumerate(incat)]
-	
+	#
 	# now, calculate etas properties....
 	#
 	# first, set up the numpy.recarray column formats:
@@ -1389,6 +1416,9 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		#r0 = Nom*(q-1.0)/Nprimemax
 		#chi = (r0**(1.0-q))/(Nom*(q-1.0))
 		#
+		# note: look (one day...) for a compiled external (not in this class) function that makes these calcuations.
+		# 1) it will be portable, 2) by compiling, say, with numba.jit, we might be able to get some speed. we might even
+		# be able to port it to a GPU module...
 		mag = rw['mag']
 		L_r = 10.0**(.5*mag - d_lambda)
 		dt_r = 10.0**(.5*mag - d_tau)		# approximate duration of rupture
@@ -1402,13 +1432,15 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		# start with the (log of the) number of earthquakes/aftershocks in the rupture area:
 		# (in yoder et al. 2015, this is "N_as", or "number of aftershocks (inside rupture area)".
 		#
-		lN_chi = (2.0/(2.0 + D))*math.log10(1.0 + D/2.) + D*(mag - dmstar - mc)/(2.+D)
+		lN_chi = (2.0/(2.0 + D))*numpy.log10(1.0 + D/2.) + D*(mag - dmstar - mc)/(2.+D)
 		N_chi  = 10.**lN_chi
 		#
 		# mean linear density and spatial Omori parameters:
 		linear_density = 2.0*N_chi/L_r		# (linear density over rupture area, or equivalently the maximum spatial (linear) density of aftershocks.
 		#
-		## from BASScast:
+		## this version is in use with BASScast:
+		# ... and these appear to result in different initial rate-densities, though the maps are qualitatively similar beyond that.
+		# not sure at this point which version was actually published.
 		#l_r0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar+ + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
 		# r_0 = 10.**l_r0
 		#
@@ -1571,9 +1603,12 @@ def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, max
 	
 #
 # helper scripts
+# can we numba.jit compile this? it looks like... no. we can't probably because of the compiled numpy.linalg bits.
+# we might try useing scipy linear algebra; rumor has it that scipy is better compiled.
+#@numba.jit
 def get_pca(cat=[], center_lat=None, center_lon=None, xy_transform=True):
-	# get pca for the input catalog. if center_lat/lon=None, then subtrac these values as the 'mean' (standard PCA). otherwis,
-	# subtract the actual mean.
+	# get pca (principal component analysis) for the input catalog. if center_lat/lon=None, then subtrac these values as
+	# the 'mean' (standard PCA). otherwise, subtract the actual mean.
 	# if xy_transform, then transform from lat/lon to x,y
 	# we really need to find a good PCA library or write an extension for this. maybe a good D project?
 	# ... or maybe since most of the work gets done in numpy, it's ok speed-wise, but it would still make a nice D project.
@@ -1687,7 +1722,7 @@ def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'],
 	#
 	return return_distances
 	
-
+@numba.jit
 def spherical_dist(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], Rearth = 6378.1):
 	# Geometric spherical distance formula...
 	# displacement from inloc...
@@ -1767,7 +1802,7 @@ def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 	xi = numpy.linspace(min_x-abs(min_x)*padding, max_x + abs(max_x)*padding, n_x)
 	yi = numpy.linspace(min_y-abs(min_x)*padding, max_y + abs(max_x)*padding, n_y)
 	#
-	zi = matplotlib.mlab.griddata(xyz['x'], xyz['y'], numpy.log10(xyz['z']), xi, yi, interp='nn')
+	zi = mpl.mlab.griddata(xyz['x'], xyz['y'], numpy.log10(xyz['z']), xi, yi, interp='nn')
 	#
 	plt.figure(0)
 	plt.clf()
@@ -2060,8 +2095,65 @@ def ellipse_test(fignume=0, N=1000):
 	plt.plot(*zip(*xy_prime), marker='x', ls='-', color='g') 
 	#
 	return E
+#
+def get_eq_properties(m=None, mc=None, b=1.0, d_lambda=1.76, d_tau=2.3, D=1.5, dm=1.0, p=1.1, q=1.5, dm_tau=0):
+	#mag = rw['mag']
+	r_vals = locals().copy()
+	#
+	# bridging some new and old syntax:
+	mag=m
+	dmstar=dm
+	l_15_factor = (2./3.)*numpy.log10(1.5)
+	#
+	L_r = 10.0**(.5*mag - d_lambda)
+	dt_r = 10.0**(.5*mag - d_tau)		# approximate duration of rupture
+	lN_om = b*(mag - dmstar - mc)
+	N_om = 10.0**lN_om
+	#
+	# self-similar formulation from yoder et al. 2014/15:
+	# start with the (log of the) number of earthquakes/aftershocks in the rupture area:
+	# (in yoder et al. 2015, this is "N_as", or "number of aftershocks (inside rupture area)".
+	#
+	lN_chi = (2.0/(2.0 + D))*numpy.log10(1.0 + D/2.) + D*(mag - dmstar - mc)/(2.+D)
+	N_chi  = 10.**lN_chi
+	#
+	# mean linear density and spatial Omori parameters:
+	linear_density = 2.0*N_chi/L_r		# (linear density over rupture area, or equivalently the maximum spatial (linear) density of aftershocks.
+	#
+	## this version is in use with BASScast:
+	# ... and these appear to result in different initial rate-densities, though the maps are qualitatively similar beyond that.
+	# not sure at this point which version was actually published.
+	#l_r0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar+ + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
+	# r_0 = 10.**l_r0
+	#
+	# from yoder et al. 2015 and sort of from BASScast:
+	r_0 = N_om*(q-1.0)/linear_density		
+	#
+	## let's try this formulation; sort out details later.
+	#lr_0 = mag*((6.0+D)/(4.0+2*D)) - (2.0/(2.0+D))*(dmstar + mc - math.log10((2.0+D)/2.0)) + math.log10(q-1.0) - d_lambda - math.log10(2.0)
+	#r_0 = 10.**lr_0
+	#
+	chi = (r_0**(1.-q))/(N_om*(q-1.0))
+	#radialDens = (q-1.0)*(r0ssim**(q-1.0))*(r0ssim + rprime)**(-q)
+	#
+	# temporal Omori parameters:
+	# (something is not correct here; getting negative rate_max (i think))
+	# ... but isn't this supposed to be the exponent (log)?
+	rate_max = 10.**(l_15_factor + d_tau - mag/6. - (dm_tau + mc)/3.)
+	t_0 = N_om*(p-1.)/rate_max		# note, however, that we can really use just about any value for t_0, so long as we are consistent with tau.
+	# something is wrong with this tau calc; we're getting t_0<0. needs fixin...
+	tau = (t_0**(1.-p))/(N_om*(p-1.))
+	#
+	r_vals.update({'tau':tau, 'chi':chi, 't_0':t_0, 'r_0':r_0})
+	#
+	# initial etas rate density:
+	# (1/N_om)*omori_rate*omori_density/circumf
+	z0=(10**(dm+mc-m))*1./(tau*(t_0**p)*chi*(r_0**(q+1))*2*numpy.pi)
+	r_vals.update({'z0':z0})
 	
-	
+	return r_vals
+
+#	
 if __name__=='__main__':
 	# do main stuff...
 	pass

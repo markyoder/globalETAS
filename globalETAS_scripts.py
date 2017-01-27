@@ -20,7 +20,7 @@ fig_size   = (6.,6.)
 color_map = 'spectral'
 
 #
-def etas_outputs(n_processes = None, output_path='etas_outputs/', kml_file='etas_kml.kml', png_file=None, xyz_file=None, fignum=0, *args, **kwargs):
+def etas_outputs(n_processes = None, output_path='etas_outputs/', kml_file='etas_kml.kml', png_file=None, xyz_file=None, fignum=0, color_map='jet', *args, **kwargs):
 	#
 	# standard set of output files for ETAS, including kml, .png, and .xyz files.
 	#
@@ -48,7 +48,7 @@ def etas_outputs(n_processes = None, output_path='etas_outputs/', kml_file='etas
 	#
 	ETAS = gep.ETAS_mpp_handler_xyz(n_processes = n_processes, *args, **kwargs)
 	#
-	ETAS.make_etas_contour_map(n_contours=n_contours, fignum=fignum, fig_size=fig_size, contour_fig_file=png_file, contour_kml_file=kml_file, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='color_map')
+	ETAS.make_etas_contour_map(n_contours=n_contours, fignum=fignum, fig_size=fig_size, contour_fig_file=png_file, contour_kml_file=kml_file, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.6, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap=color_map)
 	#
 	plt.figure(fignum)
 	plt.title('ETAS: \n%s\n' % str(kwargs.get('t_now', dtm.datetime.now(pytz.timezone('UTC')))))
@@ -57,7 +57,11 @@ def etas_outputs(n_processes = None, output_path='etas_outputs/', kml_file='etas
 	ETAS.export_xyz(xyz_file)
 	ETAS.export_kml(kml_file)
 	#
-
+	return ETAS
+#
+# we need a full diagnostic script here for the radial distributions. not sure if the local intensitis, particularly spatial distributions,
+# are being calculated correctly... or what the consequence of that is. namely, we need to see spatial distributions...
+#
 
 """
 ~~~~Defaults args~~~~
@@ -66,3 +70,4 @@ catalog=None, lats=[32., 36.], lons=[-117., -114.], mc=2.5, mc_etas=None, d_lon=
 
 
 etas_outputs(kml_file='etas_kml.kml', png_file='etas.png', xyz_file='etas_xyz.xyz', fignum=0, lats=[31.5, 42.2], lons=[-125., -114.], mc=2.5)
+
