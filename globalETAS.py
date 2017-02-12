@@ -944,6 +944,15 @@ class Earthquake(object):
 		self.transform_ratio_max = transform_ratio_max
 		self.ab_ratio_expon = ab_ratio_expon
 		#
+		# yoder: be sure eigen-tuples are properly sorted (eventually anyway).
+		# TODO: test this eigen-value/vector sorting bit. we might be able to strip out a clumsy "if" logic down the way.
+		# be sure we're not changing something we 'fixed' by doing this the right way.
+		##e_vals, e_vecs = list(zip(*sorted([[lamb, evec] for lamb, evec in zip(e_vals, e_vecs.T)], key=lambda rw:rw[0])))
+		
+		e_vals, e_vecs = list(zip(*reversed(sorted(list(zip(self.e_vals, self.e_vecs.T)), key=lambda rw:rw[0]))))
+		self.e_vecs = numpy.array(e_vecs).T		# put the eigen-vectors back into column matrix form.
+		self.e_vals = numpy.array(e_vals)
+		#
 		# check for float datetime...
 		if not hasattr(self, 'event_date_float'): self.event_date_float = mpd.date2num(self.event_date.tolist())
 		#self.event_date_float_secs = self.event_date_float*days2secs
@@ -1027,8 +1036,13 @@ class Earthquake(object):
 		ab_ratio_expon = (ab_ratio_expon or .5)
 		#
 		# now, sort eigenvectors by eigenvalue:
-		
-		#e_vals, e_vecs = list(zip(*sorted([[lamb, evec] for lamb, evec in zip(e_vals, e_vecs)], key=lambda rw:rw[0])))
+		# actually, let's do this at the __init__() level.
+		# note: eigen vectors are columns of e_vecs array.
+		# TODO: test this eigen-value/vector sorting bit. we might be able to strip out a clumsy "if" logic down the way.
+		# be sure we're not changing something we 'fixed' by doing this the right way.
+		##e_vals, e_vecs = list(zip(*sorted([[lamb, evec] for lamb, evec in zip(e_vals, e_vecs.T)], key=lambda rw:rw[0])))
+		#e_vals, e_vecs = list(zip(*reversed(sorted([list(zip(e_vals, e_vecs.T)), key=lambda rw:rw[0]))))
+		#e_vecs = e_vecs.T		# put the eigen-vectors back into column matrix form.
 		#print('**debug, evals, evecs: ', e_vals, e_vecs)
 		#
 		# notes on ab_ratio: in the strictest sense, ab_ratio expon. should be 0.5, in the sense that the 'singular values' of the decomposition are equal to
@@ -1074,13 +1088,13 @@ class Earthquake(object):
 				self.e_vals_n = [max(1./transform_ratio_max, min(transform_ratio_max, (abs_evals[1]/abs_evals[0])))**ab_ratio, max(1./transform_ratio_max, min(transform_ratio_max, (abs_evals[0]/abs_evals[1])))**ab_ratio]
 			'''
 			#
-			#self.e_vals_n = [1./abs(ab_ratio), abs((ab_ratio))]
-			if abs_evals[0]<abs_evals[1]:
-				#self.e_vals_n = [abs(ab_ratio), 1./abs((ab_ratio))]
-				self.e_vals_n = [ab_ratio, 1./ab_ratio]
-			else:
-				#self.e_vals_n = [1./abs(ab_ratio), abs((ab_ratio))]
-				self.e_vals_n = [1./ab_ratio, ab_ratio]
+			self.e_vals_n = [1./abs(ab_ratio), abs((ab_ratio))]
+			#if abs_evals[0]<abs_evals[1]:
+			#	#self.e_vals_n = [abs(ab_ratio), 1./abs((ab_ratio))]
+			#	self.e_vals_n = [ab_ratio, 1./ab_ratio]
+			#else:
+			#	#self.e_vals_n = [1./abs(ab_ratio), abs((ab_ratio))]
+			#	self.e_vals_n = [1./ab_ratio, ab_ratio]
 			#
 			self.spatial_intensity_factor = 1.0
 			#
@@ -1125,6 +1139,8 @@ class Earthquake(object):
 		#if lon<-180:
 		#	lon += 180
 		#
+		# TODO: are we using this? let's clean it up and probably not use the 'geo' distance... in fact, not calculate it
+		# (i think we have actually removed this, for the reason that the geo distance calc. is expensive.).
 		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
 		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
 		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in
@@ -1700,6 +1716,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 			# TODO: not sure this is happening correctly in some cases. maybe we just code the pca from scratch? otherwise, check get_pca()
 			# this cov, then eig_vals/vecs works, so there's a problem with get_pca()... also, using numpy.cov() will be faster
 			# than our all-python method, so let's keep it for a while.
+			# note: numpy.eig() returns eigen_vectors as *columns* in the eigen_vector matrix. so the j'th e-vectors is eigen_vecs.T[j]
 			cov = numpy.cov(incat['lon'], incat['lat'])
 			eig_vals, eig_vecs = numpy.linalg.eig(cov)
 			#eig_vals, eig_vecs = get_pca(cat=[[incat['lon'][j], incat['lat'][j]] for j in included_indices], center_lat=rw['lat'], center_lon=rw['lon'], xy_transform=True)
@@ -1807,16 +1824,29 @@ def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, max
 	#plt.figure(1)
 	#plt.clf()
 	ms = Earthquake(ct[-1])
+	print('*********************\n*******************')
 	print('evecs: ', ms.e_vals, ms.e_vecs)
-	x_prime = numpy.dot(ms.e_vecs.transpose(),[1.0,0.])
-	y_prime = numpy.dot(ms.e_vecs.transpose(), [0., 1.])
+	# TODO: do this properly as a matrix; remember that eig() returns eigen_vectors as columns.
+	# but remember also, that it does not really matter because 1) vector direction is not important, 2) if we do the rotation wrong,
+	# we fix it with the a/b ratio (vs b/a ratio). really, we need the direction and relative ratio of eigen-values.
+	# ... but this is sort of a silly way to express this linear algebra:
+	#x_prime = numpy.dot(ms.e_vecs.transpose(), [1.0,0.])
+	#y_prime = numpy.dot(ms.e_vecs.transpose(), [0., 1.])
+	# this is better.
+	x_prime, y_prime = numpy.dot([[1.0,0.], [0., 1.]], ms.e_vecs)
+	#
+	#  so we should be able to do this, but check to see we have not messed up the parity somewhere.
+	#x_prime, y_prime = numpy.dot(numpy.identity(2), ms.e_vecs)
+	#
 	print('xprime: ', x_prime, y_prime)
+	#print('xprime2: ', x_prime_2, y_prime_2)
 	ax2.plot(*zip([0.,0.],x_prime), ls='-', lw=2., marker='s')		# ... so we want to rotate with the transpose matrix, then adjust basis vector lengths...
 	plt.plot(*zip([0.,0.],y_prime), ls='-', lw=2., marker='s')		# ... so we want to rotate with the transpose matrix, then adjust basis vector lengths...
 	#
 	#E = [[min(ms.e_vals[1], 2.0),0.], [0., min(ms.e_vals[0], 2.0)]]
 	e1 = min(2.0, max(ms.e_vals[1], .5))
 	e2 = min(2.0, max(ms.e_vals[0], .5))
+	#
 	E = [[e2,e1], [e2, e1]]
 	#x_pp = numpy.dot(E,x_prime)
 	#y_pp = numpy.dot(E,y_prime)
@@ -1826,10 +1856,17 @@ def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, max
 	# but for now, let's just do the rotation and multiply the new basis vectors (prime coordinates) by the corresponding eigen-vectors.
 	#e_vals_n = numpy.linalg.norm(self.e_vals) # ... and enforce a maximum aspect ratio of between 2 and 5 or so...
 	#
-	plt.plot(*zip([0.,0.],x_pp), ls='--', lw=2., marker='D')		# ... so we want to rotate with the transpose matrix, then adjust basis vector lengths...
-	plt.plot(*zip([0.,0.],y_pp), ls='--', lw=2., marker='D')		# ... so we want to rotate with the transpose matrix, then adjust basis vector lengths...
+	ax2.plot(*zip([0.,0.],x_pp), ls='--', lw=2., marker='D')		# ... so we want to rotate with the transpose matrix, then adjust basis vector lengths...
+	ax2.plot(*zip([0.,0.],y_pp), ls='--', lw=2., marker='D')		# ... so we want to rotate with the transpose matrix, then adjust basis vector lengths...
 	#
 	print('x_prime dot y_prime: ', numpy.dot(x_prime, y_prime), numpy.dot(y_prime, x_prime), x_pp, y_pp, numpy.dot(x_pp, y_pp))
+	
+	ax2.set_xlim(-1.1, 1.1)
+	ax2.set_ylim(-1.1, 1.1)
+	#
+	x0 = .4
+	ax1.set_xlim(-x0, x0)
+	ax1.set_ylim(-x0, x0)
 	
 	
 #
@@ -2062,6 +2099,7 @@ def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 #
 def griddata_brute_plot(xyz, xrange=None, yrange=None, dx=None, dy=None):
 	# do a brute force grid-n-contour of an xyz input.
+	# ... in the future, use plt.imshow()
 	#
 	#
 	if not hasattr(xyz, 'dtype'):
