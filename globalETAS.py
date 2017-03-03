@@ -76,7 +76,7 @@ from geographiclib.geodesic import Geodesic as ggp
 from yodiipy import ANSStools as atp
 import bindex
 #import contours2kml.contours2kml as contours2kml
-from contours2kml import contours2kml as c2kml
+from yodiipy import contours2kml as c2kml
 #
 import rtree
 from rtree import index
