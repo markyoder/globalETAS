@@ -1,4 +1,7 @@
 import multiprocessing as mpp
+#import bindex
+import earthquake_site.py
+#
 
 class First(object):
   def __init__(self):
