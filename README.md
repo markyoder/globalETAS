@@ -26,3 +26,10 @@ We're working on making this happen as smoothly as possible, but it may still be
    - conda install basemap
    - pip install geographiclib
    - conda install -c ioos rtree
+      ** newer versions of Anaconda (and other Python 3.6) may require an updated rtree library; try:
+     conda install -c conda-forge rtree
+      ** in general, you can search for an appropriate installation with:
+          anaconda search -t conda rtree
+
+Managing dependencies remains a work in progress. Please contact the primary author(s) with any questions or problems; we will do our best to identify an demploy appropriate dependency libraries, code around them, etc. If rtree libraries become problematic, we will push development of other indexing objects, such as the (under development) 'bindex' model.
+
