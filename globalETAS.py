@@ -162,7 +162,7 @@ class Global_ETAS_model(object):
 		# by processing the full t_0 -> t_now catalog, but only doing ETAS for the most recent cat_len days. BUT, to do this, we have
 		# to enforce in all the do_ETAS() functions
 		t_now = (t_now or dtm.datetime.now(pytz.timezone('UTC')))
-		if cat_len != None:
+		if cat_len is not None:
 			t_0=t_now - dtm.timedelta(days=cat_len)
 			print("Overriding t_0 (etas catalog start date/time) for ETAS calculations. using catalog start, t_0 = t_now - catlen (%f) = %s" % (cat_len, t_0))
 		#

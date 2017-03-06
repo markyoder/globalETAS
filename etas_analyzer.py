@@ -466,7 +466,8 @@ def get_nepal_etas_test(p_cat=1.1, q_cat=1.5, t_start=dtm.datetime(2015,5,7, tzi
 	t_now = t_start + dtm.timedelta(days=delta_t)
 	#
 	np_prams = {key:nepal_ETAS_prams[key] for key in ['lats', 'lons', 'mc']}
-	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':25.0, 'etas_range_padding':1.25, 'etas_fit_factor':1.5, 't_0':t_start, 't_now':t_now, 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':5.*365., 'calc_etas':False, 'n_contours':15})
+	# yoder: set 'cat_len':5*365. parameter to None, but verify default behavior. we can also set cat_len 
+	np_prams.update({'d_lat':0.1, 'd_lon':0.1, 'etas_range_factor':25.0, 'etas_range_padding':1.25, 'etas_fit_factor':1.5, 't_0':t_start, 't_now':t_now, 'transform_type':'equal_area', 'transform_ratio_max':2., 'cat_len':None, 'calc_etas':False, 'n_contours':15})
 	#
 	np_prams_test = np_prams
 	# 
