@@ -75,7 +75,8 @@ from geographiclib.geodesic import Geodesic as ggp
 #import ANSStools as atp
 from yodiipy import ANSStools as atp
 import bindex
-import contours2kml.contours2kml as contours2kml
+#import contours2kml.contours2kml as contours2kml
+from yodiipy import contours2kml as c2kml
 #
 import rtree
 from rtree import index
@@ -164,7 +165,7 @@ class Global_ETAS_model(object):
 		# by processing the full t_0 -> t_now catalog, but only doing ETAS for the most recent cat_len days. BUT, to do this, we have
 		# to enforce in all the do_ETAS() functions
 		t_now = (t_now or dtm.datetime.now(pytz.timezone('UTC')))
-		if cat_len != None:
+		if cat_len is not None:
 			t_0=t_now - dtm.timedelta(days=cat_len)
 			print("Overriding t_0 (etas catalog start date/time) for ETAS calculations. using catalog start, t_0 = t_now - catlen (%f) = %s" % (cat_len, t_0))
 		#
@@ -417,7 +418,7 @@ class Global_ETAS_model(object):
 			# let's just return a string and write our own file. we'll even dump the KML to the class dict. maybe... or maybe we should
 			# use the built in file-writer, since i think we need/want to also include the colorbar...
 			#
-			self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=contour_kml_file)
+			self.contours_kml_str = c2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=contour_kml_file)
 			p_name, f_name = os.path.split(contour_kml_file)
 			if not os.path.isdir(p_name): os.makedirs(p_name)
 			with open(contour_kml_file, 'w') as f_kml:
@@ -428,7 +429,7 @@ class Global_ETAS_model(object):
 	#
 	def export_kml(self, fout='etas_contours.kml', kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5):
 		#
-		self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=None)
+		self.contours_kml_str = c2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=None)
 		p_name, f_name = os.path.split(fout)
 		if not os.path.isdir(p_name): os.makedirs(p_name)
 		with open(fout,'w') as f:
@@ -439,7 +440,7 @@ class Global_ETAS_model(object):
 		if contours is None: contours = self.etas_contours
 		if (contours is None or refresh_etas): contours = plt.contourf(self.lonses, self.latses, numpy.log10(self.lattice_sites), n_contours)
 		#
-		self.contours_kml_str = contours2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=contour_kml_file)
+		self.contours_kml_str = c2kml.kml_from_contours(cset=self.etas_contours, colorbarname=None, open_file=True, close_file=True, contour_labels=None, top=kml_contours_top, bottom=kml_contours_bottom, alpha_kml=alpha_kml, fname_out=contour_kml_file)
 		p_name, f_name = os.path.split(contour_kml_file)
 		if not os.path.isdir(p_name): os.makedirs(p_name)
 		with open(contour_kml_file, 'w') as f_kml:

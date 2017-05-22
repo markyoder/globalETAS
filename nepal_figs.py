@@ -261,7 +261,8 @@ def global_etas_and_roc(fout_xyz='global_etas.xyz', fc_len=120, out_path = 'figs
 	mc=3.0
 	d_lon=.1
 	d_lat=.1
-	etas_range_factor=15.
+	#etas_range_factor=15.  # this is what we'd done for earlier runs. lately, we've been doing more like 30
+	etas_range_factor = 30. # and then, if we like, we can reduce the range_padding if we like.
 	etas_range_padding=1.0
 	etas_fit_factor=1.5
 	#
@@ -329,7 +330,7 @@ def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0,
 	mc0 = min(mcs)
 	print("get cataog: ", lons, lats, mc0, etas_end_date, fc_end_date)
 	test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc0, dates0=[etas_end_date, fc_end_date])
-	#test_catalog = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[etas_end_date, fc_end_date])
+	#
 	print("catlen: ", len(test_catalog))
 	#
 	FHs = []

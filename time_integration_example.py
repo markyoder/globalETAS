@@ -175,10 +175,10 @@ if __name__=='__main__':
     
     # Paths for file output
     if bTimeInt:
-        f_path = '/home/jmwilson/Dropbox/GMPE/globalETAS/etas_outputs/{}_tInt_etas'.format(region)
+        f_path = 'etas_outputs/{}_tInt_etas'.format(region)
         f_root = 'etas_ab{}_tInt_{}'.format(str(eq_prams['transform_ratio_max']).replace('.', '-'), region)
     else:
-        f_path = '/home/jmwilson/Dropbox/GMPE/globalETAS/etas_outputs/{}_rateden_etas_{}'.format(region, etas.t_now)
+        f_path = 'etas_outputs/{}_rateden_etas_{}'.format(region, etas.t_now)
         f_root = 'etas_ab{}_rateden_{}'.format(str(eq_prams['transform_ratio_max']).replace('.', '-'), region)
     
     if not os.path.isdir(f_path): os.makedirs(f_path)
