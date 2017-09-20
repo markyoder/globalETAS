@@ -133,7 +133,11 @@ class Global_ETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
+<<<<<<< HEAD
 	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=25.0, etas_range_padding=1.5, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None, D_fract=1.5, map_cmap='jet', **kwargs):
+=======
+	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=25.0, etas_range_padding=1.5, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=10.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None, D_fract=1.5, **kwargs):
+>>>>>>> e3f23a6a4dd9186cd2c19dd7407741440fc9bbdc
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -305,7 +309,7 @@ class Global_ETAS_model(object):
 
 		#
 		return cm
-	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None, do_colorbar=True, do_states=True, do_rivers=True, lake_color='blue' ):
+	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None, do_colorbar=True, do_states=True, do_rivers=True, lake_color='blue', Z=None ):
 		#
 		map_cmap = map_cmap or self.map_cmap
 		n_contours = (n_contours or self.n_contours)
@@ -322,7 +326,8 @@ class Global_ETAS_model(object):
 		X,Y = cm(numpy.array(self.lonses), numpy.array(self.latses))
 		#print("xylen: ", len(X), len(Y))
 		#
-		Z = numpy.log10(self.lattice_sites)
+        # yoder 2017-06-10: allow Z values to be passed in, so we can plot derived values. now, is it bettter to pass Z directly, or lattice sites? probably Z, so we can use log/not-log values. 
+		if Z is None: Z = numpy.log10(self.lattice_sites)
 		#etas_contours = ax.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
 		etas_contours = ax.contourf(X,Y, Z, n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
 		# ax.colorbar() ??
@@ -453,7 +458,11 @@ class Global_ETAS_model(object):
 			f.write('#!x\t\y\tz\n')
 			[f.write('\t'.join([str(x) for x in rw]) + '\n') for rw in self.ETAS_array.tolist()]
 		#
-		
+	def total_rate(self, mc=None):
+		# compute total expected rate of seismicity for this map/catalog (rate of m>mc):
+		mc = mc or self.mc_etas
+		#
+		return numpy.sum([z*numpy.cos(y*deg2rad) for x,y,z in self.ETAS_array])*self.d_lon*self.d_lat*(deg2km**2)*10**(self.mc_etas - mc)
 		
 	#
 	def make_etas_rtree(self):
