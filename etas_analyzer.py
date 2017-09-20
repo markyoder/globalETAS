@@ -518,45 +518,9 @@ def nepal_roc_normal_script(fignum=0):
 	
 #
 # since these are specific to nepal (see internal code), they should be moved to nepal_figs... and cleaned up. maybe not in that order.
+## Moved to nepas_figs.py:
+## def  etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5, dq_fc=.1, dq_t=.1, fignum=0, fout='data/roc_geospatial_raw.csv'):
 # full roc geospatial for ranges of q_fc, q_test, straight up, NOT using etas_roc_geospatial() as in intermediate script.
-def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=3.5, q_fc_min=1.1, q_fc_max=3.5, dq_fc=.1, dq_t=.1, fignum=0, fout='data/roc_geospatial_raw.csv'):
-	# evaluating the optimal q_fc, q_test parameter(s) for geospatial ROC:
-	# 	# looks like this is functionally equivalent to etas_roc_geospatial_fcset(), but maybe better optimized?
-	# we might rethink this analysis a bit and compare the individual roc scores for each site (see figure in notebook).
-	# TODO: these are specific to nepal (see guts of analyze_etas_roc_geospatial()) we need to rewrite this to do a generic
-	# etas-geospatial analysis for two input regions, or maybe two input etas objects/catalogs, but where we re-calc. etas
-	# for a range of q values.
-	#
-	# this will be bruatl, but just calc the etas from scratch for each value.
-	# unfortunately, i don't think we have enought memory to calc all ~20 of them into memory and then iterate, so there will
-	# be some redundancy.
-	#
-	# note: we could improve performance using mpp; basically thread off each job (use itertools.product() as a full spp task; aka,
-	# run each etas calc. in spp mode). so we modify the nested for-loop (on q_t) to 1) add all the jobs to a list-queue,
-	# 2) process them in a Pool() (write a wrapper function), 3) collect results.
-
-	FH=[]
-	for q_fc in numpy.arange(q_fc_min,q_fc_max+dq_fc,dq_fc):
-		etas_fc=get_nepal_etas_fc(q_cat=q_fc)
-		for q_t in numpy.arange(q_t_min,q_t_max+dq_t,dq_t):
-			etas_test = get_nepal_etas_test(q_cat=q_t)
-			#
-			FH += [[q_fc, q_t] + list(analyze_etas_roc_geospatial(etas_fc=etas_fc, etas_test=etas_test, do_log=True))]
-			#
-		#
-	#
-	plt.figure(fignum)
-	plt.clf()
-	plt.plot([rw[2] for rw in FH], [rw[3] for rw in FH], 'o')
-	#
-	with open(fout, 'w') as fout:
-		fout.write('#roc output.\n#q_fc\tq_test\tF\tH\n')
-		for rw in FH:
-			fout.write('%s\n' % '\t'.join([str(x) for x in rw]))
-			#
-		#
-	#
-	return FH
 
 # full roc geospatial for ranges of q_fc, q_test, using etas_roc_geospatial() as in intermediate script.		
 def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=3.5, q_test_min=1.1, q_test_max=3.5, do_log=True, dq_fc=.1, dq_test=.1, fignum=0, fout='roc_geospatial_fast.csv'):
@@ -685,7 +649,7 @@ def roc_plots_from_gsroc(FH, fignum=0):
 	#	
 #
 # can this be generalized and moved to yodiipy.roc_tools()? replace the etas_fc/test objects with regular arrays...
-def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=False):
+def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=False, cmap='jet'):
 #def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
 	# do_log should pretty much always be True.
 	# this script draws a bunch of geospatial ROC figures. we'll use this script to draw a quad-figure with
@@ -697,6 +661,7 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	#
 	f_quad = plt.figure(42)
 	plt.clf()
+	# TODO: replace this with subplot().. eventually.
 	ax0 = f_quad.add_axes([.05, .05, .4, .4])
 	ax1 = f_quad.add_axes([.05, .55, .4, .4], sharex=ax0, sharey=ax0)
 	ax2 = f_quad.add_axes([.55, .05, .4, .4], sharex=ax0, sharey=ax0)
@@ -704,8 +669,8 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	#
 	# what we really want to do here is to calc_etas() (or whatever we call it). we do a full on _contour_map() so we can look at it.
 	# in the end, to do the gs_roc, we just need the ETAS xyz array.
-	etas_fc.make_etas_contour_map(fignum=0)
-	etas_test.make_etas_contour_map(fignum=1)
+	etas_fc.make_etas_contour_map(fignum=0, map_cmap=cmap)
+	etas_test.make_etas_contour_map(fignum=1, map_cmap=cmap)
 	#
 	lon_vals = sorted(list(set(etas_fc.ETAS_array['x'])))
 	lat_vals = sorted(list(set(etas_fc.ETAS_array['y'])))
@@ -754,7 +719,7 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	sh1 = etas_fc.lattice_sites.shape
 	sh2 = etas_test.lattice_sites.shape
 	#
-	print('shapes: ', sh1, sh2)
+	#print('shapes: ', sh1, sh2)
 	#
 	zs_diff, h, m, f = list(zip(*diffs))[2:]
 	#
@@ -772,26 +737,26 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 		zz.shape=sh1
 		#plt.contourf(list(set(etas_fc.ETAS_array['x'])), list(set(etas_fc.ETAS_array['y'])), zz, 25)
 		#plt.contourf(numpy.log10(zz), 25)
-		plt.contourf(lon_vals, lat_vals, zz, 25)
+		plt.contourf(lon_vals, lat_vals, zz, 25, cmap=cmap)
 		plt.title(diffs_lbls[j])
 		plt.colorbar() 
 		#
 		# ... and make our quad-plot too:
 		#(and it would be smarter to distinguish the columns by their actual names, not indices...).
 		if j==0:
-			ax1.contourf(lon_vals, lat_vals, zz, 25)
+			ax1.contourf(lon_vals, lat_vals, zz, 25, cmap=cmap)
 			ax1.set_title('Forecast ETAS')
 			#ax1.colorbar()
 		if j==1:
-			ax3.contourf(lon_vals, lat_vals, zz, 25)
+			ax3.contourf(lon_vals, lat_vals, zz, 25, cmap=cmap)
 			ax3.set_title('Test ETAS')
 			#ax3.colorbar()
 		if j==3:
-			ax0.contourf(lon_vals, lat_vals, zz, 25)
+			ax0.contourf(lon_vals, lat_vals, zz, 25, cmap=cmap)
 			ax0.set_title('Hit Rate')
 			#ax0.colorbar()
 		if j==5:
-			ax2.contourf(lon_vals, lat_vals, zz, 25)
+			ax2.contourf(lon_vals, lat_vals, zz, 25, cmap=cmap)
 			ax2.set_title('False Alarm Rate')
 			#ax2.colorbar()
 	#

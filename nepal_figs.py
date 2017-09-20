@@ -54,10 +54,18 @@ class Map_drawer(object):
 		self.map_lons = (map_lons or self.lons)
 		
 			
-	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=1., d_lat_range=1., lats=None, lons=None):
+	def draw_map(self, fignum=None, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=1., d_lat_range=1., lats=None, lons=None):
 		'''
 		# plot contours over a map.
 		'''
+		# TODO: improve handling of ax/fignum inputs.
+		#
+		#if ax is None:
+		#	if fignum is None:
+		#		fignum=0
+		#		plt.figure(fignum,fig_size=fig_size)
+		#		plt.clf()
+		#	ax = plt.gca()
 		#
 		# first, get contours:
 		#etas_contours = self.calc_etas_contours(n_contours=n_contours, fignum=fignum, contour_fig_file=contour_fig_file, contour_kml_file=contour_kml_file, kml_contours_bottom=kml_contours_bottom, kml_contours_top=kml_contours_top, alpha_kml=alpha_kml, refresh_etas=refresh_etas)
@@ -75,6 +83,9 @@ class Map_drawer(object):
 		# ... and if for some reason, we don't have those...
 		lons = (lons or self.lons)
 		lats = (lats or self.lats)
+		#
+		print('**DEBUG lons: ', lons, self.lons, self.map_lats)
+		print('**DEBUG lons: ', lats, self.lats, self.map_lats)
 		
 		#	
 		cntr = [numpy.mean(lons), numpy.mean(lats)]
@@ -93,8 +104,13 @@ class Map_drawer(object):
 		cm.drawmeridians(numpy.arange(int(lons[0]), int(lons[1]), d_lon_range), color='k', labels=[0,0,1,1])
 		cm.drawparallels(numpy.arange(int(lats[0]), int(lats[1]), d_lat_range), color='k', labels=[1, 1, 0, 0])
 		#
+		ax = plt.gca()
+		ax.set_ylim(lats)
+		ax.set_xlim(lons)
+		#
 		return cm
-	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='spectral'):
+	#
+	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', do_colorbar=True):
 		n_contours = (n_contours or self.n_contours)
 		#
 		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
@@ -105,7 +121,7 @@ class Map_drawer(object):
 		Zs.shape = (len(Y), len(X))
 		#
 		etas_contours = plt.contourf(X,Y, Zs, n_contours, zorder=8, alpha=alpha)
-		plt.colorbar()
+		if do_colorbar: plt.colorbar()
 		#
 		self.cm=cm
 		#
@@ -375,6 +391,47 @@ def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0,
 	else:
 		return FHs
 ####################
+# ROC_geospatial (related) figures:
+#######
+#
+def etas_roc_geospatial_raw(q_t_min=1.1, q_t_max=2.5, q_fc_min=1.1, q_fc_max=2.5, dq_fc=.1, dq_t=.1, fignum=0, fout='data/roc_geospatial_raw.csv'):
+	# evaluating the optimal q_fc, q_test parameter(s) for geospatial ROC:
+	# 	# looks like this is functionally equivalent to etas_roc_geospatial_fcset(), but maybe better optimized?
+	# we might rethink this analysis a bit and compare the individual roc scores for each site (see figure in notebook).
+	# TODO: these are specific to nepal (see guts of analyze_etas_roc_geospatial()) we need to rewrite this to do a generic
+	# etas-geospatial analysis for two input regions, or maybe two input etas objects/catalogs, but where we re-calc. etas
+	# for a range of q values.
+	#
+	# this will be bruatl, but just calc the etas from scratch for each value.
+	# unfortunately, i don't think we have enought memory to calc all ~20 of them into memory and then iterate, so there will
+	# be some redundancy.
+	#
+	# note: we could improve performance using mpp; basically thread off each job (use itertools.product() as a full spp task; aka,
+	# run each etas calc. in spp mode). so we modify the nested for-loop (on q_t) to 1) add all the jobs to a list-queue,
+	# 2) process them in a Pool() (write a wrapper function), 3) collect results.
+
+	FH=[]
+	for q_fc in numpy.arange(q_fc_min,q_fc_max+dq_fc,dq_fc):
+		etas_fc=etas_analyzer.get_nepal_etas_fc(q_cat=q_fc)
+		for q_t in numpy.arange(q_t_min,q_t_max+dq_t,dq_t):
+			etas_test = etas_analyzer.get_nepal_etas_test(q_cat=q_t)
+			#
+			FH += [[q_fc, q_t] + list(etas_analyzer.analyze_etas_roc_geospatial(etas_fc=etas_fc, etas_test=etas_test, do_log=True))]
+			#
+		#
+	#
+	plt.figure(fignum)
+	plt.clf()
+	plt.plot([rw[2] for rw in FH], [rw[3] for rw in FH], 'o')
+	#
+	with open(fout, 'w') as fout:
+		fout.write('#roc output.\n#q_fc\tq_test\tF\tH\n')
+		for rw in FH:
+			fout.write('%s\n' % '\t'.join([str(x) for x in rw]))
+			#
+		#
+	#
+	return FH
 
 
 def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv', fignum=0):
@@ -440,10 +497,15 @@ def q_q_skill_figs(data='data/roc_geospatial_nepal_q11_24_11_24.csv', fignum=0):
 	return X
 
 
-def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_conts=15, cmap=plt.cm.jet):
-	plt.figure(fignum)
-	plt.clf()
-	mm = Map_drawer(xyz=xyz)
+def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=None, ax=None, n_conts=15, map_lats=None, map_lons=None, cmap=plt.cm.jet, do_colorbar=False):
+	if ax is None:
+		if fignum is None:
+			plt.figure(0)
+			plt.clf()
+		ax = plt.gca()
+	#plt.figure(fignum)
+	#plt.clf()
+	mm = Map_drawer(xyz=xyz, map_lats=map_lats, map_lons=map_lons)
 	mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=fignum)
 	#return mm
 	#
@@ -455,7 +517,7 @@ def draw_global_etas_contours(xyz='data/global_xyz_20151129.xyz', fignum=0, n_co
 	# plt.cm.coolwarm
 	print('cmap: ', cmap)
 	plt.contourf(lns, lts, Zs, n_conts, alpha=.65, zorder=11, cmap=cmap)
-	plt.colorbar()
+	if do_colorbar: plt.colorbar()
 
 def roc_random(n_events=100, n_fc=10000, n_rocs=100, ax=None, n_bins=100, line_color='m', shade_color='m', zorder=1):
 	# calculate a bunch of random ROCs (random events, random forecasts) and plot an envelope figure.

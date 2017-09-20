@@ -133,7 +133,7 @@ class Global_ETAS_model(object):
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
 	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
-	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=25.0, etas_range_padding=1.5, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None, D_fract=1.5, **kwargs):
+	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=25.0, etas_range_padding=1.5, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=5.*365., calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None, D_fract=1.5, map_cmap='jet', **kwargs):
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -307,6 +307,7 @@ class Global_ETAS_model(object):
 		return cm
 	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet', lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None, do_colorbar=True, do_states=True, do_rivers=True, lake_color='blue' ):
 		#
+		map_cmap = map_cmap or self.map_cmap
 		n_contours = (n_contours or self.n_contours)
 		if ax is None:
 			fg=plt.figure(fignum)
@@ -327,7 +328,13 @@ class Global_ETAS_model(object):
 		# ax.colorbar() ??
 		if do_colorbar:
 			#plt.colorbar(ax)
-			plt.colorbar(etas_contours, cax=None, ax=ax, cmap=map_cmap)
+			# getting a few cases in extended scripts where this fails due to... don't know maybe another
+			# error where a bunch of figures get stacked on top of one another. let's just error-trap
+			# it for now and sort it out later.
+			try:
+				plt.colorbar(etas_contours, cax=None, ax=ax, cmap=map_cmap)
+			except:
+				print('DEBUG: error creating colorbar() in globalETAS.make_etas_contourmap()')
 			#mpl.colorbar.ColorbarBase(ax=ax, cmap=map_cmap, values=sorted(Z.ravel()), orientation="vertical")
 		#
 		self.cm=cm
@@ -488,7 +495,7 @@ class Global_ETAS_model(object):
 			#
 			if quake['event_date_float']>self.t_forecast: continue
 			#
-			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max,			ab_ratio_expon=self.ab_ratio_expon)
+			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max, ab_ratio_expon=self.ab_ratio_expon)
 			#
 			# ab_ratio_expon is, indeed, making it successfully to Earthquake(). 
 			#print('**debug: eq abexpon: {}'.format(eq.ab_ratio_expon))
@@ -586,7 +593,7 @@ class Global_ETAS_model(object):
 			if quake['mag']<self.mc_etas: continue
 			if quake['event_date_float']>self.t_forecast: continue
 			#
-			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max, 		ab_ratio_expon=self.ab_ratio_expon)
+			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max, ab_ratio_expon=self.ab_ratio_expon)
 			#for j, lat_lon in enumerate(itertools.product(latses, lonses)):
 			for j, (lat,lon) in enumerate(itertools.product(latses, lonses)):
 				# TODO: for some reason, this is running over the site index (j=len(catalog) or something).
@@ -625,7 +632,7 @@ class Global_ETAS_model(object):
 		for quake in self.catalog[etas_cat_range[0]:etas_cat_range[1]]:
 			if quake['mag']<self.mc_etas: continue
 			#
-			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max, 			ab_ratio_expon=self.ab_ratio_expon)
+			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max, ab_ratio_expon=self.ab_ratio_expon)
 			# calculate the bins within range of this earthquake:
 			# nominally, the proper thing to do now (or at lest one proper approach) is to compute a proper geodesic north and east to get the lat/lon bounds
 				# near the poles, however, this will create a problem, that is a bit difficult to track, where the geodesic reaches over the pole and to lat<90
