@@ -17,7 +17,8 @@ import pytz
 #
 n_contours = 25
 fig_size   = (6.,6.)
-color_map = 'spectral'
+color_map = 'jet
+#color_map = 'spectral'
 
 #
 def etas_outputs(n_processes = None, output_path='etas_outputs/', kml_file='etas_kml.kml', png_file=None, xyz_file=None, fignum=0, color_map='jet', *args, **kwargs):
