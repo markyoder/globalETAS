@@ -92,6 +92,8 @@ from eq_params import *
 # TODO: add a p_map (or p, p0 distinction) variable to distinguish the p value for calculating ETAS parameters (in catalog) and p to calculate
 # ETAS itself. this will facilitate time independent ETAS, etc., which we need to proprly evaluate geo-spatial ROC.
 #
+# TODO: some of these constants can be found in scipy.constants (and other places). they should be drawn from those
+#      libraries when possible.
 days2secs = 60.*60.*24.
 year2secs = 60.*60.*24.*365.
 deg2km=111.31
@@ -1568,6 +1570,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	'''
 	#
 	# save a copy of the input parameters to ammend to the output array as metadata. we can do this in lieu of creating a derived class -- sort of a (sloppy?) shortcut...
+	# TODO: find constants that can be pre-computed. for example, we compute (m - dm_star - mc) in the primary loop; we can pre-compute dm_star+mc to improve speed performance.
 	#
 	if incat is None:
 		# use all the local inputs:
@@ -1702,7 +1705,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		t_0 = N_om*(p-1.)/rate_max		# note, however, that we can really use just about any value for t_0, so long as we are consistent with tau.
 		# something is wrong with this tau calc; we're getting t_0<0. needs fixin...
 		tau = (t_0**(1.-p))/(N_om*(p-1.))
-		if numpy.isnan(tau): print("nan tau: ", t_0, p, N_om, p)
+		if numpy.isnan(tau): print("***Debug:: nan tau: ", t_0, p, N_om, p)
 		#
 		# now, guess the earthquake's orientation based on local seismicity. use earthquakes within some distance based on magnitude.
 		# use a PCA type method or some sort of line-fit. there should be some good PCA libraries, otherwise it's easy to code.
@@ -1738,8 +1741,19 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 			# this cov, then eig_vals/vecs works, so there's a problem with get_pca()... also, using numpy.cov() will be faster
 			# than our all-python method, so let's keep it for a while.
 			# note: numpy.eig() returns eigen_vectors as *columns* in the eigen_vector matrix. so the j'th e-vectors is eigen_vecs.T[j]
-			cov = numpy.cov(incat['lon'], incat['lat'])
+			#
+			# yoder 29 jan 2018: looks like we're getting PCA for the whole incat, not just the local (to the mainshock) cat (see vector construction below)
+			#     also, i'm a bit surprised that this syntax does not fail; i'd of thought we'd need to call like cov=numpy.cov([incat['lon'], incat['lat']), but
+			#     i guess numpy figures it out?
+			#cov = numpy.cov(incat['lon'], incat['lat'])
+			#
+			# use numpy fancy indexing:
+			#  note: "fancy index" must be passed as a numpy.array, so A[numpy.array([4,5,6])] will return the 4,5,6 elements of the numpy.array A
+			included_indices = numpy.array(included_indices)
+			cov = numpy.cov(incat['lon'][included_indices], incat['lat'][included_indices])
 			eig_vals, eig_vecs = numpy.linalg.eig(cov)
+			#
+			# an older method of getting PCA:
 			#eig_vals, eig_vecs = get_pca(cat=[[incat['lon'][j], incat['lat'][j]] for j in included_indices], center_lat=rw['lat'], center_lon=rw['lon'], xy_transform=True)
 		else:
 			eig_vals = [1.0, 1.0]
