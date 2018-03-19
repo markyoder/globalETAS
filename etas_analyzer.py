@@ -560,7 +560,7 @@ def etas_roc_geospatial_fcset(q_fc_min=1.1, q_fc_max=3.5, q_test_min=1.1, q_test
 #
 #
 def etas_roc_geospatial_set(etas_fc=None, etas_test=None, do_log=True, q_test_min=1.1, q_test_max=2.0, dq=.1, fignum=0):
-	# compare ETAS for a bunch of different q. right now this is just the "test" q. we'll probably want to vary the forecast as well, but of course taht will be expensive.
+	# compare ETAS for a bunch of different q. right now this is just the "test" q. we'll probably want to vary the forecast as well, but of course that will be expensive.
 	if etas_fc==None: etas_fc=get_nepal_etas_fc()
 	if etas_test==None: etas_test = get_nepal_etas_test() #... and we don't really need to calc eatas here, so later on maybe clean this up.
 	FH=[]
@@ -648,12 +648,164 @@ def roc_plots_from_gsroc(FH, fignum=0):
 	#print('Best Skill: ', best_skill)
 	#	
 #
+# TODO: cast this as a class(List) or class(Tuple), then we can re-extract all the internal bits.
 # can this be generalized and moved to yodiipy.roc_tools()? replace the etas_fc/test objects with regular arrays...
+class Analyze_ETAS_roc_geospatial(list):
+	# a class() version of analyze_etas_roc_geospatial
+	#def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=False, cmap='jet'):
+	def __init__(self, etas_fc=None, etas_test=None, do_log=True, cmap='jet', fignum=None):
+		# do_log should pretty much always be True.
+		# this script draws a bunch of geospatial ROC figures. we'll use this script to draw a quad-figure with
+		# z_fc, z_test, hits, falsies.
+		#
+		if etas_fc   is None: etas_fc   = get_nepal_etas_fc(n_procs=2*mpp.cpu_count())
+		if etas_test is None:
+			etas_test = get_nepal_etas_test(n_procs=2*mpp.cpu_count())
+			#
+			# TODO: genearlize this; the need for this call to make_etas() is a special case.
+			etas_test.make_etas()
+		#
+		#
+		# what we really want to do here is to calc_etas() (or whatever we call it). we do a full on _contour_map() so we can look at it.
+		# in the end, to do the gs_roc, we just need the ETAS xyz array.
+		
+		#
+		lon_vals = sorted(list(set(etas_fc.ETAS_array['x'])))
+		lat_vals = sorted(list(set(etas_fc.ETAS_array['y'])))
+		#
+		# we need normalization here...
+		# ... and we need to think a bit more about what we mean by normalize. here, we just shift the values to be equal. do
+		# we also want to normailze their range?
+		z_fc_norm = etas_fc.ETAS_array['z'].copy()
+		z_test_norm = etas_test.ETAS_array['z'].copy()
+		#
+		if do_log:
+			z_fc_norm   = numpy.log10(z_fc_norm)
+			z_test_norm = numpy.log10(z_test_norm)
+		#
+		z_fc_norm -= min(z_fc_norm)
+		z_test_norm -= min(z_test_norm)
+		#
+		norm_fc   = sum(z_fc_norm)
+		norm_test = sum(z_test_norm)
+		#
+		z_fc_norm /= norm_fc
+		z_test_norm /= norm_test
+		#
+		z1 = z_fc_norm
+		z2 = z_test_norm
+		#
+		#
+		# [z1, z2, diff, h, m, f(predicted, didn't happen)
+		#diffs = [[z1, z2, z1-z2, max(z1, z2), -min(z1-z2,0.), max(z1-z2,0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)] 
+		# hits: accurately predicted; min(z1,z2)
+		# misses: prediction deficite, or excess events: min(z2-z1,0.)
+		# falsie: excess prediction: min(z1-z2,0.)
+		# then rates: H = hits/sum(z2), F =falsies/sum(z1)
+		#diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z_fc_norm, z_test_norm)]
+		#
+		# so we can test this properly, we'll want to move diffs offline to a function call (eventually)...
+	
+		#diffs = [[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z1, z2)]
+		diffs = get_gs_diffs(z1,z2)
+		diffs_lbls = ['z_fc', 'z_test', 'z1-z2', 'hits: min(z1,z2)','misses:min(z2-z1,0)', 'falsie: min(z1-z2,0)']
+		diffs_lbl_basic = ['z_fc', 'z_test', 'z1-z2', 'hits','misses', 'falsie']
+		#
+
+		## to plot contours, we'll want to use the shape from: etas.lattice_sites.shape
+		##
+		sh1 = etas_fc.lattice_sites.shape
+		sh2 = etas_test.lattice_sites.shape
+		#
+		#print('shapes: ', sh1, sh2)
+		#
+		zs_diff, h, m, f = list(zip(*diffs))[2:]
+		#
+		# normed:
+		#zs_diff_n, h_n, m_n, f_n = list(zip(*get_gs_diffs_normed(z1,z2))[2:]
+		roc_vecs_normed = get_gs_diffs_normed(z1,z2)
+		#
+		# and ROC bits:
+		H = sum(h)/sum(z2)
+		F = sum(f)/sum(z1)
+		#
+		#if diagnostic:
+		#	# diagnostic, or if we want to explicityly return the diffs object (has [z1, z2, z2-z1, hits(z1,z2), falsies(z1,z2)], etc.)
+		#	print('***', diffs_lbls, type(diffs))
+		#	#return [diffs_lbls] + diffs
+		#	return diffs
+		#else:
+		#	return F,H
+		##return F,H
+		#
+		self.__dict__.update({key:val for key,val in locals().items() if not key in ('self', '__class__')})
+		super(Analyze_ETAS_roc_geospatial, self).__init__([F,H])
+	
+	def plot_quad(self, fignum=None, cmap=None):
+		cmap = cmap or self.cmap
+		#
+		# TODO: separate these plots and assign separate axes.
+		if fignum is None: fignum=self.fignum
+		if fignum is None: fignum = 0
+		#
+		# to plot contours, we'll want to use the shape from: etas.lattice_sites.shape
+		#
+		sh1 = self.sh1
+		sh2 = self.sh2
+		#
+		self.etas_fc.make_etas_contour_map(fignum=fignum, map_cmap=cmap)
+		self.etas_test.make_etas_contour_map(fignum=fignum + 1, map_cmap=cmap)
+		#
+		f_quad = plt.figure(fignum+2)
+		plt.clf()
+		# TODO: replace this with subplot().. eventually.
+		ax0 = f_quad.add_axes([.05, .05, .4, .4])
+		ax1 = f_quad.add_axes([.05, .55, .4, .4], sharex=ax0, sharey=ax0)
+		ax2 = f_quad.add_axes([.55, .05, .4, .4], sharex=ax0, sharey=ax0)
+		ax3 = f_quad.add_axes([.55, .55, .4, .4], sharex=ax0, sharey=ax0)
+		#
+		for j,z in enumerate(list(zip(*self.diffs))):
+			plt.figure(j+2)
+			plt.clf()
+			#
+			zz=numpy.array(z)
+			zz.shape=sh1
+			#
+			plt.contourf(self.lon_vals, self.lat_vals, zz, 25, cmap=self.cmap)
+			plt.title(self.diffs_lbls[j])
+			plt.colorbar() 
+			#
+			# ... and make our quad-plot too:
+			#(and it would be smarter to distinguish the columns by their actual names, not indices...).
+			if j==0:
+				ax1.contourf(self.lon_vals, self.lat_vals, zz, 25, cmap=cmap)
+				ax1.set_title('Forecast ETAS')
+				#ax1.colorbar()
+			if j==1:
+				ax3.contourf(self.lon_vals, self.lat_vals, zz, 25, cmap=cmap)
+				ax3.set_title('Test ETAS')
+				#ax3.colorbar()
+			if j==3:
+				ax0.contourf(self.lon_vals, self.lat_vals, zz, 25, cmap=cmap)
+				ax0.set_title('Hit Rate')
+				#ax0.colorbar()
+			if j==5:
+				ax2.contourf(self.lon_vals, self.lat_vals, zz, 25, cmap=cmap)
+				ax2.set_title('False Alarm Rate')
+				#ax2.colorbar()
+		self.__dict__.update({key:val for key,val in locals().items() if not key in ('self', '__class__')})
+		#
+
+
+
 def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagnostic=False, cmap='jet'):
 #def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True):
 	# do_log should pretty much always be True.
 	# this script draws a bunch of geospatial ROC figures. we'll use this script to draw a quad-figure with
 	# z_fc, z_test, hits, falsies.
+	# DEPRICATION: this procedural function is being replaced by the class version, Analyze_ETAS_roc_geospatial(list) (see above). with the excepton of scripting
+	#  some of the figures, calls to this function can be replaced directly with calls to the class(), except that the "diagnostic" parameter has been removed. note
+	#  that this parameter is no longer necessary, since we keep all the internal variables as class member variables.
 	#
 	if etas_fc   == None: etas_fc   = get_nepal_etas_fc(n_procs=2*mpp.cpu_count())
 	if etas_test == None: etas_test = get_nepal_etas_test(n_procs=2*mpp.cpu_count())
@@ -770,8 +922,29 @@ def analyze_etas_roc_geospatial(etas_fc=None, etas_test=None, do_log=True, diagn
 	#return F,H
 	#
 #
+# TODO: wrap the gs_roc into a class() object, including these two functions. can probably wrap it into the existing "Analyze" class above.
+#
 def get_gs_diffs(z1,z2):
 	return numpy.core.records.fromarrays(zip(*[[z1, z2, z1-z2, min(z1, z2), max(z2-z1,0.), max(z1-z2, 0.)] for z1,z2 in zip(z1, z2)]), names=['z_fc', 'z_test', 'z1-z2', 'hits','misses', 'falsie'], formats=['double' for j in range(6)])
+#
+def get_gs_diffs_normed(z1,z2):
+	# a normalized version of roc_geospatial. 
+	# TODO: think about this... i'm not sure how meaningful this metric really is. the idea is to come up wiith something that independently evaluates the skill of each
+	#  cell. ROC might not be right... or maybe this reflects some shortcomings of ROC in general...
+	#
+	# don't think this is quite right. we get a perfect forecast. note that an under-forecast cell (with misses) has a zero-false alaerm rate, so all of those points line up on
+	#  the x=0 axis. an over forecast, with f>0 has a 100% hit rate. maybe we try always normalizing to the max() value?
+	#
+	# NOTE: this might encounter x/0 exceptions if z1,z2 are not properly normalized on input.
+	#return numpy.core.records.fromarrays(zip(*[[z1, z2, (z1-z2)/(z1+z2), min(z1, z2)/z2, max(z2-z1,0.)/z2, max(z1-z2, 0.)/(z1)]
+	#	 for z1,z2 in zip(z1, z2)]), names=['z_fc', 'z_test', 'z1-z2', 'hits','misses', 'falsie'], formats=['double' for j in range(6)])
+	return numpy.core.records.fromarrays(zip(*[[z1, z2, (z1-z2)/(z1+z2), min(z1, z2)/max(z1, z2), max(z2-z1,0.)/max(z1, z2),
+	 max(z1-z2, 0.)/max(z1, z2)]
+		 for z1,z2 in zip(z1, z2)]), names=['z_fc', 'z_test', 'z1-z2', 'hits','misses', 'falsie'], formats=['double' for j in range(6)])
+
+#
+##########################
+##########################
 #
 # these probably belong in the nepal_figs module and/or notebook:
 def nepal_linear_roc():
