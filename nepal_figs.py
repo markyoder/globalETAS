@@ -313,6 +313,8 @@ def global_etas_and_roc(fout_xyz='global_etas.xyz', fc_len=120, out_path = 'figs
 	#
 	return{'etas':etas, 'roc':roc_glob}
 #
+# TODO: wrap this up in a class(); include some additional functionality, like computing skill, etc. build this as a "report class", principall around the
+#  figure, but also keep the random forecasts. also maybe include some sampling analyses -- for a given ROC, compute sub-ROC based on partial "test' catalogs.
 # etas fc end date (about 120 days before revision time): 2016-04-12 12:52:58.803348+00:00
 def global_roc_from_optimizer(fc_xyz='global/global_xyz_20151129.xyz', fignum=0, etas_end_date = None, mcs=6.0, fc_len=120, ls='-', marker='.', lw=2.5, x_scale='linear', y_scale='linear', figsize=(9,8)):
 	#yoder, 2016_08_01:

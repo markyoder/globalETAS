@@ -133,13 +133,8 @@ class Global_ETAS_model(object):
 	#  do proper geodetic transformations, but 1) it becomes easy to make mistakes, and 2) the only gain is that we have fewer points in the higher latitudes.
 	#  as long as 1) we have sufficient spatial resolution in the lower latitudes and 2) the problem remains computational tractable (equal spacing can reduce
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
-	#c
-#<<<<<<< HEAD
-#	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=25.0, etas_range_padding=1.5, #etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=10.*365., #calc_etas=True, n_contours=15, etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None, D_fract=1.5, **kwargs):
-#=======
-	#def __init__(self, catalog=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, d_x=10., d_y=10., bin_x0=0., bin_y0=0., etas_range_factor=5.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=5., calc_etas=True):
+	#
 	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=25.0, etas_range_padding=1.5, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), transform_type='equal_area', transform_ratio_max=2.5, cat_len=10.*365., calc_etas=True, n_contours=15, cmap_contours='jet', etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None, D_fract=1.5, **kwargs):
-#>>>>>>> b78fa63eab58d2575029a12f39db2c5459b895dc
 		'''
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
@@ -1258,7 +1253,39 @@ class Earthquake(object):
 	#
 	def spherical_dist(self, to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
-	#		
+	#
+	def time_since(self,t):
+		return 	(t - self.event_date_float)*days2secs	
+	def omori_rate(self, t=None, p=None):
+		'''
+		# t0_prime: use this to re-scale the temporal component. we'll transform the initial rate (and effectively minimum delta_t)
+		# to avoid near-field artifacts (where a recent earthquake dominates the ETAS).
+		# calculate local ETAS density-rate (aka, earthquakes per (km^2 sec)
+		# take time in days.
+		#
+		# TODO: we can speed up large ETAS by pre-calculating (or more specifically, calculating only once) the temporal rate.
+		#       this could be done pre-mpp, but since the remaining processes would then have to wait for this to finish, 
+		#       not much gain would be realized; we're probably better off just computing the rates on each process (keep it simple...)
+		'''
+		#print("inputs: ", t, lon, lat, p, q)
+		t = (t or mpd.date2num(dtm.datetime.now(pytz.timezone('UTC'))))
+		p = (p or self.p)
+		#q = (q or self.q)
+		## calculate ETAS intensity.
+		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
+		# but then make a map using soemthing else. for example, we might use p=0 (or at least p<p_0) to effectivly modify (eliminate) the time dependence.
+		#
+		delta_t = (t - self.event_date_float)*days2secs
+		if delta_t<0.:
+			return 0.
+		#
+		# note: everything from here down can (i think) be compiled with numba.jit, if we are so inclined.
+		#
+		#orate = 1./(tau_prime * (t_0_prime + delta_t)**p)
+		orate = 1./(self.tau * (self.t_0 + delta_t)**p)
+		#
+		return orate
+
 	def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 		'''
 		# t0_prime: use this to re-scale the temporal component. we'll transform the initial rate (and effectively minimum delta_t)
