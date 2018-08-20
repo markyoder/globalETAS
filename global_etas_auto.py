@@ -9,9 +9,16 @@ import datetime as dtm
 import pytz
 import math
 import matplotlib as mpl
-
+#
+# TODO: there is a package based number for this, buti don't recally which one...
 lon2km=111.31
-colors_ =  mpl.rcParams['axes.color_cycle']
+# TODO: this property is, it would seem, continually in flux and may vary from one verson of matplotlib to another, so for now, let's just
+#  uase a list of colors. sadly, i like the new matplotlib colors much better than the old, but don't know off the top of my head how they are
+#  defined, so let's just use the string-defined ones.
+#
+#colors_ =  mpl.rcParams['axes.color_cycle']
+# in this order?
+colors_ = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
 tzutc = pytz.timezone('UTC')
 #
 days2secs = 60.*60.*24.

@@ -202,6 +202,9 @@ class Global_ETAS_model(object):
 		#
 		self.ETAS_array = numpy.array([])
 		# [etas_xyz_range[0]:etas_xyz_range[1]]
+		#
+		# TODO: consider wrapping this two-step into one-step. can we save memory (even if intermittently) by doing so? this might be one of those cases where we can't nest these steps; we need to instantiate
+		#  the interim output object before we input it into the next function (aka, make the ND-array, then wrap as a recarray).
 		self.ETAS_array = numpy.array([[lon, lat, 0.] for j, (lat,lon) in enumerate(itertools.product(self.latses, self.lonses)) if (j>= etas_xyz_range[0] and j<etas_xyz_range[1])])
 		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		'''
