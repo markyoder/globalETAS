@@ -250,7 +250,7 @@ class Global_ETAS_model(object):
 								# that said, let's take the next step and return dict. type earthquake entries.
 		#
 		if catalog is None:
-			print("fetch and process catalog for dates: {}".format([t_0, t_now]))
+			print("fetch and process catalog for dates: {}-{}, mc={}, lats={}, lons={}".format(t_0, t_now, mc, lats, lons))
 			#catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
 			catalog = make_ETAS_catalog_mpp(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor, p=p_cat, q=q_cat, dmstar=dmstar, D_fract=D_fract)	# and note there are other variables to consider...
 			print("catalog fetched and processed.")
@@ -614,7 +614,10 @@ class Global_ETAS_model(object):
 		#
 		#self.lattice_sites.shape=(len(latses), len(lonses))
 		#
+		# Getting a Warning about passing lists, not tuples, for recarray conversion (aka, .fromrecords() ), so maybe consider
+		#  passing this as an ary.T rather than zip?
 		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
+		#self.ETAS_array = numpy.core.records.fromarrays(self.ETAS_array.T, dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 	#		
 	def make_etas_all(self):
 		# TODO: this does not appear to work correctly, or at least not in MPP mode. might be because i'm trying to hijack the 
@@ -1713,8 +1716,15 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		max_tries=10
 		while n_tries<max_tries:
 			try:
-				incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[start_date, end_date], Nmax=None, fout=None, rec_array=True)
 				n_tries = max_tries+1
+				# try comcat:
+				try:
+					incat = atp.cat_from_comcat(lon=lons, lat=lats, minMag=mc, dates0=[start_date, end_date], Nmax=None, fout=None, rec_array=True)
+					print('NOTE: loading from comcat.')
+				except:
+					incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[start_date, end_date], Nmax=None, fout=None, rec_array=True)
+					print('NOTE: comcat failed; loading from ANSS.')
+				
 			except:
 				# sometimes the network blips. {wait try_wait} seconds and try again.
 				print('Network is down, or something. waiting {} sec to try again.)'.format(try_wait))
