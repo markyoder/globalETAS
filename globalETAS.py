@@ -135,7 +135,7 @@ class Global_ETAS_model(object):
 	#  as long as 1) we have sufficient spatial resolution in the lower latitudes and 2) the problem remains computational tractable (equal spacing can reduce
 	#  the grid size by maybe halfish??), there's no real harm in just using (a much simpler) lon,lat lattice with equal angular spacing.
 	#
-	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=25.0, etas_range_padding=1.5, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), t_future=None, transform_type='equal_area', transform_ratio_max=2.5, cat_len=10.*365., calc_etas=True, n_contours=15, cmap_contours='jet', etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None, D_fract=1.5, dmstar=1.0, **kwargs):
+	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=25.0, etas_range_padding=1.5, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), t_future=None, transform_type='equal_area', transform_ratio_max=2.5, cat_len=10.*365., calc_etas=True, n_contours=15, cmap_contours='jet', etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None, D_fract=1.5, dmstar=1.0, n_cpu_cat=None, **kwargs):
 		'''
 		#
 		# 21 Nove 2018, yoder: add t_future parameter. if not None, the Earthquake.local_intensity() will compute the expected total number of earthqukes, between t_now (=t_forecast)
@@ -252,7 +252,7 @@ class Global_ETAS_model(object):
 		if catalog is None:
 			print("fetch and process catalog for dates: {}-{}, mc={}, lats={}, lons={}".format(t_0, t_now, mc, lats, lons))
 			#catalog = make_ETAS_catalog(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor)	# and note there are other variables to consider...
-			catalog = make_ETAS_catalog_mpp(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor, p=p_cat, q=q_cat, dmstar=dmstar, D_fract=D_fract)	# and note there are other variables to consider...
+			catalog = make_ETAS_catalog_mpp(incat=None, lats=lats, lons=lons, mc=mc, date_range=[t_0, t_now], fit_factor=etas_fit_factor, p=p_cat, q=q_cat, dmstar=dmstar, D_fract=D_fract, n_cpu=n_cpu_cat)	# and note there are other variables to consider...
 			print("catalog fetched and processed.")
 		self.catalog = catalog
 		#
@@ -1579,7 +1579,7 @@ class Ellipse(Shape):
 #
 # Working scripts
 #
-def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=False, n_cpus=None):
+def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=False, n_cpu=None):
 	# multiprocessing wrapper for make_ETAS_catalog(). note, this would be more efficient and faster if we can figure out how to use shared memory
 	# (don't have to make multiple copies of catalog; don't have to pickle back entire catalog). maybe we need to learn python mpi, rather
 	# than multiprocessing?
@@ -1587,7 +1587,7 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 	# ... dunno; throwing some sort of "attr must be string" error on the .get().
 	#
 	etas_prams = locals().copy()
-	etas_prams.__delitem__('n_cpus')
+	etas_prams.__delitem__('n_cpu')
 	etas_prams['incat']=None
 	#etas_prams.__delitem__('self')
 	print('etas_prams: ', etas_prams)
@@ -1605,27 +1605,28 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 		n_tries=0
 		while n_tries<=n_tries_max:
 			try:
-				incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
+				#incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
+				incat = atp.cat_from_comcat(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
 				n_tries = n_tries_max + 1
 			except:
 				print("network failed, or something. trying again (%d)" % n_tries)
 				n_tries+=1
 	#
 	etas_prams['incat']=incat
-	if n_cpus is None:
-		#n_cpus = max(1, mpp.cpu_count()-1)
-		n_cpus = mpp.cpu_count()
+	if n_cpu is None:
+		#n_cpu = max(1, mpp.cpu_count()-1)
+		n_cpu = mpp.cpu_count()
 		#
 	#
-	P=mpp.Pool(n_cpus)
+	P=mpp.Pool(n_cpu)
 	cat_len=len(incat)
 	# yoder (2016-12-4):
-	#n = cat_len/n_cpus
-	n = int(numpy.ceil(cat_len/n_cpus))
+	#n = cat_len/n_cpu
+	n = int(numpy.ceil(cat_len/n_cpu))
 	#
 	pool_handlers = []
 	pool_results = []
-	for k in range(n_cpus):
+	for k in range(n_cpu):
 		# yoder (2016-12-4: int() and ceil() teh catalog_range terms. otherwise, this breaks when we try to process
 		# a length 1 catalog.
 		#etas_prams['catalog_range']=[k*n, min((k+1)*n, cat_len)]
@@ -1919,7 +1920,7 @@ def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, max
 	# datetime.datetime(2005, 1, 1, 22, 20, 16, 950000), 30.471, 141.204, 4.1, 40.0, 731947.9307517362)
 	#
 	# then process the catalog like:
-	# processed_catalog = make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, n_cpus=None)
+	# processed_catalog = make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, date_range=['1990-1-1', None], D_fract=1.5, d_lambda=1.76, d_tau = 2.28, fit_factor=1.5, p=1.1, q=1.5, dmstar=1.0, b1=1.0,b2=1.5, do_recarray=True, n_cpu=None)
 	#
 	x1 = x0 - L*math.cos(theta)
 	y1 = y0 - L*math.sin(theta)
@@ -1944,7 +1945,8 @@ def elliptical_transform_test(theta = 0., x0=0., y0=0., n_quakes=100, m=6.0, max
 	#
 	dt = dtm.datetime.now(pytz.timezone('UTC'))
 	# grab a dummy catalog --  a stupid way to get a dtype array.
-	ct = atp.catfromANSS(dates0=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=10), dtm.datetime.now(pytz.timezone('UTC'))], lat=[31., 33.], lon=[-117., -115.])
+	#ct = atp.catfromANSS(dates0=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=10), dtm.datetime.now(pytz.timezone('UTC'))], lat=[31., 33.], lon=[-117., -115.])
+	ct = atp.cat_from_comcat(dates0=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=10), dtm.datetime.now(pytz.timezone('UTC'))], lat=[31., 33.], lon=[-117., -115.])
 	catalog += [[dt, y0, x0, m, 21., mpd.date2num(dt)]]
 	catalog = numpy.core.records.fromarrays(zip(*catalog), dtype=ct.dtype)
 	#
