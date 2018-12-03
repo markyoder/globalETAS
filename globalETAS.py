@@ -1075,6 +1075,7 @@ class Earthquake(object):
 			lon = lon[0]
 			lat = lat[1]
 		#
+		# TODO: i expect we can better optimize this...
 		return dist_to(lon_lat_from=self.lon_lat, lon_lat_to=[lon, lat], dist_types=dist_types, Rearth=Rearth, *args, **kwargs)
 	#
 	def set_transform(self, e_vals=None, e_vecs=None, transform_type=None, transform_ratio_max=None, ab_ratio_expon=None):
@@ -1748,10 +1749,14 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	cols, formats = [list(x) for x in zip(*incat.dtype.descr)]
 	#cols += ['L_r', 'r_0', 'chi', 'dt_r', 't_0', 'tau', 'strike_theta', 'strike_epsilon']			# add these parameters so we can switch them out (if we want)
 	#cols += ['L_r', 'r_0', 'chi', 'dt_r', 't_0', 'tau', 'e0', 'e1', 'v00', 'v01', 'v10', 'v11']
-	cols += ['L_r', 'r_0', 'chi', 'dt_r', 't_0', 'tau', 'dmstar', 'p', 'q']
-	formats += ['f8' for x in xrange(len(cols)-len(formats))]
+	# 2018-12-3 yoder:
+	#  pre-compute spatial normailization, chi_norm here. this is the normalization of the spatial omori distribution -> 1. in some cases, we can avoid computing it in-loop by computing it here, and it 
+	#   does noot cost much to compute it here.
+	#cols += ['L_r', 'r_0', 'chi', 'dt_r', 't_0', 'tau', 'dmstar', 'p', 'q']
+	cols += ['L_r', 'r_0', 'chi', 'dt_r', 't_0', 'tau', 'dmstar', 'p', 'q', 'chi_norm']
+	formats += ['f8' for x in range(len(cols)-len(formats))]
 	#
-	my_dtype = [(cols[j], formats[j]) for j in xrange(len(cols))]
+	my_dtype = [(cols[j], formats[j]) for j in range(len(cols))]
 	#cols += ['e_vals', 'e_vecs']
 	#formats += ['object', 'object']
 	my_dtype += [('e_vals', '>f8', 2), ('e_vecs', '>f8', (2,2)), ('N_eig_cat','>f8')]
@@ -1812,6 +1817,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 		#r_0 = 10.**lr_0
 		#
 		chi = (r_0**(1.-q))/(N_om*(q-1.0))
+		chi_norm =  q*(q-1.0)*(r_0**(q-1.0))
 		#radialDens = (q-1.0)*(r0ssim**(q-1.0))*(r0ssim + rprime)**(-q)
 		#
 		# temporal Omori parameters:
@@ -1878,7 +1884,8 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 			#eig_vecs = numpy.identity(2)
 		#
 		#
-		output_catalog += [ list(rw) + [L_r, r_0, chi, dt_r, t_0, tau, dmstar, p, q] + [eig_vals, eig_vecs, len(included_indices)] ]
+		#output_catalog += [ list(rw) + [L_r, r_0, chi, dt_r, t_0, tau, dmstar, p, q] + [eig_vals, eig_vecs, len(included_indices)] ]
+		output_catalog += [ list(rw) + [L_r, r_0, chi, dt_r, t_0, tau, dmstar, p, q, chi_norm] + [eig_vals, eig_vecs, len(included_indices)] ]
 		
 		# (and strike_theta (or at least something like it -- setting aside conventions) = atan(eig_vecs[0][1]/eig_vecs[0][1])
 		#
