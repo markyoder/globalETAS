@@ -138,8 +138,12 @@ class Global_ETAS_model(object):
 	def __init__(self, catalog=None, lats=None, lons=None, mc=2.5, mc_etas=None, d_lon=.1, d_lat=.1, bin_lon0=0., bin_lat0=0., etas_range_factor=25.0, etas_range_padding=1.5, etas_fit_factor=1.0, t_0=dtm.datetime(1990,1,1, tzinfo=tz_utc), t_now=dtm.datetime.now(tzutc), t_future=None, transform_type='equal_area', transform_ratio_max=2.5, cat_len=10.*365., calc_etas=True, n_contours=15, cmap_contours='jet', etas_cat_range=None, etas_xyz_range=None, p_cat=1.1, q_cat=1.5, ab_ratio_expon=.25, p_etas=None, D_fract=1.5, dmstar=1.0, n_cpu_cat=None, **kwargs):
 		'''
 		#
-		# 21 Nove 2018, yoder: add t_future parameter. if not None, the Earthquake.local_intensity() will compute the expected total number of earthqukes, between t_now (=t_forecast)
+		# 21 Nov 2018, yoder: add t_future parameter. if not None, the Earthquake.local_intensity() will compute the expected total number of earthqukes, between t_now (=t_forecast)
 		#  and t_future, as opposed to the instantaneous rate at t_now.
+    	#  22 July 2019, yoder: TODO: confirm or modify this so that we can separately define the catalog
+		#   temporal extent and the cumulative t_from and t_to. The main idea is that we want to be able
+		#   to compare the expected number of events (or cumulative ETAS intensity) to the observed number of
+		#   events (so <N> with and without events in the forecast interval).
 		#
 		#  basically: if we are given a catalog, use it. try to extract mc, etc. data from catalog if it's not
 		# externally provided. otherwise, get a catalog from ANSS or OH based oon the parameters provided.
@@ -148,6 +152,9 @@ class Global_ETAS_model(object):
 		#
 		# etas_cat_range: range of catalog to do ETAS. mainly, this is to facilitate MPP processing; each process will have a full catalog of earthquakes and
 		# (nominally) a full array of etas lattice sites (though we might be able to improve upon this requirement later -- probably the best appraoch is to
+		# yoder 23 July 2019: Now I need to double check this etas_cat_range stuff. as i recall, we provide
+		#   a full catalog and split up the map for MPP processing. We tested the mpp.Array() shared memory
+		#   approach, but it was just not helpful; this is not a fast way to parallelize.
 		# accept this limitation and write a make_etas() that uses an mpp.Array() object (simplified script).
 		#
 		# p_,q_cat: p,q values passed to the catalog getter. these will affect not only the p,q values in the catalog, but the
@@ -199,7 +206,9 @@ class Global_ETAS_model(object):
 		self.t_future = t_future
 
 		#
-		mc_etas = (mc_etas or mc)	# mc_eats: minimum mag. for etas calculations -- aka, mc for the catalog, but only do etas for m>mc_eatas.
+		#mc_etas = (mc_etas or mc)	# mc_eats: minimum mag. for etas calculations -- aka, mc for the catalog, but only do etas for m>mc_eatas.
+		if mc_etas is None:
+			mc_etas = mc
 		#
 		# inputs massaged; now update class dictionary.
 		self.__dict__.update(locals())
@@ -258,8 +267,14 @@ class Global_ETAS_model(object):
 		#
 		# set etas_cat_range as necessary:
 		if etas_cat_range is None: etas_cat_range = [0,len(catalog)]
-		etas_cat_range[0] = (etas_cat_range[0] or 0)
-		etas_cat_range[1] = (etas_cat_range[1] or len(catalog))
+		# yoder: note that this "or" syntax is a bit twitchy when things can be zero,
+		#  so it's progbably better to just "if" it:
+		if etas_cat_range[0] is None:
+			etas_cat_range[0] = 0
+		#etas_cat_range[0] = (etas_cat_range[0] or 0)
+		if etas_cat_range[1] is None:
+			etas_cat_range[1] = len(catalog)
+		#etas_cat_range[1] = (etas_cat_range[1] or len(catalog))
 		self.etas_cat_range = etas_cat_range
 		print("ETAS over etas_cat_range/xyz_range: ", (self.etas_cat_range, self.etas_xyz_range))
 		#
@@ -284,7 +299,7 @@ class Global_ETAS_model(object):
 	@property
 	def Z(self):
 		return self.ETAS_array['z']
-#                               
+#
 	@property
 	def lattice_sites(self):
 		X = self.ETAS_array['z']
@@ -534,10 +549,17 @@ class Global_ETAS_model(object):
 		print("Indices initiated. begin ETAS :: ", self.etas_cat_range)
 		#
 		#for quake in self.catalog:
-		for quake in self.catalog[self.etas_cat_range[0]:self.etas_cat_range[1]]:
-			if quake['mag']<self.mc_etas: continue
+		# yoder 2019_07_23: filter m<mc by index, not if, continue; we should do the same with the event_date filter as well.
+		#for quake in self.catalog[self.etas_cat_range[0]:self.etas_cat_range[1]]:
+		for quake in (self.catalog[self.etas_cat_range[0]:self.etas_cat_range[1]])[self.catalog['mag']>=self.mc_etas]:
+			#if quake['mag']<self.mc_etas: continue
 			#
-			if quake['event_date_float']>self.t_forecast: continue
+			# TODO: handle the case where we have t_future. we do want to catch t<0 or \Delta t<0 in the Omori calculations.
+			#  how did we format t_future? What is the float version?
+			#if quake['event_date_float']>self.t_forecast: continue
+			# this should do it; t_future should be a float.,
+			if quake['event_date_float'] > max(self.t_forecast, (self.t_forecast or self.t_future)): continue
+			#if quake['event_date_float']>self.t_forecast and self.t_future is None: continue
 			#
 			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max, ab_ratio_expon=self.ab_ratio_expon)
 			#
@@ -563,27 +585,39 @@ class Global_ETAS_model(object):
 			#
 			#print('rtree indexing: ', quake, lon_min, lat_min, lon_max, lat_max, self.lons, self.lats, delta_lon, delta_lat)
 			#
-			site_indices = list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max)))
+			# yoder 2019_07_23: these should probaby be numpy.arrays. good guess is that .intersection() returns an array,
+			#  so we should probably use that, and then use numpy.append().
+			# site_indices = list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max)))
+			site_indices = numpy.array(list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max))))
 			# ... and if we wrap around the other side of the world...
 			# there's probably a smarter way to do this...
 			if lon_min<-180.:
 				#new_lon_min = lon_min%(180.)
 				#new_lon_min = 180.+(lon_min+180.)
 				new_lon_min = 360. + lon_min
-				site_indices += list(lattice_index.intersection((new_lon_min, lat_min, 180., lat_max)))
+				#site_indices += list(lattice_index.intersection((new_lon_min, lat_min, 180., lat_max)))
+				site_indices = numpy.append(site_indices, list(lattice_index.intersection((new_lon_min, lat_min, 180., lat_max))))
 			if lon_max>180.:
 				#new_lon_max = lon_max%(-180.)
 				#new_lon_max = -180. + lon_max-180.
 				new_lon_max = -360. + lon_max
-				site_indices += list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max)))
+				#site_indices += list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max)))
+				site_indices = numpy.append(site_indices, list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max))))
 			#
 			#print("LLRange: ", lon_min, lat_min, lon_max, lat_max, len(list(site_indices)))
 			#
+			# TODO: I think we can get a performance boost by doing the elliptical transform on all (sub-set of) points at once, in a
+#   linear algebra operation, so we have the relevant lattice sites; now transform them, and loop through XY_prime=dot(E, XY)
 			for site_index in site_indices:
 				X = lattice_dict[site_index]
 				#
 				# do we need to do this, or does the Earthquake self-transform?
-				et = eq.elliptical_transform(lon=X['lon'], lat=X['lat'])
+				# yoder 2019_07_23: this eq.ellipitical_transform() computation is done in local_intensity(); we don't do anything with it here.
+				#   TODO: (however), we might to well to reorganize this to do the ET (or at least part of it) in one combined LinAlg. operation
+				#   to improve speed.
+				# do we need to initialize the transform? if so, we should not need to do it for each site.
+				# this is done in .local_intensity(); it ruturns data from the elliptical transform (r_prime, etc.)
+				#et = eq.elliptical_transform(lon=X['lon'], lat=X['lat'])
 				#
 				# this looks right, so yes; we probably need to do the transform:
 				#local_intensity = 1.0/((75. + et['R_prime'])**1.5)
@@ -1215,7 +1249,7 @@ class Earthquake(object):
 		#v = [dx, dy]
 		#v_prime = numpy.dot(self.e_vecs.transpose(),v)
 		#
-		# this should probably be reorganized to look like a prober singular value decomposition (SVD).
+		# this should probably be reorganized to look like a proper singular value decomposition (SVD).
 		# 1) rotate to pca frame (v' = numpy.dot(e_vecs.T, v)
 		# 2) elongate: v'' = numpy.dot(numpy.diag(reversed(self.e_vals_n)), v' ) ## check reversed, etc.
 		# 3) now, rotate back to original frame: v''' = numpy.dot(e_vecs, v'')
@@ -1360,9 +1394,15 @@ class Earthquake(object):
 		
 		#
 		#print("inputs: ", t, lon, lat, p, q)
-		t = (t or mpd.date2num(dtm.datetime.now(pytz.timezone('UTC'))))
-		p = (p or self.p)
-		q = (q or self.q)
+		#t = (t or mpd.date2num(dtm.datetime.now(pytz.timezone('UTC'))))
+		if t is None:
+			t =mpd.date2num(dtm.datetime.now(pytz.timezone('UTC')))
+		#p = (p or self.p)
+		if p is None:
+			p = self.p
+		#q = (q or self.q)
+		if q is None:
+			q = self.q
 		# calculate ETAS intensity.
 		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
 		# but then make a map using soemthing else. for example, we might use p=0 (or at least p<p_0) to effectivly modify (eliminate) the time dependence.
