@@ -1242,8 +1242,14 @@ class Earthquake(object):
 		#
 		# TODO: are we using this? let's clean it up and probably not use the 'geo' distance... in fact, not calculate it
 		# (i think we have actually removed this, for the reason that the geo distance calc. is expensive.).
-		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
-		R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
+		#dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
+		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['spherical', 'xy', 'dx_dy'])
+		# TODO: look into whether this is an iterative solution, or if we've replaced it with the spherical distance.
+		#   the spherical solution can be much, much faster, which makes a difference en-mass. it's probably nto a bad idea
+		#   to just skip the dist_to() function, and just compute these distances here -- or use a variation that is full-numpy
+		#   or @jit compiled.
+		#R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
+		R = dists['spherical']
 		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in
 		#
 		#v = [dx, dy]
@@ -1321,10 +1327,12 @@ class Earthquake(object):
 		#return {'R':R, 'R_prime':R_prime, 'dx':dx, 'dy':dy, 'dx_prime':dx_prime, 'dy_prime':dy_prime}
 		#
 		return dists
-	#
+	
+	@numba.jit
 	def spherical_dist(self, to_lon_lat=[]):
 		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
 	#
+	@numba.jit
 	def time_since(self,t):
 		return 	(t - self.event_date_float)*days2secs
 	#
@@ -1374,11 +1382,16 @@ class Earthquake(object):
 		# calculate local ETAS density-rate (aka, earthquakes per (km^2 sec)
 		# take time in days.
 		#
+		# TODO: (For sure): Vectorize this, or write a vectorized version. we want to pass an array of [[t, t_to, lon, lat], ...]
+		#  and return a vector of local_intensities.
+		#
 		# TODO: we can speed up large ETAS by pre-calculating (or more specifically, calculating only once) the temporal rate.
 		#       this could be done pre-mpp, but since the remaining processes would then have to wait for this to finish, 
 		#       not much gain would be realized; we're probably better off just computing the rates on each process (keep it simple...)
 		#
-		# TODO: revise spatial normalization. currently, we compute rate-(area)density by diviting rate-(liner)density by 
+		# TODO: revise spatial normalization (Or do we? This might have looked like a good idea and turned out to basically
+		#  remove all interesting information. in other words, the ratio between A_eclid / A_primed is what we want to measure.)
+		#  Currently, we compute rate-(area)density by dividing rate-(liner)density by
 		# 2*pi*(r0+r), basically to handle the singularity at r=0. but we have normalized the linear density, dN/dr in regular Euclidian
 		# space. We need to normailze dN/dr to dA' = (r0 + r)*dr*d_theta. this introduces a term, 2*pi*r0*r; there subsequent normalization
 		# requres integration by parts, but is otherwise straight forward.
@@ -2148,7 +2161,10 @@ def dist_to(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], dist_types=['spherical'],
 	#
 	if 'spherical' in dist_types:
 		#return_distances['spherical'] = spherical_dist(lon_lat_from, lon_lat_to)
-		return_distances['spherical'] = great_circle(reversed(lon_lat_from), reversed(lon_lat_to)).km
+		#return_distances['spherical'] = great_circle(reversed(lon_lat_from), reversed(lon_lat_to)).km
+		#
+		# i think this syntax is faster and avoids transforming to a list, if an array is passed:
+		return_distances['spherical'] = great_circle(lon_lat_from[::-1], lon_lat_to[::-1]).km
 	#
 	'''
 	if 'cartesian2' in dist_types or 'dx_dy' in dist_types:
