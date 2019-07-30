@@ -191,7 +191,8 @@ class Global_ETAS_model(object):
 			self.t_forecast = t_now
 		elif isinstance(t_now, numpy.datetime64):
 			# TODO: .tolist() may no longer accomplish the desired conversion...
-			self.t_forecast = mpd.date2num(t_now.tolist())
+			self.t_forecast = mpd.date2num(t_now.astype(dtm.datetime))
+			#self.t_forecast = mpd.date2num(t_now.tolist())
 		else:
 			self.t_forecast = mpd.date2num(t_now)
 		#
@@ -561,7 +562,8 @@ class Global_ETAS_model(object):
 			if quake['event_date_float'] > max(self.t_forecast, (self.t_forecast or self.t_future)): continue
 			#if quake['event_date_float']>self.t_forecast and self.t_future is None: continue
 			#
-			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max, ab_ratio_expon=self.ab_ratio_expon)
+			# yoder 28 July 2019: add t_1, t_2 parameters -- one step closer to pre-calcing orate:
+			eq = Earthquake(quake, transform_type=self.transform_type, transform_ratio_max=self.transform_ratio_max, ab_ratio_expon=self.ab_ratio_expon, t_1=self.t_forecast, t_2=self.t_future)
 			#
 			# ab_ratio_expon is, indeed, making it successfully to Earthquake(). 
 			#print('**debug: eq abexpon: {}'.format(eq.ab_ratio_expon))
@@ -623,6 +625,8 @@ class Global_ETAS_model(object):
 				#local_intensity = 1.0/((75. + et['R_prime'])**1.5)
 				#
 				#local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'], p=self.p_etas)
+				# TODO: since we are passing t_1, t_2 in the eq initialization, we can pass the "use pre-calc" code
+				#  (which might not yet be set), which should give a speed boost.
 				local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=X['lon'], lat=X['lat'], p=self.p_etas)
 				#
 				if numpy.isnan(local_intensity):
@@ -1073,10 +1077,21 @@ class Earthquake(object):
 		# now, make some preliminary calculations, namely the peak spatial density and maybe some omori constants? anything we'll calculate
 		# again and again...
 		t_1 = (t_1 or mpd.date2num(dtm.datetime.now(pytz.timezone('UTC'))))
+		if not t_2 is None:
+			t_1 = max(t_1, self.event_date_float)
+		#
+		# TODO: we've been using these largely for diagnostic purposes, but since we are trying to be careful about our
+		#  memory footprint, it probably makes snese to not keep them, particularly since we already have their raw values from
+		#  the initial __dict__.update() statement.
+		self.t_1 = t_1
+		self.t_2 = t_2
+		#
 		self.orate = self.omori_rate(t=t_1, t_to=t_2, p=None)
 		#
 		q = self.q
 		self.chi_norm = q*(q-1.0)*(self.r_0**(q-1.0))
+		#
+		#self.__dict__.update({key:val for key,val in locals().items() if not key in ('self', '__class__')})
 		#
 		# this gets done in set_transform()
 		#self.spatial_intensity_factor=1.0		# corrects for local aftershock density in rotational type transforms.
@@ -1348,9 +1363,23 @@ class Earthquake(object):
 		#       this could be done pre-mpp, but since the remaining processes would then have to wait for this to finish, 
 		#       not much gain would be realized; we're probably better off just computing the rates on each process (keep it simple...)
 		'''
+		#
+		# allow pre-computed orate:
+		#  ... but we need a code, since we already have the default behavior .now() for None.
+		#if t == 'precomputed':
+		#	return self.orate
 		#print("inputs: ", t, lon, lat, p, q)
 		t = (t or mpd.date2num(dtm.datetime.now(pytz.timezone('UTC'))))
-		p = (p or self.p)
+		#
+		# yoder 2019-07-29:
+		#   to accomodate cumulative Omori, trap the case where the event_date occurs between the cumulative time bounds,
+		#  t_from < t < t_to
+		if t_to is not None:
+			t = max(t, self.event_date_float)
+		#
+		if p is None:
+			p = self.p
+		#p = (p or self.p)
 		#q = (q or self.q)
 		## calculate ETAS intensity.
 		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
@@ -1406,52 +1435,49 @@ class Earthquake(object):
 		#  is the issue (and it is *an* issue, we probably need a more ambitious reorganization anyway.
 		
 		#
+		# TODO: (or NOTE: ): all of this t and p handling can be donw in self.omori_rate(), which will numpa.jit compile,
+		#   so we should benchmark this to see if it is faster to comput in-line or by function call. Also, when we
+		#   vectorize, it might be advantageous to port it off to a function.
 		#print("inputs: ", t, lon, lat, p, q)
 		#t = (t or mpd.date2num(dtm.datetime.now(pytz.timezone('UTC'))))
-		if t is None:
-			t =mpd.date2num(dtm.datetime.now(pytz.timezone('UTC')))
-		#p = (p or self.p)
+		#
 		if p is None:
 			p = self.p
-		#q = (q or self.q)
 		if q is None:
 			q = self.q
 		# calculate ETAS intensity.
 		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
 		# but then make a map using soemthing else. for example, we might use p=0 (or at least p<p_0) to effectivly modify (eliminate) the time dependence.
+		# yoder:
+		orate = self.omori_rate(t=t, t_to=t_to, p=p)
 		#
-		delta_t = (t - self.event_date_float)*days2secs
-		if delta_t<0.:
-			return 0.
-		#
+#		if t is None:
+#			t =mpd.date2num(dtm.datetime.now(pytz.timezone('UTC')))
+#		#
+#		# yoder: allow t_now < t < t_future contributions for cumiulatiive.
+#		if t_to is not None:
+#			t = max(t, self.event_date_float)
+#		#
+#		# TODO: compute orate from self.omori_rate(), then either skip this check or do this check on if orate<=0
+#		delta_t = (t - self.event_date_float)*days2secs
+#		if delta_t<0.:
+#			return 0.
+#		#
+#		# TODO: pre-commpute o(mori)rate in __init__ and fetch it here. we are computig this value for each lattice site, which is redundant.
+#		#
+#		if t_to is None and t is not None:
+#			#orate = 1./(tau_prime * (t_0_prime + delta_t)**p)
+#			orate = 1./(self.tau * (self.t_0 + delta_t)**p)
+#				elif t_to is not None and t is not None:
+#					orate = (1./(self.tau*(1.-p)))*( (self.t_0 + ((t_to - self.event_date_float)*days2secs))**(1.-p) - (self.t_0 + delta_t)**(1.-p))
+#			else:
+#				orate = self.orate
+
 		# get elliptial transformation for this earthquake:
 		#et = self.elliptical_transform_prime(lon=lon, lat=lat)		# use "inverse" transformation (see code), so x' = numpy.dot(x,T)
 		#et = self.elliptical_transform(lon=lon, lat=lat, T=self.T_inverse)
 		et = self.elliptical_transform(lon=lon, lat=lat)
 		#
-		# in some cases, let's adjust t0 so maybe we dont' get near-field artifacts...
-		'''
-		if t0_prime!=None:
-			t_0_prime = 60.*10.	# ten minutes...
-			tau_prime = (self.tau*self.t_0**self.p)/(t_0_prime)	#this looks wrong; note we have tau in there twice...
-			#
-			#orate = 1.0/(tau_prime * (t_0_prime + delta_t)**p)
-		else:
-			#orate = 1.0/(self.tau * (self.t_0 + delta_t)**p)
-			tau_prime = self.tau
-			t_0_prime = self.t_0
-		'''
-		#
-		# note: everything from here down can (i think) be compiled with numba.jit, if we are so inclined.
-		# TODO: pre-commpute o(mori)rate in __init__ and fetch it here. we are computig this value for each lattice site, which is redundant.
-		#
-		if t_to is None and t is not None:
-			#orate = 1./(tau_prime * (t_0_prime + delta_t)**p)
-			orate = 1./(self.tau * (self.t_0 + delta_t)**p)
-		elif t_to is not None and t is not None:
-			orate = (1./(self.tau*(1.-p)))*( (self.t_0 + ((t_to - self.event_date_float)*days2secs))**(1.-p) - (self.t_0 + delta_t)**(1.-p))
-		else:
-			orate = self.orate
 		#
 		# for now, just code up the self-similar 1/(r0+r) formulation. later, we'll split this off to allow different distributions.
 		# radial density (dN/dr). the normalization constant comes from integrating N'(r) --> r=inf = N_om (valid, of course, ony for q>1).
