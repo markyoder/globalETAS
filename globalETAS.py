@@ -1053,6 +1053,8 @@ class Earthquake(object):
 		self.e_vals = numpy.array(e_vals)
 		#
 		# check for float datetime...
+		# TODO: should we allow these values to differ? a more restricted, but arguably safer, approach is to set this
+		#   as a @property. we'd need to intercept it on __init__().
 		if not hasattr(self, 'event_date_float'): self.event_date_float = mpd.date2num(self.event_date.tolist())
 		#self.event_date_float_secs = self.event_date_float*days2secs
 		#
@@ -2250,8 +2252,10 @@ def spherical_dist(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], Rearth = 6378.1):
 	# return a vector [dLon, dLat] or [r, theta]
 	# return distances in km.
 	#
-	# TODO: this may be responsible for wonky elliptical transforms; at one point i know i'd reversd the phi,lambda variables
-	# ... so just double-check it. it would be nice to use this instead of the 'geo' model; also look at geopy for a spherical
+	# NOTE: this is much faster than 'geo' model. Also look at geopy.great_circle().
+	#   it also works, but contains some internal logic so that it will not vectorize.
+	#. This version will vectorize, but be careful how the inputs are passed; they need 
+	#  to be like lon_lat_from=[lons_k, lats_k], not =[[lon_0, lat_0], [lon_1, lat_1], ...]
 	# distance formula... for example:
 	# >>> from geopy.distance import great_circle
 	# >>> newport_ri = (41.49008, -71.312796)
@@ -2268,11 +2272,6 @@ def spherical_dist(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], Rearth = 6378.1):
 	# phi: latitude
 	# lon: longitude
 	#
-	#phif  = inloc[0]*deg2rad
-	#lambf = inloc[1]*deg2rad
-	#phis  = self.loc[0]*deg2rad
-	#lambs = self.loc[1]*deg2rad
-	
 	phif  = lon_lat_to[1]*deg2rad
 	lambf = lon_lat_to[0]*deg2rad
 	phis  = lon_lat_from[1]*deg2rad
@@ -2284,7 +2283,9 @@ def spherical_dist(lon_lat_from=[0., 0.], lon_lat_to=[0.,0.], Rearth = 6378.1):
 	dphi = (phif - phis)
 	dlambda = (lambf - lambs)
 	#this one is supposed to be bulletproof:
-	sighat3 = math.atan( math.sqrt((math.cos(phif)*math.sin(dlambda))**2.0 + (math.cos(phis)*math.sin(phif) - math.sin(phis)*math.cos(phif)*math.cos(dlambda))**2.0 ) / (math.sin(phis)*math.sin(phif) + math.cos(phis)*math.cos(phif)*math.cos(dlambda))  )
+	# yoder 2019_08_21: replace math. with numpy., and math.atan() with numpy.arctan() to facilitate vectorization in numpy.
+# 	sighat3 = math.atan( math.sqrt((math.cos(phif)*math.sin(dlambda))**2.0 + (math.cos(phis)*math.sin(phif) - math.sin(phis)*math.cos(phif)*math.cos(dlambda))**2.0 ) / (math.sin(phis)*math.sin(phif) + math.cos(phis)*math.cos(phif)*math.cos(dlambda))  )
+	sighat3 = numpy.arctan( numpy.sqrt((numpy.cos(phif)*numpy.sin(dlambda))**2.0 + (numpy.cos(phis)*numpy.sin(phif) - numpy.sin(phis)*numpy.cos(phif)*numpy.cos(dlambda))**2.0 ) / (numpy.sin(phis)*numpy.sin(phif) + numpy.cos(phis)*numpy.cos(phif)*numpy.cos(dlambda))  )
 	R3 = Rearth * sighat3
 	#
 	return R3
