@@ -233,31 +233,19 @@ class Global_ETAS_model(object):
 		#  the interim output object before we input it into the next function (aka, make the ND-array, then wrap as a recarray).
 		self.ETAS_array = numpy.array([[lon, lat, 0.] for j, (lat,lon) in enumerate(itertools.product(self.latses, self.lonses)) if (j>= etas_xyz_range[0] and j<etas_xyz_range[1])])
 		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
-		'''
-		self.lats=lats
-		self.lons=lons
-		self.mc=mc
-		self.d_x=d_x
-		self.d_y=d_y
-		self.bin_x0=bin_x0
-		self.bin_y0=bin_y0
-		self.etas_range_factor = etas_range_factor
-		self.t_0=t_0
-		self.t_now=t_now
-		self.transform_type=transform_type
-		self.transform_ratio_max=transform_ratio_max
-		'''
 		#
-		# this should probably be moved into the specific etas type parts...		
-		#self.lattice_sites = bindex.Bindex2D(dx=d_lon, dy=d_lat, x0=bin_lon0, y0=bin_lat0)	# list of lattice site objects, and let's index it by... probably (i_x/lon, j_y/lat)
-							# we might alternativel store this as a simple list [] or a base index/list (that
-							# is re-sorting tolerant)) {i:[row]}, and then write indices:
-							# index_lat_lon = {(lat, lon):lattice_sites_index}, {(x,y):lattice_sites_index}, etc.
-							#
-		#
-		#earthquake_catalog = {}	# and again, let's use an indexed structure, in the event that we are
-								# using indices and (inadvertently? sort it?). this may be unnecessary.
-								# that said, let's take the next step and return dict. type earthquake entries.
+		# self.lats=lats
+		# self.lons=lons
+		# self.mc=mc
+		# self.d_x=d_x
+		# self.d_y=d_y
+		# self.bin_x0=bin_x0
+		# self.bin_y0=bin_y0
+		# self.etas_range_factor = etas_range_factor
+		# self.t_0=t_0
+		# self.t_now=t_now
+		# self.transform_type=transform_type
+		# self.transform_ratio_max=transform_ratio_max
 		#
 		if catalog is None:
 			print("fetch and process catalog for dates: {}-{}, mc={}, lats={}, lons={}".format(t_0, t_now, mc, lats, lons))
@@ -1687,8 +1675,17 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 		n_tries=0
 		while n_tries<=n_tries_max:
 			try:
+				# 2019-09-15 yoder: replacing comcat and catfromANSS with new comcat-anss web api. All of these should work:
+				incat = atp.ANSS_Comcat_catalog(min_lon=lons[0], max_lon=lons[1], min_lat=lats[0], max_lat=lats[1],
+												m_c = mc, from_date=date_range[0], to_date=date_range[1], Nmax=None).as_recarray()
+				#
+				# procedural wrapper around ANSS_comcat_catalog() class; call signature copied from earlier methods:
+				#incat = cat_from_anss_comcat(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
+				# copy of/pointer to cat_from_anss_comcat():
 				#incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
-				incat = atp.cat_from_comcat(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
+				#
+				# this one calls the comcat library:
+				#incat = atp.cat_from_comcat(lon=lons, lat=lats, minMag=mc, dates0=date_range, Nmax=None, fout=None, rec_array=True)
 				n_tries = n_tries_max + 1
 			except:
 				print("network failed, or something. trying again (%d)" % n_tries)
@@ -1802,9 +1799,12 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 				n_tries = max_tries+1
 				# try comcat:
 				try:
-					incat = atp.cat_from_comcat(lon=lons, lat=lats, minMag=mc, dates0=[start_date, end_date], Nmax=None, fout=None, rec_array=True)
-					print('NOTE: loading from comcat.')
+					incat = atp.ANSS_Comcat_catalog(min_lon=lons[0], max_lon=lons[1], min_lat=lats[0], max_lat=lats[1],
+													m_c = mc, from_date=date_range[0], to_date=date_range[1], Nmax=None).as_recarray()
+					#incat = atp.cat_from_comcat(lon=lons, lat=lats, minMag=mc, dates0=[start_date, end_date], Nmax=None, fout=None, rec_array=True)
+					print('NOTE: loading from comcat-anss api class.')
 				except:
+					# NOTE: now, these two functions (above and this one) do exactly the same thing, so we can get rid of try-exceptl... for nowl.
 					incat = atp.catfromANSS(lon=lons, lat=lats, minMag=mc, dates0=[start_date, end_date], Nmax=None, fout=None, rec_array=True)
 					print('NOTE: comcat failed; loading from ANSS.')
 				
