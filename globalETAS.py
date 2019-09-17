@@ -524,10 +524,13 @@ class Global_ETAS_model(object):
 		#	self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		#
 		# make a dict of lattice sites and their x,y coordinates.
-		#lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lat,lon) in enumerate(itertools.product(latses, lonses))}
-		lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lon,lat,z) in enumerate(self.ETAS_array)}
-		self.lattice_dict=lattice_dict
-		print("len(local_lattice_dict): ", len(self.lattice_dict))
+		# ... but in the end, we don't appear to really do anything with this, so i think we can get rid of it, with maybe some patches where it once was...
+		#
+		# NOTE: since i is just sequential, we can use sorted order, and therefore a numpy array.
+		#lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lon,lat,z) in enumerate(self.ETAS_array)}
+		#self.lattice_dict=lattice_dict
+		#print("len(local_lattice_dict): ", len(self.lattice_dict))
+		print('** len(self.ETAS_array) = {}'.format(len(self.ETAS_array)))
 		#
 		# make an rtree index:
 		lattice_index = index.Index()
@@ -597,25 +600,31 @@ class Global_ETAS_model(object):
 			#print("LLRange: ", lon_min, lat_min, lon_max, lat_max, len(list(site_indices)))
 			#
 			# TODO: I think we can get a performance boost by doing the elliptical transform on all (sub-set of) points at once, in a
-#   linear algebra operation, so we have the relevant lattice sites; now transform them, and loop through XY_prime=dot(E, XY)
+			#   linear algebra operation, so we have the relevant lattice sites; now transform them, and loop through XY_prime=dot(E, XY)
+			#  ... but I think to do this, we need to do all of the computations here, in a sequence that replaces this loop (aka, rewrite the
+			#   local_intensity(), elliptical_transform(), etc. bits here.
+			#Xs = (self.ETAS_array[['x'], ['y']])[site_indices]
+			#
+			# TODO: does this work???
+			# will this auto-vectorize?
+			#local_intensities = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=Xs['lon'], lat=Xs['lat'], p=self.p_etas)
+			
 			for site_index in site_indices:
-				X = lattice_dict[site_index]
+				#X = lattice_dict[site_index]
+				#x,y = (self.ETAS_array[['lon', 'lat']])[site_index]
+				#print('*** DEBUG dtype: ', self.ETAS_array.dtype)
 				#
-				# do we need to do this, or does the Earthquake self-transform?
+				# do we need to do this, or does the Earthquake self-transform? Earthquake does, but actually it looks like we might move all of
+				#  the local_intensity() calculation here, so we can vectorize.
 				# yoder 2019_07_23: this eq.ellipitical_transform() computation is done in local_intensity(); we don't do anything with it here.
 				#   TODO: (however), we might to well to reorganize this to do the ET (or at least part of it) in one combined LinAlg. operation
 				#   to improve speed.
-				# do we need to initialize the transform? if so, we should not need to do it for each site.
-				# this is done in .local_intensity(); it ruturns data from the elliptical transform (r_prime, etc.)
-				#et = eq.elliptical_transform(lon=X['lon'], lat=X['lat'])
-				#
-				# this looks right, so yes; we probably need to do the transform:
-				#local_intensity = 1.0/((75. + et['R_prime'])**1.5)
 				#
 				#local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'], p=self.p_etas)
 				# TODO: since we are passing t_1, t_2 in the eq initialization, we can pass the "use pre-calc" code
 				#  (which might not yet be set), which should give a speed boost.
-				local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=X['lon'], lat=X['lat'], p=self.p_etas)
+				#local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=X['lon'], lat=X['lat'], p=self.p_etas)
+				local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=self.ETAS_array['x'][site_index], lat=self.ETAS_array['y'][site_index], p=self.p_etas)
 				#
 				if numpy.isnan(local_intensity):
 					#print("NAN encountered: ", site_index, self.t_forecast, X['lon'], X['lat'], eq.lon, eq.lat, eq.__dict__)
@@ -1245,15 +1254,18 @@ class Earthquake(object):
 		#if lon<-180:
 		#	lon += 180
 		#
-		# TODO: are we using this? let's clean it up and probably not use the 'geo' distance... in fact, not calculate it
-		# (i think we have actually removed this, for the reason that the geo distance calc. is expensive.).
+		# TODO: 'geo' dist type is very compute-expensive; use 'spherifal' (I think we're even @jit compiling it). do we use 'xy'?
+		#  can we vectorize this process? maybe not trivially. maybe we adapt this function to handle vector input and transform
+		#  scalar inputs to length-1 vectors/array?
+		#
+		# NOTE: #R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
 		#dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['geo', 'xy', 'dx_dy'])
-		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['spherical', 'xy', 'dx_dy'])
-		# TODO: look into whether this is an iterative solution, or if we've replaced it with the spherical distance.
-		#   the spherical solution can be much, much faster, which makes a difference en-mass. it's probably nto a bad idea
-		#   to just skip the dist_to() function, and just compute these distances here -- or use a variation that is full-numpy
-		#   or @jit compiled.
-		#R = dists['geo']	# the ['s12'] item from Geodesic.Inverse() method, (and converted to km in dist_to() )...
+		# take out the 'xy' distance and see if anything breaks. i don't think we're using it.
+		# TODO: stop using dist_to() function and just compute dists here; we can vectorize. it might be easier to just do all of that at
+		#  the ETAS looping and aggregating level, and move away from this class hierarchal model.
+		#dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['spherical', 'xy', 'dx_dy'])
+		dists = dist_to(lon_lat_from=[self.lon, self.lat], lon_lat_to=[lon, lat], dist_types=['spherical', 'dx_dy'])
+		#
 		R = dists['spherical']
 		dx,dy = dists['dx'], dists['dy']	# cartesian approximations from the dist_to() method; approximate cartesian distance coordinates from e_quake center in
 		#
@@ -1277,6 +1289,7 @@ class Earthquake(object):
 		return dists
 		#
 	#
+	# TODO: (2019-17-sept) if we haven't been seeing exceptions or errors, we can get rid of this.
 	def elliptical_transform_depricated(self, lon=0., lat=0., T=None):
 		'''
 		# return elliptical transform of position (lon, lat). submit the raw x,y values; we'll subtract this Earthquake's position here...
@@ -1393,6 +1406,11 @@ class Earthquake(object):
 		#
 		#return orate
 	#
+	# TODO:vectorize local_intensity. let's just write a vectorized version here, since it is not actually a trivial thing to do.
+	def local_intensities(self, ts=None, ts_to=None, lons=None, lats=None, p=None, q=NOne, t0_primne=None):
+		# copy self.local_intensity() model, but vectorize spatial and temporal distribution, so we return a bloc of (n_lat, n_lon, n_time) data.
+		#
+		pass
 	#def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 	def local_intensity(self, t=None, t_to=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 		'''
