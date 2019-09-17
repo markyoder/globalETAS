@@ -1044,7 +1044,7 @@ class Earthquake(object):
 		# TODO: test this eigen-value/vector sorting bit. we might be able to strip out a clumsy "if" logic down the way.
 		# be sure we're not changing something we 'fixed' by doing this the right way.
 		##e_vals, e_vecs = list(zip(*sorted([[lamb, evec] for lamb, evec in zip(e_vals, e_vecs.T)], key=lambda rw:rw[0])))
-		
+		#
 		e_vals, e_vecs = list(zip(*reversed(sorted(list(zip(self.e_vals, self.e_vecs.T)), key=lambda rw:rw[0]))))
 		self.e_vecs = numpy.array(e_vecs).T		# put the eigen-vectors back into column matrix form.
 		self.e_vals = numpy.array(e_vals)
@@ -1407,10 +1407,51 @@ class Earthquake(object):
 		#return orate
 	#
 	# TODO:vectorize local_intensity. let's just write a vectorized version here, since it is not actually a trivial thing to do.
-	def local_intensities(self, ts=None, ts_to=None, lons=None, lats=None, p=None, q=NOne, t0_primne=None):
+	def local_intensities(self, ts=None, ts_to=None, lons=None, lats=None, p=None, q=None, t0_primne=None):
 		# copy self.local_intensity() model, but vectorize spatial and temporal distribution, so we return a bloc of (n_lat, n_lon, n_time) data.
+		#  eventually, just handle scalar inputs and get rid of local_intensity.
 		#
-		pass
+		if p is None:
+			p = self.p
+		if q is None:
+			q = self.q
+		# calculate ETAS intensity.
+		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
+		# but then make a map using soemthing else. for example, we might use p=0 (or at least p<p_0) to effectivly modify (eliminate) the time dependence.
+		# yoder:
+		orates = self.omori_rate(t=ts, t_to=ts_to, p=p)
+		#
+		# i think this is the right syntax for spheridcal_dist (note if necessary, use the module funtion and provide from_lon_lat=[] parameter.)
+		Rs_sph = self.spherical_dist(to_lon_lat = numpy.array([lons, lats]))
+		dxs = (lons - self.lon)*numpy.cos(.5*(self.lat + lats)*deg2rad)*deg2km
+		dys = (lats - self.lat)*deg2km
+		#
+		# rotation is being done like:
+		# dx_prime = self.e_vals_n[0]*numpy.dot([dx, dy],self.e_vecs.T[0])
+		#dy_prime = self.e_vals_n[1]*numpy.dot([dx, dy],self.e_vecs.T[1])
+		# note that this should be equivalent to numpy.dot([dx,dy], e_vecs_matrix)
+		# where e_vecs_matrix is the eigen-vectors as columns.
+		dxs_dys_prime = (numpy.dot( numpy.array(dxs, dys).T, self.e_vecs))*numpy.array(self.e_vals_n)
+		R_primes = Rs_sph * numpy.linalg.norm(dxs_dys_prime, axis=1)/numpy.linalg.norm([dxs,dys], axis=0)  # note, (dx,dy), (dxs_dys_prime) are transposed relative to on another.
+		#
+		# now we have all of the transformed distances, etc. do some science:
+		#radial_densities = self.chi_norm*((self.r_0 + R_primes)**(-q))
+		#circumf = 2.*math.pi*(self.r_0 + R_primes)
+		##
+		## @spatial_intensity_factor: corrects for local aftershock density in rotational type transforms.
+		##  aka, in rotations, space is effectively compressed (by trigonometry), so intensity is boosted. for equal-area
+		##  transforms, spatil_intensity_factor=1.0
+		##
+		#spatialdensity = self.spatial_intensity_factor*radial_density/circumf
+		#
+		# combine these calculations:
+		spatialdensities = (self.spatial_intensity_factor*self.chi_norm/(2.*math.pi))*((self.r_0 + R_primes)**(-q-1.))
+		#
+		# TODO: this needs to be some sort of dot or outer-product, so that we get a cartesian expansion.
+		#return spatialdensityies*orates
+		# this should be shape=(n_orates, n_densities)
+		return numpy.outer(orates, spatialdensities)
+		#pass
 	#def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 	def local_intensity(self, t=None, t_to=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 		'''
@@ -1456,6 +1497,8 @@ class Earthquake(object):
 		# calculate ETAS intensity.
 		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
 		# but then make a map using soemthing else. for example, we might use p=0 (or at least p<p_0) to effectivly modify (eliminate) the time dependence.
+		# NOTE: Haven't we already computed orate during __init__? we want ideally to retain options to override or to use the pre-calc values (which will
+		# be faster)
 		# yoder:
 		orate = self.omori_rate(t=t, t_to=t_to, p=p)
 		#
