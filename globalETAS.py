@@ -1348,7 +1348,7 @@ class Earthquake(object):
 	
 	@numba.jit
 	def spherical_dist(self, to_lon_lat=[]):
-		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
+		return spherical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
 	#
 	@numba.jit
 	def time_since(self,t):
@@ -1408,7 +1408,7 @@ class Earthquake(object):
 	#
 	# TODO:vectorize local_intensity. let's just write a vectorized version here, since it is not actually a trivial thing to do.
 	def local_intensities(self, ts=None, ts_to=None, lons=None, lats=None, p=None, q=None, t0_primne=None):
-		# copy self.local_intensity() model, but vectorize spatial and temporal distribution, so we return a bloc of (n_lat, n_lon, n_time) data.
+		# cfopy self.local_intensity() model, but vectorize spatial and temporal distribution, so we return a bloc of (n_lat, n_lon, n_time) data.
 		#  eventually, just handle scalar inputs and get rid of local_intensity.
 		#
 		if p is None:
@@ -1419,10 +1419,41 @@ class Earthquake(object):
 		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
 		# but then make a map using soemthing else. for example, we might use p=0 (or at least p<p_0) to effectivly modify (eliminate) the time dependence.
 		# yoder:
-		orates = self.omori_rate(t=ts, t_to=ts_to, p=p)
+		# TODO: omori_rate() needs a bit of work to handle vectors correctly, so for now just re-code here:
+		#orates = self.omori_rate(t=ts, t_to=ts_to, p=p)
+		if ts_to is None:
+			# NOTE: we are not exception handling here; namely we do not handle
+			# TODO: add a parameter to (not) do validation/exception handling -- so if we can confidently pre-handle ts, so that all ts-event_date >=0 ,
+			#  we can skip handling it here.
+			delta_ts = (ts - self.event_date_float)*days2secs
+			#
+			#orates = 1./(self.tau*(self.t_0 + (ts-self.event_date_float)*days2secs))
+			orates = 1./(self.tau*(self.t_0 + delta_ts))
+			#
+			# NOTE: this is one of those steps we might want to skip optionally. it's a good idea to check, but it is not free.
+			orates[numpy.logical_or(delta_ts<0, numpy.isnan(orates) )] = 0.
+			#
+			del delta_ts
+			#
+		else:
+			# note, this cumulative version is a bit more tolerant of bad (time) inputs. since we integrate, t1=t2=0 gives us orate=0 --
+			#  whereas in the differntial form if we set t=0 (say, max(t,0) ), we get the maximum rate, not a zero rate.
+			#
+			# we can probably get at least a small performance boost by in-lining these delta_ts{} variables.
+			#
+			delta_ts1 = max( [(ts - self.event_date_float)*days2secs, numpy.zeros(len(ts))], axis=0)
+			delta_ts2 = max( [(ts_to - self.event_date_float)*days2secs, numpy.zeros(len(ts_to))], axis=0)
+			#
+			#orates = (1./(self.tau*(1.-p)))*( (self.t_0 + delta_ts2 )**(1.-p) - (self.t_0 + delta_ts1)**(1.-p)) )
+			orates = (1./(self.tau*(1.-p)))*( (self.t_0 + max( [(ts_to - self.event_date_float)*days2secs, numpy.zeros(len(ts_to))], axis=0) )**(1.-p) - (self.t_0 + max( [(ts - self.event_date_float)*days2secs, numpy.zeros(len(ts))], axis=0) )**(1.-p) )
+			#
+			del delta_ts1
+			del delta_ts2
+			#
 		#
 		# i think this is the right syntax for spheridcal_dist (note if necessary, use the module funtion and provide from_lon_lat=[] parameter.)
 		Rs_sph = self.spherical_dist(to_lon_lat = numpy.array([lons, lats]))
+		#Rs_sph = spherical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=numpy.array([lons, lats]))
 		dxs = (lons - self.lon)*numpy.cos(.5*(self.lat + lats)*deg2rad)*deg2km
 		dys = (lats - self.lat)*deg2km
 		#
@@ -1431,7 +1462,7 @@ class Earthquake(object):
 		#dy_prime = self.e_vals_n[1]*numpy.dot([dx, dy],self.e_vecs.T[1])
 		# note that this should be equivalent to numpy.dot([dx,dy], e_vecs_matrix)
 		# where e_vecs_matrix is the eigen-vectors as columns.
-		dxs_dys_prime = (numpy.dot( numpy.array(dxs, dys).T, self.e_vecs))*numpy.array(self.e_vals_n)
+		dxs_dys_prime = (numpy.dot( numpy.array([dxs, dys]).T, self.e_vecs))*numpy.array(self.e_vals_n)
 		R_primes = Rs_sph * numpy.linalg.norm(dxs_dys_prime, axis=1)/numpy.linalg.norm([dxs,dys], axis=0)  # note, (dx,dy), (dxs_dys_prime) are transposed relative to on another.
 		#
 		# now we have all of the transformed distances, etc. do some science:
@@ -1445,6 +1476,7 @@ class Earthquake(object):
 		#spatialdensity = self.spatial_intensity_factor*radial_density/circumf
 		#
 		# combine these calculations:
+		#print('** DEBUG: R_primes:: ', Rs_sph)
 		spatialdensities = (self.spatial_intensity_factor*self.chi_norm/(2.*math.pi))*((self.r_0 + R_primes)**(-q-1.))
 		#
 		# TODO: this needs to be some sort of dot or outer-product, so that we get a cartesian expansion.
