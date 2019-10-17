@@ -1,7 +1,8 @@
 import matplotlib as mpl
-import pylab as plt
+#
 mpl.use('Agg')
-
+import pylab as plt
+#
 import datetime as dtm
 import matplotlib.dates as mpd
 import pytz
@@ -55,6 +56,7 @@ import globalETAS as gep
 #import optimizers
 #
 ######
+colors_ = plt.rcParams['axes.prop_cycle'].by_key()['color']
 #
 #
 if __name__ == '__main__':
@@ -219,6 +221,85 @@ if __name__ == '__main__':
     #     etas.cm.plot(rw['lon'],rw['lat'], ms=2.*(rw['mag']+2.), color=clr,
     #                           marker='o', zorder=11, label='m={}, {}'.format(rw['mag'], dt_str), latlon=True)
     plt.gca().legend()
+    #
+    #####
+    # second figure:
+    fg2=plt.figure(0, figsize=(12,10))
+    ax=plt.gca()
+    etas.make_etas_contour_map(n_contours=25, fignum=0, map_resolution='f', alpha=.3, ax=ax)
+    #
+    #mainshock = sorted(etas.catalog, key=lambda rw: rw['mag'])[-1]
+    #print('mainshock: ', mainshock)
+    # get mainshock. it's an m>6 event in the last week or so... this is subjective.
+    # if we just look for the biggest event, we get the L'Aquila event, so we'll need to be more creative...
+    # or just specify it.
+
+    mainshock = etas.catalog[-1]
+    for j,eq in enumerate(reversed(etas.catalog)):
+        #print('*** ', pytz.utc.localize(eq['event_date'].astype(dtm.datetime)))
+        if pytz.utc.localize(eq['event_date'].astype(dtm.datetime))<etas.t_now-dtm.timedelta(days=180): break
+        if eq['mag']>mainshock['mag']:
+            mainshock = eq
+    #
+    #
+    #
+    print('ms: ', mainshock, mainshock['lon'], mainshock['lat'])
+    x,y = etas.cm(mainshock['lon'], mainshock['lat'])
+    #
+    #print('mm: ', max(etas.catalog['mag']))
+    #
+    # let's get everything m>6 in the last 6 months?
+    m6s = [rw for rw in etas.catalog if rw['mag'] >= 6.
+           and pytz.utc.localize(rw['event_date'].astype(dtm.datetime))>to_dt-dtm.timedelta(days=180)]
+    #
+    # plot mainshock:
+    dt = mainshock['event_date'].astype(dtm.datetime)
+    dt=t0
+    dt_str = '{}-{}-{} {}:{}:{}'.format(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
+    #etas.cm.plot([x], [y], latlon=False, marker='*', color='r', ms=16, zorder=11,
+    #                   label='m={}, {}'.format(mainshock['mag'], dt_str))
+    #etas.cm.plot([lon0], [lat0], latlon=False, marker='*', color='r', ms=16, zorder=11,
+    #                   label='m={}, {}'.format(m0, dt_str))
+
+    ax.set_title('ETAS: {}, {}\n\n'.format(event_name, etas.t_now), size=16)
+    # for j,m6 in enumerate(m6s):
+    #     clr = colors_[j%len(colors_)]
+    #     #
+    #     dt = m6['event_date'].astype(dtm.datetime)
+    #     dt_str = '{}-{}-{} {}:{}:{}'.format(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
+    #     etas.cm.scatter(m6['lon'], m6['lat'], s=2*(m6['mag']+2.), edgecolors=clr,
+    #                           c='none', marker='o', zorder=11, label='m={}, {}'.format(m6['mag'], dt_str))
+
+    # ix = (numpy.array([pytz.utc.localize(x.astype(dtm.datetime)) for x in etas.catalog['event_date']])<=etas.t_now and
+    #       numpy.array([pytz.utc.localize(x.astype(dtm.datetime))
+    #                    for x in etas.catalog['event_date']])>=dtm.datetime(2019,7,4, tzinfo=pytz.timezone('UTC')))
+    ix = numpy.array([x<=etas.t_now and x>dtm.datetime(2019,7,4, tzinfo=pytz.timezone('UTC'))
+                      for x in [pytz.utc.localize(x.astype(dtm.datetime)) for x in etas.catalog['event_date']]])
+    #
+    etas.cm.plot(etas.catalog['lon'][ix], etas.catalog['lat'][ix], marker='.', ls='')
+    #x,y = etas.cm(*ll_sacramento)
+    #etas.cm.scatter([x],[y], marker='o', s=18, edgecolors='r', c='r',
+    #                    label='Sacramento')
+    t_cat = mpd.date2num(etas.t_now-dtm.timedelta(days=15))
+    print('tt: ', t_cat, etas.catalog['event_date'][0], type(etas.catalog['event_date'][0]))
+    k=0
+
+    # for j,rw in enumerate(etas.catalog):
+    #     if mpd.date2num(rw['event_date'].astype(dtm.datetime))<t_cat: continue
+    #     k+=1
+    #     clr = colors_[k%len(colors_)]
+    #     #
+    #     dt = rw['event_date'].astype(dtm.datetime)
+    #     dt_str = '{}-{}-{} {}:{}:{}'.format(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
+    #     #etas.cm.scatter(rw['lon'],rw['lat'], s=3*(rw['mag']+12.), edgecolors=clr,
+    #     #                      c='none', marker='o', zorder=11, label='m={}, {}'.format(rw['mag'], dt_str))
+    #     etas.cm.plot(rw['lon'],rw['lat'], ms=2.*(rw['mag']+2.), color=clr,
+    #                           marker='o', zorder=11, label='m={}, {}'.format(rw['mag'], dt_str), latlon=True)
+
+    #
+    ax.legend(loc=0)
+    
+    ######
     #
     etas.export_kml(os.path.join(f_path, '{}_{}.kml'.format(f_root, str(etas.t_now).replace(' ', '_'))))
     etas.export_xyz(os.path.join(f_path, '{}_{}.xyz'.format(f_root, str(etas.t_now).replace(' ', '_'))))
