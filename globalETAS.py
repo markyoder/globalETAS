@@ -530,7 +530,7 @@ class Global_ETAS_model(object):
 		#lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lon,lat,z) in enumerate(self.ETAS_array)}
 		#self.lattice_dict=lattice_dict
 		#print("len(local_lattice_dict): ", len(self.lattice_dict))
-		print('** len(self.ETAS_array) = {}'.format(len(self.ETAS_array)))
+		print('** len(self.ETAS_array)[{}] = {}'.format(os.getpid(), len(self.ETAS_array)))
 		#
 		# make an rtree index:
 		lattice_index = index.Index()
@@ -538,7 +538,7 @@ class Global_ETAS_model(object):
 		#[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lat,lon) in enumerate(itertools.product(latses,lonses))]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
 		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lon, lat, z) in enumerate(self.ETAS_array)]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
 		#
-		print("Indices initiated. begin ETAS :: ", self.etas_cat_range)
+		print("Indices initiated. begin ETAS[{}] :: range: {}".format(os.getpid(), self.etas_cat_range))
 		#
 		#for quake in self.catalog:
 		# yoder 2019_07_23: filter m<mc by index, not if, continue; we should do the same with the event_date filter as well.
@@ -582,6 +582,7 @@ class Global_ETAS_model(object):
 			#  so we should probably use that, and then use numpy.append().
 			# site_indices = list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max)))
 			site_indices = numpy.array(list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max))))
+			if len(site_indices)==0: continue
 			# ... and if we wrap around the other side of the world...
 			# there's probably a smarter way to do this...
 			if lon_min<-180.:
@@ -608,41 +609,66 @@ class Global_ETAS_model(object):
 			# TODO: does this work???
 			# will this auto-vectorize?
 			#local_intensities = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=Xs['lon'], lat=Xs['lat'], p=self.p_etas)
+			# ... probably not, but we have the newer local_intensiteis() function, which should work. note it is designed to take an array
+			# of times as well...
 			
-			for site_index in site_indices:
-				#X = lattice_dict[site_index]
-				#x,y = (self.ETAS_array[['lon', 'lat']])[site_index]
-				#print('*** DEBUG dtype: ', self.ETAS_array.dtype)
-				#
-				# do we need to do this, or does the Earthquake self-transform? Earthquake does, but actually it looks like we might move all of
-				#  the local_intensity() calculation here, so we can vectorize.
-				# yoder 2019_07_23: this eq.ellipitical_transform() computation is done in local_intensity(); we don't do anything with it here.
-				#   TODO: (however), we might to well to reorganize this to do the ET (or at least part of it) in one combined LinAlg. operation
-				#   to improve speed.
-				#
-				#local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'], p=self.p_etas)
-				# TODO: since we are passing t_1, t_2 in the eq initialization, we can pass the "use pre-calc" code
-				#  (which might not yet be set), which should give a speed boost.
-				#local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=X['lon'], lat=X['lat'], p=self.p_etas)
-				local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=self.ETAS_array['x'][site_index], lat=self.ETAS_array['y'][site_index], p=self.p_etas)
-				#
-				if numpy.isnan(local_intensity):
-					#print("NAN encountered: ", site_index, self.t_forecast, X['lon'], X['lat'], eq.lon, eq.lat, eq.__dict__)
-					continue
-				#
-				#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
-				#self.lattice_sites[j_lon][j_lat] += local_intensity
-				#
-				# TODO: generalize this; write a function like: self.add_to_ETAS(site_index, local_intensity).
-				#       for current, SPP or non-memory shared versions, this will be the same as below -- directly add to the array.
-				#       however, if we 1) write a c++ extension version or 2) use a shared memory array (or both), we can override the class
-				#       definition of self.add_to_ETAS() to be something like, self.shared_ETAS_array[3*site_index+2]+=local_intensity.
-				#       that said, it might be possible to accomplish this in the __init__ by declaring the ETAS_array as a list from
-				#       the shared array by reff. (??)
-				self.ETAS_array[site_index][2] += local_intensity
-				#
+			#X = self.ETAS_array['x'][site_indices]
+			#print('*** DEBUG: dtype: ', self.ETAS_array.dtype)
+			#print('*** ', self.ETAS_array['x'].shape)
+			#print('** * ', self.ETAS_array[site_indices].shape)
+			#print('** ** ', self.ETAS_array[site_indices].dtype)
+			#print('** *** ', self.ETAS_array[site_indices]['x'].shape)
+			#X = self.ETAS_array[site_indices]['x']
+			#print('*** *** X : ', X)
+			#break
+			
+			# def local_intensities(self, ts=None, ts_to=None, lons=None, lats=None, p=None, q=None, t0_primne=None):
+			#local_intensities = eq.local_intensities(ts=numpy.atleast_1d([self.t_forecast]), ts_to=(self.t_future if self.t_future is None else
+			#
+			local_intensities = eq.local_intensities(ts=numpy.atleast_1d(self.t_forecast), ts_to=(self.t_future if self.t_future is None else
+			 numpy.atleast_1d(self.t_future)), lons=self.ETAS_array[site_indices]['x'], lats=self.ETAS_array[site_indices]['y'], p=self.p_etas)
+			#
+			#print('*** DEBUG: shapes:: ', local_intensities.shape, (self.ETAS_array['z'])[site_indices].shape)
+			#print('*** DEBUG: site_indices: ', site_indices)
+			# handle nan values?
+			local_intensities[numpy.isnan(local_intensities)] = 0.
+			#
+			(self.ETAS_array['z'])[site_indices] += local_intensities.reshape((self.ETAS_array['z'])[site_indices].shape)
+			#
+#			for site_index in site_indices:
+#				#X = lattice_dict[site_index]
+#				#x,y = (self.ETAS_array[['lon', 'lat']])[site_index]
+#				#print('*** DEBUG dtype: ', self.ETAS_array.dtype)
+#				#
+#				# do we need to do this, or does the Earthquake self-transform? Earthquake does, but actually it looks like we might move all of
+#				#  the local_intensity() calculation here, so we can vectorize.
+#				# yoder 2019_07_23: this eq.ellipitical_transform() computation is done in local_intensity(); we don't do anything with it here.
+#				#   TODO: (however), we might to well to reorganize this to do the ET (or at least part of it) in one combined LinAlg. operation
+#				#   to improve speed.
+#				#
+#				#local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'], p=self.p_etas)
+#				# TODO: since we are passing t_1, t_2 in the eq initialization, we can pass the "use pre-calc" code
+#				#  (which might not yet be set), which should give a speed boost.
+#				#local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=X['lon'], lat=X['lat'], p=self.p_etas)
+#				local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=self.ETAS_array['x'][site_index], lat=self.ETAS_array['y'][site_index], p=self.p_etas)
+#				#
+#				if numpy.isnan(local_intensity):
+#					#print("NAN encountered: ", site_index, self.t_forecast, X['lon'], X['lat'], eq.lon, eq.lat, eq.__dict__)
+#					continue
+#				#
+#				#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
+#				#self.lattice_sites[j_lon][j_lat] += local_intensity
+#				#
+#				# TODO: generalize this; write a function like: self.add_to_ETAS(site_index, local_intensity).
+#				#       for current, SPP or non-memory shared versions, this will be the same as below -- directly add to the array.
+#				#       however, if we 1) write a c++ extension version or 2) use a shared memory array (or both), we can override the class
+#				#       definition of self.add_to_ETAS() to be something like, self.shared_ETAS_array[3*site_index+2]+=local_intensity.
+#				#       that said, it might be possible to accomplish this in the __init__ by declaring the ETAS_array as a list from
+#				#       the shared array by reff. (??)
+#				self.ETAS_array[site_index][2] += local_intensity
+#				#
 		#
-		print('finished calculateing ETAS (rtree). wrap up in recarray and return.')
+		print('[{}]: finished calculateing ETAS (rtree). wrap up in recarray and return.'.format(os.getpid()))
 		# this conversion to the 2d array should probably be moved to a function or @property in the main class scope.
 		
 		#self.lattice_sites = numpy.array([rw[2] for rw in self.ETAS_array])
@@ -651,7 +677,8 @@ class Global_ETAS_model(object):
 		#
 		# Getting a Warning about passing lists, not tuples, for recarray conversion (aka, .fromrecords() ), so maybe consider
 		#  passing this as an ary.T rather than zip?
-		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
+		
+		#self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		#self.ETAS_array = numpy.core.records.fromarrays(self.ETAS_array.T, dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 	#		
 	def make_etas_all(self):
@@ -1410,6 +1437,9 @@ class Earthquake(object):
 	def local_intensities(self, ts=None, ts_to=None, lons=None, lats=None, p=None, q=None, t0_primne=None):
 		# cfopy self.local_intensity() model, but vectorize spatial and temporal distribution, so we return a bloc of (n_lat, n_lon, n_time) data.
 		#  eventually, just handle scalar inputs and get rid of local_intensity.
+		# TODO: evaluate that... this function appears to work (it runs and we get the right output shape) for both 1D and 2D lat, lon inputs
+		#  aka, lons, lats = itertools.product(lons, lats) vs lons, lats = numpy.meshgrid(lons, lats). However, we get slightly different
+		#  return values (on order 10-5 difference) (for 10**-12 values; difference is O 10**-17)
 		#
 		if p is None:
 			p = self.p
@@ -1453,6 +1483,9 @@ class Earthquake(object):
 		#
 		# i think this is the right syntax for spheridcal_dist (note if necessary, use the module funtion and provide from_lon_lat=[] parameter.)
 		Rs_sph = self.spherical_dist(to_lon_lat = numpy.array([lons, lats]))
+		# works for 1-D and 2-D type LL inputs so far...
+		#print('*** DEBUG: Rs_sph.shape:: {}'.format(numpy.shape(Rs_sph)))
+		#
 		#Rs_sph = spherical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=numpy.array([lons, lats]))
 		dxs = (lons - self.lon)*numpy.cos(.5*(self.lat + lats)*deg2rad)*deg2km
 		dys = (lats - self.lat)*deg2km
@@ -1463,7 +1496,14 @@ class Earthquake(object):
 		# note that this should be equivalent to numpy.dot([dx,dy], e_vecs_matrix)
 		# where e_vecs_matrix is the eigen-vectors as columns.
 		dxs_dys_prime = (numpy.dot( numpy.array([dxs, dys]).T, self.e_vecs))*numpy.array(self.e_vals_n)
-		R_primes = Rs_sph * numpy.linalg.norm(dxs_dys_prime, axis=1)/numpy.linalg.norm([dxs,dys], axis=0)  # note, (dx,dy), (dxs_dys_prime) are transposed relative to on another.
+		#
+		#print('*** DEBUG: dxs_dys_prime: {}'.format(dxs_dys_prime.shape))
+		# ... and it *might* be right up to here (we have a [20,20,2] shape (so 2x20 points, each with an (x',y') component.
+		#R_primes = Rs_sph * numpy.linalg.norm(dxs_dys_prime, axis=1)/numpy.linalg.norm([dxs,dys], axis=0)  # note, (dx,dy), (dxs_dys_prime) are transposed relative to on another.
+		#print('*** DEBUG: {}'.format(numpy.shape([dxs,dys])))
+		#print('*** DEBUG: shapes: {}, {}'.format( numpy.shape(numpy.linalg.norm(dxs_dys_prime, axis=-1)), numpy.shape(numpy.linalg.norm([dxs,dys], axis=0))))
+		R_primes = Rs_sph * numpy.linalg.norm(dxs_dys_prime, axis=-1)/numpy.linalg.norm([dxs,dys], axis=0)
+		#print('*** DEBUG: shape R_primes: {}'.format(numpy.shape(R_primes)))
 		#
 		# now we have all of the transformed distances, etc. do some science:
 		#radial_densities = self.chi_norm*((self.r_0 + R_primes)**(-q))
@@ -1482,8 +1522,10 @@ class Earthquake(object):
 		# TODO: this needs to be some sort of dot or outer-product, so that we get a cartesian expansion.
 		#return spatialdensityies*orates
 		# this should be shape=(n_orates, n_densities)
+		# NOTE: this is where we might loose our input shape. outer() flattens the output.
 		return numpy.outer(orates, spatialdensities)
 		#pass
+	#
 	#def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 	def local_intensity(self, t=None, t_to=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 		'''
