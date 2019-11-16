@@ -1056,6 +1056,11 @@ class Earthquake(object):
 	#def __init__(self, event_date=None, lat=0., lon=0., mag=None, eig_vals=[1., 1.], eig_vecs=[[1.,0.], [0., 1.]], transform_type='equal_area'):
 	def __init__(self, dict_or_recarray, transform_type='equal_area', transform_ratio_max=5., ab_ratio_expon=.5, t_1=None, t_2=None):
 		#
+		# 5 Nov 2019 yoder: keep a copy of the input parameters. we might want those for subclasses, at least
+		# . for development purposes. Later, it might be better to strip out this feature, or at lest make it optional,
+		#   to improve cpu/memory performance:
+		self.input_parameters = {key:val for key,val in locals().items() if not key in ('self', '__class__')}
+		#
 		# first, load all indexed elements from the input dict or recarray row as class members:
 		if isinstance(dict_or_recarray, dict): self.__dict__.update(dict_or_recarray)
 		if hasattr(dict_or_recarray, 'dtype'):
@@ -1441,6 +1446,14 @@ class Earthquake(object):
 		#  aka, lons, lats = itertools.product(lons, lats) vs lons, lats = numpy.meshgrid(lons, lats). However, we get slightly different
 		#  return values (on order 10-5 difference) (for 10**-12 values; difference is O 10**-17)
 		#
+		if ts is None:
+			ts = numpy.array([self.event_date_float])
+		ts = numpy.array(ts)
+		lons = numpy.array(lons)
+		lats = numpy.array(lats)
+		#lons = numpy.atleast_2d(lons)
+		#lats = numpy.atleast_2d(lats)
+		#
 		if p is None:
 			p = self.p
 		if q is None:
@@ -1481,8 +1494,11 @@ class Earthquake(object):
 			del delta_ts2
 			#
 		#
-		# i think this is the right syntax for spheridcal_dist (note if necessary, use the module funtion and provide from_lon_lat=[] parameter.)
+		# i think this is the right syntax for spherical_dist (note if necessary, use the module function and provide from_lon_lat=[] parameter.)
+		#print('*** DEBUG: LI:: {}, {}'.format(lons.shape, lats.shape))        
 		Rs_sph = self.spherical_dist(to_lon_lat = numpy.array([lons, lats]))
+		#
+		#print('*** DEBUG: LI_shp: {}'.format(Rs_sph.shape))
 		# works for 1-D and 2-D type LL inputs so far...
 		#print('*** DEBUG: Rs_sph.shape:: {}'.format(numpy.shape(Rs_sph)))
 		#
@@ -1495,14 +1511,38 @@ class Earthquake(object):
 		#dy_prime = self.e_vals_n[1]*numpy.dot([dx, dy],self.e_vecs.T[1])
 		# note that this should be equivalent to numpy.dot([dx,dy], e_vecs_matrix)
 		# where e_vecs_matrix is the eigen-vectors as columns.
-		dxs_dys_prime = (numpy.dot( numpy.array([dxs, dys]).T, self.e_vecs))*numpy.array(self.e_vals_n)
+		#dxs_dys_prime = ( (numpy.dot( numpy.array([dxs, dys]).T, self.e_vecs))*numpy.array(self.e_vals_n) )
+		#
+		# NOTE: This get a bit messy with different input shapes. I think we can fix it (make it stable) by forcing
+		#  lat, lon to be atleast_2d(). A better approach might be to simply record the input shapes of the spatial
+		# . arrays, reshape them to 1D each (so [[dx, dy], [dx, dy], ...] to do the rotation, then re-shape
+		#   dxs, dys, and their _prime counterpart(s)
+		#dxs_dys_prime = ( (numpy.dot( numpy.array([dxs, dys]).T, self.e_vecs))*numpy.array(self.e_vals_n) ).swapaxes(0,1)
+		dxs_dys_prime = ( (numpy.dot( numpy.array([dxs.ravel(), dys.ravel()]).T, self.e_vecs))*numpy.array(self.e_vals_n) )
+		#sh_dxs = dxs.shape
+		#sh_dys = dys.shape
+		#dxs = dxs.ravel()
+		#dys = dys.ravel()
+		#dxs_dys_prime = numpy.dot( numpy.array([dxs, dys]).T, self.e_vecs)*numpy.array(self.e_vals_n)
 		#
 		#print('*** DEBUG: dxs_dys_prime: {}'.format(dxs_dys_prime.shape))
 		# ... and it *might* be right up to here (we have a [20,20,2] shape (so 2x20 points, each with an (x',y') component.
 		#R_primes = Rs_sph * numpy.linalg.norm(dxs_dys_prime, axis=1)/numpy.linalg.norm([dxs,dys], axis=0)  # note, (dx,dy), (dxs_dys_prime) are transposed relative to on another.
 		#print('*** DEBUG: {}'.format(numpy.shape([dxs,dys])))
 		#print('*** DEBUG: shapes: {}, {}'.format( numpy.shape(numpy.linalg.norm(dxs_dys_prime, axis=-1)), numpy.shape(numpy.linalg.norm([dxs,dys], axis=0))))
-		R_primes = Rs_sph * numpy.linalg.norm(dxs_dys_prime, axis=-1)/numpy.linalg.norm([dxs,dys], axis=0)
+		# 
+		# This produces an x/0 exception/warning for events on a lattice node (interscetion). which produces a nan, but does not
+		#   break. 
+		#
+		#print('*** DEBUG: Rs_sph.shapes: Rs:{}, dx_dy_prime:{}, norm_prime:{}, norm:{}'.format(Rs_sph.shape, dxs_dys_prime.shape, numpy.linalg.norm(dxs_dys_prime, axis=-1).shape, numpy.linalg.norm([dxs,dys], axis=0).shape) )
+		#R_primes = Rs_sph * numpy.linalg.norm(dxs_dys_prime, axis=-1)/numpy.linalg.norm([dxs,dys], axis=0)
+		R_primes = Rs_sph * (numpy.linalg.norm(dxs_dys_prime, axis=1)/numpy.linalg.norm([dxs.ravel(),dys.ravel()], axis=0)).reshape(Rs_sph.shape)
+		R_primes[numpy.isnan(R_primes)]=0.
+		#
+		# now, restore shape:
+		#dxs.shape=sh_dxs
+		#dys.shape=sh_dys
+		#
 		#print('*** DEBUG: shape R_primes: {}'.format(numpy.shape(R_primes)))
 		#
 		# now we have all of the transformed distances, etc. do some science:
@@ -1523,7 +1563,15 @@ class Earthquake(object):
 		#return spatialdensityies*orates
 		# this should be shape=(n_orates, n_densities)
 		# NOTE: this is where we might loose our input shape. outer() flattens the output.
-		return numpy.outer(orates, spatialdensities)
+		#   so... what's the best approach? it seems more intuitive to return a complimentary shape, so
+		# .  .reshape(len(orates), *spatialdensities.shape
+		#return numpy.outer(orates, spatialdensities)
+		# 
+		# return as a time series of XY grids.
+		return numpy.outer(orates, spatialdensities).reshape(*orates.shape, *spatialdensities.shape)
+		#
+		# what if we just do the outer product... for now, to test some thingsL
+		#return numpy.array([t*spatialdensities for t in orates])
 		#pass
 	#
 	#def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
