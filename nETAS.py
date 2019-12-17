@@ -200,7 +200,9 @@ class NETAS_collector():
     def __init__(self, catalog=None, h5_file=None,
                  lons=None, lats=None,
                  lon_min=-180., lon_max=180., lat_min=-90., lat_max=90., d_lon=.1, d_lat=.1,
-                 times=None, times_to=None
+                 times=None, times_to=None,
+                 batch_size=100, spatial_intensity_threshold=.1
+                 
                  ):
         # ... and skip the lon/lat phase; those values are in the min values of the sequences.
         # . lon_bin_phase=0., lat_bin_phase=0.
@@ -222,12 +224,18 @@ class NETAS_collector():
                                           lats=lats,
                                           lons=lons)
             #
-        #
-        # if an h5 file was passed, we'd pull lons, lats from its dimension collection.
-        with h5py.File(h5_file, 'r') as h5in:
-            lats = numpy.array(h5in['lats'])
-            lons = numpy.array(h5in['lons'])
+        else:
             #
+            # if an h5 file was passed, we'd pull lons, lats from its dimension collection.
+            with h5py.File(h5_file, 'r') as h5in:
+                lats = numpy.array(h5in['lats'][:])
+                lons = numpy.array(h5in['lons'][:])
+                times = numpy.array(h5in['times'][:])
+                netas_shape = h5in['nETAS'].shape
+            #
+        # time indices:
+        k_t = numpy.arange(0, len(times))
+        #
         # NOTE: Do they need to be in order? Is there value in permitting out of order?
         # for now, skip sorting. later, we'll build in some failsafes.
         #lats.sort()
@@ -242,23 +250,138 @@ class NETAS_collector():
         #d_lon = numpy.mean(numpy.diff(lons))
         # TODO: consisder a diagnostic where we evaluate all or a bunch of these
         #. and look for consistency.
-        d_lon = lons[1] - lons[0]
-        d_lat = lats[1] - lats[0]
-            #
+        d_lon = d_lon or (lons[1] - lons[0])
+        d_lat = d_lat or (lats[1] - lats[0])
+        #
         #
         self.__dict__.update({key:val for key,val in locals().items() if not key in ('self', '__class__')})
         #
-    #
-    def compute_nETAS(self):
-        for eq in self.catalog:
-            block = NETAS_block(times=ts, **eq.input_parameters, spatial_intensity_threshold=.1)
-            #block_netas = block.nETAS_block()
+    
+    def compute_nETAS(self, batch_size=100):
+        # TODO: still can't figure out why the F this doesn't work, or if it is working, but does not look like it is...
+        #
+        batch_size = (batch_size or self.batch_size)
+        batch_size = (batch_size or 100)
+        #
+        #netas_ary = numpy.zeros(self.netas_shape)
+        get_netas_ary = lambda: numpy.zeros(numpy.prod(self.netas_shape))
+        netas_ary = get_netas_ary()
+        #
+        #n = numpy.prod(self.netas_shape)
+        #print('*** DEBUG: shape:: ', self.netas_shape, n)
+        #
+        #netas_ary = numpy.zeros(n)
+        
+        #k_max = len(self.catalog)
+        #
+        #print('** DEBUG: start loop.')
+        #
+        for k_eq, eq_rw in enumerate(self.catalog):
+            
+            block = NETAS_block(times=self.times, times_to=self.times_to, dict_or_recarray=eq_rw,
+                                spatial_intensity_threshold=self.spatial_intensity_threshold, 
+                                d_lat=self.d_lat, d_lon=self.d_lon)
+            #block = NETAS_block(times=self.times, times_to=self.times_to, **gep.Earthquake(eq_rw).input_parameters,
+            #                    spatial_intensity_threshold=self.spatial_intensity_threshold)
+            zs = block.nETAS_block()
             #
-            k_lons, x_lons = self.lon_to_bin(block.lons)
-            k_lats, x_lats = self.lat_to_bin(block.lats)
+            #if len(zs.ravel())>100: 
+            #    print('*** [{}] len={}: {}'.format(k_eq, len(zs.ravel()), zs.ravel()[0:10]))
+            #lons, lats = true_lon_lat(block.lons[:], block.lats[:])
             #
-            with h5py.File(self.h5_file, 'a') as h5ap:
-                h5ap[:k_lons:k_lats] += block.nETAS_block()
+            #if not (len(lons)==len(block.lons) and len(lats)==len(block.lats)):
+            #    print('**** (true-) len error??? {}/{}, {}/{}'.format(len(lons), len(block.lons), len(lats), len(block.lats)))
+            #
+            lons, lats = block.lons, block.lats
+            #
+            # TODO: need a t_to_bin, but that's going to be more complicated... for now, i guess
+            #  we just let local_intensities() throw a zero for t<t_event.
+            #k_lons, x_lons = self.lon_to_bin(block.lons)
+            #k_lats, x_lats = self.lat_to_bin(block.lats)
+            #
+            # TODO: need to expand lons,lats into complet set (aka via iterools or meshgrid() ), then do true_lon_lat(),
+            # then do bins.
+            kt_m, lats, lons = numpy.array(list(itertools.product(self.k_t, lats, lons))).T
+            lons, lats = true_lon_lat(lons, lats)
+            #
+            #if (lons<-180.).any() or (lons>180.).any() or (lats<-90.).any() or (lats>90.).any():
+            #    ix = numpy.logical_or(lons < -180., lons > 180.)
+            #    ix = numpy.logical_or(ix, lats<-90.)
+            #    ix = numpy.logical_or(ix, lats>90.)
+            #    print('*** bogus lon or lat data: {}\n{}'.format(lons[ix], lats[ix]))
+            #
+            kx_m = self.lon_to_bin(lons)['k']
+            ky_m = self.lat_to_bin(lats)['k']
+            #
+            #if (kt_m<0).any() or (kt_m > self.netas_shape[0]).any():
+            #    print('*** time dim out of bounds.')
+            #if (ky_m<0).any() or (ky_m> self.netas_shape[1]).any():
+            #    ix = numpy.logical_or((ky_m<0), (ky_m> self.netas_shape[1]))
+            #    print('*** lat dim out of bounds.')
+            #    print('*** {}, {}, {} :: {}, {}, {}'.format(kt_m[ix], lats[ix], lons[ix], kt_m[ix], ky_m[ix], kx_m[ix]) )
+            #if (kx_m<0).any() or (ky_m > self.netas_shape[2]).any():
+            #    print('*** lon dim out of bounds.')
+            #
+            #kt_m, ky_m, kx_m = numpy.array(list(itertools.product(self.k_t, k_lats, k_lons))).T
+            
+            # print('** DEBUG: k-shapes: ',kt_m.shape, ky_m.shape, kx_m.shape, zs.ravel().shape)
+            #
+            # TODO: FIXME: Why are these not integers?
+            #print('** ** ', nd_to_ravel_index(numpy.array([kt_m, ky_m, kx_m]).T,
+            #                                     self.netas_shape ))
+            # this is significantly faster than looping over the array:
+            #netas_ary[nd_to_ravel_index(numpy.array([kt_m.ravel(), ky_m.ravel(), kx_m.ravel()]).T,
+            #                                     self.netas_shape )] += zs.ravel()
+            
+            ix = nd_to_ravel_index(numpy.array([kt_m.ravel(), ky_m.ravel(), kx_m.ravel()]).T, self.netas_shape ).astype(int)
+            #print('** ix: ', ix[0:10])
+            
+            netas_ary[nd_to_ravel_index(numpy.array([kt_m.ravel(), ky_m.ravel(), kx_m.ravel()]).T,
+                                                 self.netas_shape ).astype(int)] += zs.ravel()
+            #ary_output.ravel()[nd_to_ravel_index(numpy.array([kt_m.ravel(), ky_m.ravel(), kx_m.ravel()]).T,
+            #                             ary_output.shape )] += zs.ravel()
+            
+            #
+            # if we use a 1D array, this index should save some time:
+            #ix = netas_ary>0.
+            #
+            #if k_eq%batch_size==0 or k_eq >= k_max:
+            if k_eq%batch_size==0:
+                with h5py.File(self.h5_file, 'a') as h5_fout:
+                    h5_fout['nETAS'][:] += netas_ary.reshape(self.netas_shape)[:]
+                    #
+                    # (see above) if we use a 1D array, besides being just faster to write (probably),
+                    #. this index should save some time.
+                    #fout['nETAS'][ix] = numpy.reshape(self.netas_shape)[ix]
+                    print('** h5 file written, {}-{} / {}'.format(k_eq-batch_size, k_eq, len(self.catalog)))
+                    
+                fg = plt.figure(figsize=(14,6))
+                ax1 = plt.subplot('121')
+                ax2 = plt.subplot('122')
+                print('*** zs: ', zs.shape)
+                ax1.plot((zs[0].ravel())[zs[0].ravel()>0.])
+                ax2.plot(zs[5].ravel()[zs[5].ravel()>0.])
+                ##
+                #ax1.imshow(netas_ary.reshape(self.netas_shape)[0])
+                #ax2.imshow(h5_fout['nETAS'][0])
+                #
+                netas_ary = get_netas_ary()
+                #netas_ary = numpy.zeros(numpy.prod(self.netas_shape))
+                #
+            #del block
+            #del zs
+            #del lons
+            #del lats, kt_m, ky_m, kx_m
+            #
+        # and whatever is left:
+        with h5py.File(self.h5_file, 'a') as h5_fout:
+            h5_fout['nETAS'][:] += netas_ary.reshape(self.netas_shape)[:]
+        del netas_ary
+        #
+        # wouldn't it be nice if this worked? It does not. But anyway, for performance, we need to
+        #. batch this work.
+        #with h5py.File(self.h5_file, 'a') as h5ap:
+        #    h5ap[:k_lons:k_lats] += block.nETAS_block()
             
     #
     def lon_to_bin(self, lon):
@@ -390,3 +513,15 @@ def true_lon_lat(X,Y):
     #return X_prime, Y_prime
     return ((X+180.) +m*180.)%360 - 180., m*180. + ((-1.)**m)*(Y_prime%180. )- 90.
 #
+def nd_to_ravel_index(ks, dims):
+    '''
+    # convert n-D array indices of an array A to the index of A.ravel()
+    '''
+    #
+    # start by just coding this for scalars; we'll work on vectorization later
+    # we have two reverse() operations here, so there is probably a one-step shorter solution.
+    # get dimension multipliers; number of elements to skip to get the next value on an axis.
+    ns_cp = numpy.cumprod(dims[::-1])
+    #
+    return numpy.dot(ks, numpy.append((ns_cp[0:-1])[::-1], [1])) 
+
