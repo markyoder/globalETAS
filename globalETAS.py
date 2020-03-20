@@ -182,8 +182,8 @@ class Global_ETAS_model(object):
 		if lons is None and catalog is None: lons = [-180., 180.]
 		#
 		# for now, assume the catalog is string-indexed -- aka, recarray, PANDAS,etc.
-		if lats is None and not (catalog is None or len(catalog) is 0): lats = [min(catalog['lat']), max(catalog['lat'])]
-		if lons is None and not (catalog is None or len(catalog) is 0): lons = [min(catalog['lon']), max(catalog['lon'])]
+		if lats is None and not (catalog is None or len(catalog) is 0): lats = [min(catalog['lat']), numpy.max(catalog['lat'])]
+		if lons is None and not (catalog is None or len(catalog) is 0): lons = [min(catalog['lon']), numpy.max(catalog['lon'])]
 		if mc   is None and not (catalog is None or len(catalog) is 0): mc = min(catalog['mag'])
 		#
 		# and handle some specific cases...
@@ -389,7 +389,7 @@ class Global_ETAS_model(object):
 		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
 		c_map = plt.get_cmap(map_cmap)
 		zs = numpy.log10(self.ETAS_array['z'])
-		cNorm = mpl.colors.Normalize(vmin=min(zs), vmax=max(zs))
+		cNorm = mpl.colors.Normalize(vmin=min(zs), vmax=numpy.nanmax(zs))
 		scalarMap = mpl.cm.ScalarMappable(norm=cNorm, cmap=c_map)
 		#
 		for rw in self.ETAS_array:
@@ -760,8 +760,8 @@ class Global_ETAS_model(object):
 				delta_lon = delta_lat/math.cos(eq.lat*deg2rad)
 			#
 			# and let's also assume we want to limit our ETAS map to the input lat/lon:
-			lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
-			lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
+			lon_min, lon_max = numpy.nanmax(eq.lon - delta_lon, self.lons[0]), numpy.nanmin(eq.lon + delta_lon, self.lons[1])
+			lat_min, lat_max = numpy.nanmax(eq.lat - delta_lat, self.lats[0]), numpy.nanmin(eq.lat + delta_lat, self.lats[1])
 			#
 			#print ("lon, lat range: (%f, %f), (%f, %f):: m=%f, L_r=%f, dx=%f/%f" % (lon_min, lon_max, lat_min, lat_max, eq.mag, eq.L_r, eq.L_r*self.etas_range_factor, eq.L_r*self.etas_range_factor/deg2km))
 			#
@@ -1206,7 +1206,7 @@ class Earthquake(object):
 		if min(abs_evals)==0.:
 			ab_ratio = transform_ratio_max**ab_ratio_expon
 		else:
-			ab_ratio = min(transform_ratio_max**ab_ratio_expon, (max(abs_evals)/min(abs_evals))**ab_ratio_expon)
+			ab_ratio = min(transform_ratio_max**ab_ratio_expon, (numpy.max(abs_evals)/numpy.min(abs_evals))**ab_ratio_expon)
 		#
 		self.ab_ratio=ab_ratio
 		#print('**debug: self.ab_ratio: ', self.ab_ratio)
@@ -1260,7 +1260,7 @@ class Earthquake(object):
 			#else:
 			#	self.e_vals_n  = [1., ab_ratio]
 			#
-			self.spatial_intensity_factor = min(self.e_vals_n)/max(self.e_vals_n)
+			self.spatial_intensity_factor = numpy.min(self.e_vals_n)/numpy.max(self.e_vals_n)
 			#
 		else:
 			return self.set_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
@@ -1484,11 +1484,11 @@ class Earthquake(object):
 			#
 			# we can probably get at least a small performance boost by in-lining these delta_ts{} variables.
 			#
-			delta_ts1 = max( [(ts - self.event_date_float)*days2secs, numpy.zeros(len(ts))], axis=0)
-			delta_ts2 = max( [(ts_to - self.event_date_float)*days2secs, numpy.zeros(len(ts_to))], axis=0)
+			delta_ts1 = numpy.max( [(ts - self.event_date_float)*days2secs, numpy.zeros(len(ts))], axis=0)
+			delta_ts2 = numpy.max( [(ts_to - self.event_date_float)*days2secs, numpy.zeros(len(ts_to))], axis=0)
 			#
 			#orates = (1./(self.tau*(1.-p)))*( (self.t_0 + delta_ts2 )**(1.-p) - (self.t_0 + delta_ts1)**(1.-p)) )
-			orates = (1./(self.tau*(1.-p)))*( (self.t_0 + max( [(ts_to - self.event_date_float)*days2secs, numpy.zeros(len(ts_to))], axis=0) )**(1.-p) - (self.t_0 + max( [(ts - self.event_date_float)*days2secs, numpy.zeros(len(ts))], axis=0) )**(1.-p) )
+			orates = (1./(self.tau*(1.-p)))*( (self.t_0 + numpy.max( [(ts_to - self.event_date_float)*days2secs, numpy.zeros(len(ts_to))], axis=0) )**(1.-p) - (self.t_0 + numpy.max( [(ts - self.event_date_float)*days2secs, numpy.zeros(len(ts))], axis=0) )**(1.-p) )
 			#
 			del delta_ts1
 			del delta_ts2
@@ -1629,7 +1629,7 @@ class Earthquake(object):
 #		#
 #		# yoder: allow t_now < t < t_future contributions for cumiulatiive.
 #		if t_to is not None:
-#			t = max(t, self.event_date_float)
+#			t = t, self.event_date_float)
 #		#
 #		# TODO: compute orate from self.omori_rate(), then either skip this check or do this check on if orate<=0
 #		delta_t = (t - self.event_date_float)*days2secs
@@ -1712,7 +1712,7 @@ class Earthquake(object):
 		plt.clf()
 		#
 		# axes:
-		x_max = max(self.e_vals_n)
+		x_max = numpy.max(self.e_vals_n)
 		plt.plot([x*x_max for x in [-1., 1.]], [0.,0.], 'k-', lw=2)
 		plt.plot( [0.,0.], [x*x_max for x in [-1., 1.]], 'k-', lw=2)
 		plt.plot([-1., 1.], [0.,0.], 'k-', lw=2)
