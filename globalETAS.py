@@ -182,9 +182,9 @@ class Global_ETAS_model(object):
 		if lons is None and catalog is None: lons = [-180., 180.]
 		#
 		# for now, assume the catalog is string-indexed -- aka, recarray, PANDAS,etc.
-		if lats is None and not (catalog is None or len(catalog) is 0): lats = [min(catalog['lat']), numpy.max(catalog['lat'])]
-		if lons is None and not (catalog is None or len(catalog) is 0): lons = [min(catalog['lon']), numpy.max(catalog['lon'])]
-		if mc   is None and not (catalog is None or len(catalog) is 0): mc = min(catalog['mag'])
+		if lats is None and not (catalog is None or len(catalog) == 0): lats = [min(catalog['lat']), numpy.max(catalog['lat'])]
+		if lons is None and not (catalog is None or len(catalog) == 0): lons = [min(catalog['lon']), numpy.max(catalog['lon'])]
+		if mc   is None and not (catalog is None or len(catalog) == 0): mc = min(catalog['mag'])
 		#
 		# and handle some specific cases...
 		if isinstance(t_now, float):
