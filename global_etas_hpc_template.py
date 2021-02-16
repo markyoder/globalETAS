@@ -1,4 +1,5 @@
 import matplotlib as mpl
+#
 mpl.use('Agg')
 import pylab as plt
 #
@@ -120,8 +121,8 @@ if __name__ == '__main__':
     #
     mycat = None
     #
-    mycat = atp.catfromANSS(lon=lons, lat=lats, minMag=2.5,
-    #mycat = atp.cat_from_comcat(lon=lons, lat=lats, minMag=2.5,
+    #mycat = atp.catfromANSS(lon=lons, lat=lats, minMag=2.5,
+    mycat = atp.cat_from_comcat(lon=lons, lat=lats, minMag=2.5,
                                 dates0=[dtm.datetime(2005,1,1, tzinfo=pytz.timezone('UTC')),
                                         dtm.datetime.now(pytz.timezone('UTC'))],
                                 Nmax=None, fout=None, rec_array=True)
@@ -220,6 +221,7 @@ if __name__ == '__main__':
     #     etas.cm.plot(rw['lon'],rw['lat'], ms=2.*(rw['mag']+2.), color=clr,
     #                           marker='o', zorder=11, label='m={}, {}'.format(rw['mag'], dt_str), latlon=True)
     plt.gca().legend()
+    #
     #####
     # second figure:
     fg2=plt.figure(0, figsize=(12,10))

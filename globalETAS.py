@@ -182,8 +182,9 @@ class Global_ETAS_model(object):
 		if lons is None and catalog is None: lons = [-180., 180.]
 		#
 		# for now, assume the catalog is string-indexed -- aka, recarray, PANDAS,etc.
-		if lats is None and not (catalog is None or len(catalog) == 0): lats = [min(catalog['lat']), max(catalog['lat'])]
-		if lons is None and not (catalog is None or len(catalog) == 0): lons = [min(catalog['lon']), max(catalog['lon'])]
+		if lats is None and not (catalog is None or len(catalog) == 0): lats = [min(catalog['lat']), numpy.max(catalog['lat'])]
+		if lons is None and not (catalog is None or len(catalog) == 0): lons = [min(catalog['lon']), numpy.max(catalog['lon'])]
+		#
 		if mc   is None and not (catalog is None or len(catalog) == 0): mc = min(catalog['mag'])
 		#
 		# and handle some specific cases...
@@ -389,7 +390,7 @@ class Global_ETAS_model(object):
 		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
 		c_map = plt.get_cmap(map_cmap)
 		zs = numpy.log10(self.ETAS_array['z'])
-		cNorm = mpl.colors.Normalize(vmin=min(zs), vmax=max(zs))
+		cNorm = mpl.colors.Normalize(vmin=min(zs), vmax=numpy.nanmax(zs))
 		scalarMap = mpl.cm.ScalarMappable(norm=cNorm, cmap=c_map)
 		#
 		for rw in self.ETAS_array:
@@ -530,7 +531,7 @@ class Global_ETAS_model(object):
 		#lattice_dict = {i:{'lat':lat, 'lon':lon, 'j_lon':int(i%n_lon), 'j_lat':int(i/n_lon)} for i, (lon,lat,z) in enumerate(self.ETAS_array)}
 		#self.lattice_dict=lattice_dict
 		#print("len(local_lattice_dict): ", len(self.lattice_dict))
-		print('** len(self.ETAS_array) = {}'.format(len(self.ETAS_array)))
+		print('** len(self.ETAS_array)[{}] = {}'.format(os.getpid(), len(self.ETAS_array)))
 		#
 		# make an rtree index:
 		lattice_index = index.Index()
@@ -538,7 +539,7 @@ class Global_ETAS_model(object):
 		#[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lat,lon) in enumerate(itertools.product(latses,lonses))]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
 		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lon, lat, z) in enumerate(self.ETAS_array)]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
 		#
-		print("Indices initiated. begin ETAS :: ", self.etas_cat_range)
+		print("Indices initiated. begin ETAS[{}] :: range: {}".format(os.getpid(), self.etas_cat_range))
 		#
 		#for quake in self.catalog:
 		# yoder 2019_07_23: filter m<mc by index, not if, continue; we should do the same with the event_date filter as well.
@@ -580,8 +581,8 @@ class Global_ETAS_model(object):
 			#
 			# yoder 2019_07_23: these should probaby be numpy.arrays. good guess is that .intersection() returns an array,
 			#  so we should probably use that, and then use numpy.append().
-			# site_indices = list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max)))
-			site_indices = numpy.array(list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max))))
+			site_indices = numpy.array(list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max)))).astype(int)
+			if len(site_indices)==0: continue
 			# ... and if we wrap around the other side of the world...
 			# there's probably a smarter way to do this...
 			if lon_min<-180.:
@@ -589,14 +590,16 @@ class Global_ETAS_model(object):
 				#new_lon_min = 180.+(lon_min+180.)
 				new_lon_min = 360. + lon_min
 				#site_indices += list(lattice_index.intersection((new_lon_min, lat_min, 180., lat_max)))
-				site_indices = numpy.append(site_indices, list(lattice_index.intersection((new_lon_min, lat_min, 180., lat_max))))
+				site_indices = numpy.append(site_indices, list(lattice_index.intersection((new_lon_min, lat_min, 180., lat_max)))).astype(int)
 			if lon_max>180.:
 				#new_lon_max = lon_max%(-180.)
 				#new_lon_max = -180. + lon_max-180.
 				new_lon_max = -360. + lon_max
 				#site_indices += list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max)))
-				site_indices = numpy.append(site_indices, list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max))))
+				site_indices = numpy.append(site_indices, list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max)))).astype(int)
 			#
+			#site_indices=site_indices.astype(int)
+			
 			#print("LLRange: ", lon_min, lat_min, lon_max, lat_max, len(list(site_indices)))
 			#
 			# TODO: I think we can get a performance boost by doing the elliptical transform on all (sub-set of) points at once, in a
@@ -608,42 +611,58 @@ class Global_ETAS_model(object):
 			# TODO: does this work???
 			# will this auto-vectorize?
 			#local_intensities = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=Xs['lon'], lat=Xs['lat'], p=self.p_etas)
+
+			# ... probably not, but we have the newer local_intensiteis() function, which should work. note it is designed to take an array
+			# of times as well...
 			#
-			# NOTE: numpy no longer supports/corrects not-int type indices, so be sure they get converted.
-			for site_index in site_indices.astype(int):
-				#X = lattice_dict[site_index]
-				#x,y = (self.ETAS_array[['lon', 'lat']])[site_index]
-				#print('*** DEBUG dtype: ', self.ETAS_array.dtype)
-				#
-				# do we need to do this, or does the Earthquake self-transform? Earthquake does, but actually it looks like we might move all of
-				#  the local_intensity() calculation here, so we can vectorize.
-				# yoder 2019_07_23: this eq.ellipitical_transform() computation is done in local_intensity(); we don't do anything with it here.
-				#   TODO: (however), we might to well to reorganize this to do the ET (or at least part of it) in one combined LinAlg. operation
-				#   to improve speed.
-				#
-				#local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'], p=self.p_etas)
-				# TODO: since we are passing t_1, t_2 in the eq initialization, we can pass the "use pre-calc" code
-				#  (which might not yet be set), which should give a speed boost.
-				#local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=X['lon'], lat=X['lat'], p=self.p_etas)
-				local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=self.ETAS_array['x'][site_index], lat=self.ETAS_array['y'][site_index], p=self.p_etas)
-				#
-				if numpy.isnan(local_intensity):
-					#print("NAN encountered: ", site_index, self.t_forecast, X['lon'], X['lat'], eq.lon, eq.lat, eq.__dict__)
-					continue
-				#
-				#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
-				#self.lattice_sites[j_lon][j_lat] += local_intensity
-				#
-				# TODO: generalize this; write a function like: self.add_to_ETAS(site_index, local_intensity).
-				#       for current, SPP or non-memory shared versions, this will be the same as below -- directly add to the array.
-				#       however, if we 1) write a c++ extension version or 2) use a shared memory array (or both), we can override the class
-				#       definition of self.add_to_ETAS() to be something like, self.shared_ETAS_array[3*site_index+2]+=local_intensity.
-				#       that said, it might be possible to accomplish this in the __init__ by declaring the ETAS_array as a list from
-				#       the shared array by reff. (??)
-				self.ETAS_array[site_index][2] += local_intensity
-				#
+			#print('*** DEBUG: ', len(self.ETAS_array['y']), len(self.ETAS_array['x']), len(site_indices))
+#			if numpy.isnan(site_indices).any() or len(site_indices)==0:
+#				print('*** ERROR: site_indices: ', site_indices)
+#				raise Exception('site_indices exception.')
+			#
+			local_intensities = eq.local_intensities(ts=numpy.atleast_1d(self.t_forecast), ts_to=(self.t_future if self.t_future is None else numpy.atleast_1d(self.t_future)), lons=self.ETAS_array['x'][site_indices], lats=self.ETAS_array['y'][site_indices], p=self.p_etas)
+
+			#
+			# handle nan values?
+			local_intensities[numpy.isnan(local_intensities)] = 0.
+			#
+			(self.ETAS_array['z'])[site_indices] += local_intensities.reshape((self.ETAS_array['z'])[site_indices].shape)
+			#
+#			for site_index in site_indices:
+#				#X = lattice_dict[site_index]
+#				#x,y = (self.ETAS_array[['lon', 'lat']])[site_index]
+#				#print('*** DEBUG dtype: ', self.ETAS_array.dtype)
+#				#
+#				# do we need to do this, or does the Earthquake self-transform? Earthquake does, but actually it looks like we might move all of
+#				#  the local_intensity() calculation here, so we can vectorize.
+#				# yoder 2019_07_23: this eq.ellipitical_transform() computation is done in local_intensity(); we don't do anything with it here.
+#				#   TODO: (however), we might to well to reorganize this to do the ET (or at least part of it) in one combined LinAlg. operation
+#				#   to improve speed.
+#				#
+#				#local_intensity = eq.local_intensity(t=self.t_forecast, lon=X['lon'], lat=X['lat'], p=self.p_etas)
+#				# TODO: since we are passing t_1, t_2 in the eq initialization, we can pass the "use pre-calc" code
+#				#  (which might not yet be set), which should give a speed boost.
+#				#local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=X['lon'], lat=X['lat'], p=self.p_etas)
+#				local_intensity = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=self.ETAS_array['x'][site_index], lat=self.ETAS_array['y'][site_index], p=self.p_etas)
+#				#
+#				if numpy.isnan(local_intensity):
+#					#print("NAN encountered: ", site_index, self.t_forecast, X['lon'], X['lat'], eq.lon, eq.lat, eq.__dict__)
+#					continue
+#				#
+#				#self.lattice_sites.add_to_bin(bin_x=lon_bin['index'], bin_y=lat_bin['index'], z=local_intensity)
+#				#self.lattice_sites[j_lon][j_lat] += local_intensity
+#				#
+#				# TODO: generalize this; write a function like: self.add_to_ETAS(site_index, local_intensity).
+#				#       for current, SPP or non-memory shared versions, this will be the same as below -- directly add to the array.
+#				#       however, if we 1) write a c++ extension version or 2) use a shared memory array (or both), we can override the class
+#				#       definition of self.add_to_ETAS() to be something like, self.shared_ETAS_array[3*site_index+2]+=local_intensity.
+#				#       that said, it might be possible to accomplish this in the __init__ by declaring the ETAS_array as a list from
+#				#       the shared array by reff. (??)
+#				self.ETAS_array[site_index][2] += local_intensity
+#				#
 		#
-		print('finished calculateing ETAS (rtree). wrap up in recarray and return.')
+		print('[{}]: finished calculateing ETAS (rtree). wrap up in recarray and return.'.format(os.getpid()))
+
 		# this conversion to the 2d array should probably be moved to a function or @property in the main class scope.
 		
 		#self.lattice_sites = numpy.array([rw[2] for rw in self.ETAS_array])
@@ -652,7 +671,8 @@ class Global_ETAS_model(object):
 		#
 		# Getting a Warning about passing lists, not tuples, for recarray conversion (aka, .fromrecords() ), so maybe consider
 		#  passing this as an ary.T rather than zip?
-		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
+		
+		#self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		#self.ETAS_array = numpy.core.records.fromarrays(self.ETAS_array.T, dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 	#		
 	def make_etas_all(self):
@@ -734,8 +754,8 @@ class Global_ETAS_model(object):
 				delta_lon = delta_lat/math.cos(eq.lat*deg2rad)
 			#
 			# and let's also assume we want to limit our ETAS map to the input lat/lon:
-			lon_min, lon_max = max(eq.lon - delta_lon, self.lons[0]), min(eq.lon + delta_lon, self.lons[1])
-			lat_min, lat_max = max(eq.lat - delta_lat, self.lats[0]), min(eq.lat + delta_lat, self.lats[1])
+			lon_min, lon_max = numpy.nanmax(eq.lon - delta_lon, self.lons[0]), numpy.nanmin(eq.lon + delta_lon, self.lons[1])
+			lat_min, lat_max = numpy.nanmax(eq.lat - delta_lat, self.lats[0]), numpy.nanmin(eq.lat + delta_lat, self.lats[1])
 			#
 			#print ("lon, lat range: (%f, %f), (%f, %f):: m=%f, L_r=%f, dx=%f/%f" % (lon_min, lon_max, lat_min, lat_max, eq.mag, eq.L_r, eq.L_r*self.etas_range_factor, eq.L_r*self.etas_range_factor/deg2km))
 			#
@@ -1030,6 +1050,11 @@ class Earthquake(object):
 	#def __init__(self, event_date=None, lat=0., lon=0., mag=None, eig_vals=[1., 1.], eig_vecs=[[1.,0.], [0., 1.]], transform_type='equal_area'):
 	def __init__(self, dict_or_recarray, transform_type='equal_area', transform_ratio_max=5., ab_ratio_expon=.5, t_1=None, t_2=None):
 		#
+		# 5 Nov 2019 yoder: keep a copy of the input parameters. we might want those for subclasses, at least
+		# . for development purposes. Later, it might be better to strip out this feature, or at lest make it optional,
+		#   to improve cpu/memory performance:
+		self.input_parameters = {key:val for key,val in locals().items() if not key in ('self', '__class__')}
+		#
 		# first, load all indexed elements from the input dict or recarray row as class members:
 		if isinstance(dict_or_recarray, dict): self.__dict__.update(dict_or_recarray)
 		if hasattr(dict_or_recarray, 'dtype'):
@@ -1045,7 +1070,7 @@ class Earthquake(object):
 		# TODO: test this eigen-value/vector sorting bit. we might be able to strip out a clumsy "if" logic down the way.
 		# be sure we're not changing something we 'fixed' by doing this the right way.
 		##e_vals, e_vecs = list(zip(*sorted([[lamb, evec] for lamb, evec in zip(e_vals, e_vecs.T)], key=lambda rw:rw[0])))
-		
+		#
 		e_vals, e_vecs = list(zip(*reversed(sorted(list(zip(self.e_vals, self.e_vecs.T)), key=lambda rw:rw[0]))))
 		self.e_vecs = numpy.array(e_vecs).T		# put the eigen-vectors back into column matrix form.
 		self.e_vals = numpy.array(e_vals)
@@ -1175,7 +1200,7 @@ class Earthquake(object):
 		if min(abs_evals)==0.:
 			ab_ratio = transform_ratio_max**ab_ratio_expon
 		else:
-			ab_ratio = min(transform_ratio_max**ab_ratio_expon, (max(abs_evals)/min(abs_evals))**ab_ratio_expon)
+			ab_ratio = min(transform_ratio_max**ab_ratio_expon, (numpy.max(abs_evals)/numpy.min(abs_evals))**ab_ratio_expon)
 		#
 		self.ab_ratio=ab_ratio
 		#print('**debug: self.ab_ratio: ', self.ab_ratio)
@@ -1229,7 +1254,7 @@ class Earthquake(object):
 			#else:
 			#	self.e_vals_n  = [1., ab_ratio]
 			#
-			self.spatial_intensity_factor = min(self.e_vals_n)/max(self.e_vals_n)
+			self.spatial_intensity_factor = numpy.min(self.e_vals_n)/numpy.max(self.e_vals_n)
 			#
 		else:
 			return self.set_transform(e_vals=e_vals, e_vecs=e_vecs, transform_type='equal_area')
@@ -1349,7 +1374,7 @@ class Earthquake(object):
 	
 	@numba.jit
 	def spherical_dist(self, to_lon_lat=[]):
-		return shperical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
+		return spherical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=to_lon_lat)
 	#
 	@numba.jit
 	def time_since(self,t):
@@ -1409,9 +1434,142 @@ class Earthquake(object):
 	#
 	# TODO:vectorize local_intensity. let's just write a vectorized version here, since it is not actually a trivial thing to do.
 	def local_intensities(self, ts=None, ts_to=None, lons=None, lats=None, p=None, q=None, t0_primne=None):
-		# copy self.local_intensity() model, but vectorize spatial and temporal distribution, so we return a bloc of (n_lat, n_lon, n_time) data.
 		#
-		pass
+		# cfopy self.local_intensity() model, but vectorize spatial and temporal distribution, so we return a bloc of (n_lat, n_lon, n_time) data.
+		#  eventually, just handle scalar inputs and get rid of local_intensity.
+		# TODO: evaluate that... this function appears to work (it runs and we get the right output shape) for both 1D and 2D lat, lon inputs
+		#  aka, lons, lats = itertools.product(lons, lats) vs lons, lats = numpy.meshgrid(lons, lats). However, we get slightly different
+		#  return values (on order 10-5 difference) (for 10**-12 values; difference is O 10**-17)
+		#
+		if ts is None:
+			ts = numpy.array([self.event_date_float])
+		ts = numpy.array(ts)
+		lons = numpy.array(lons)
+		lats = numpy.array(lats)
+		#lons = numpy.atleast_2d(lons)
+		#lats = numpy.atleast_2d(lats)
+		#
+		#
+		if p is None:
+			p = self.p
+		if q is None:
+			q = self.q
+		# calculate ETAS intensity.
+		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
+		# but then make a map using soemthing else. for example, we might use p=0 (or at least p<p_0) to effectivly modify (eliminate) the time dependence.
+		# yoder:
+		# TODO: omori_rate() needs a bit of work to handle vectors correctly, so for now just re-code here:
+		#orates = self.omori_rate(t=ts, t_to=ts_to, p=p)
+		if ts_to is None:
+			# NOTE: we are not exception handling here; namely we do not handle
+			# TODO: add a parameter to (not) do validation/exception handling -- so if we can confidently pre-handle ts, so that all ts-event_date >=0 ,
+			#  we can skip handling it here.
+			delta_ts = (ts - self.event_date_float)*days2secs
+			#
+			#orates = 1./(self.tau*(self.t_0 + (ts-self.event_date_float)*days2secs))
+			orates = 1./(self.tau*(self.t_0 + delta_ts))
+			#
+			# NOTE: this is one of those steps we might want to skip optionally. it's a good idea to check, but it is not free.
+			orates[numpy.logical_or(delta_ts<0, numpy.isnan(orates) )] = 0.
+			#
+			del delta_ts
+			#
+		else:
+			# note, this cumulative version is a bit more tolerant of bad (time) inputs. since we integrate, t1=t2=0 gives us orate=0 --
+			#  whereas in the differntial form if we set t=0 (say, max(t,0) ), we get the maximum rate, not a zero rate.
+			#
+			# we can probably get at least a small performance boost by in-lining these delta_ts{} variables.
+			#
+			delta_ts1 = numpy.max( [(ts - self.event_date_float)*days2secs, numpy.zeros(len(ts))], axis=0)
+			delta_ts2 = numpy.max( [(ts_to - self.event_date_float)*days2secs, numpy.zeros(len(ts_to))], axis=0)
+			#
+			#orates = (1./(self.tau*(1.-p)))*( (self.t_0 + delta_ts2 )**(1.-p) - (self.t_0 + delta_ts1)**(1.-p)) )
+			orates = (1./(self.tau*(1.-p)))*( (self.t_0 + numpy.max( [(ts_to - self.event_date_float)*days2secs, numpy.zeros(len(ts_to))], axis=0) )**(1.-p) - (self.t_0 + numpy.max( [(ts - self.event_date_float)*days2secs, numpy.zeros(len(ts))], axis=0) )**(1.-p) )
+			#
+			del delta_ts1
+			del delta_ts2
+			#
+		#
+		# i think this is the right syntax for spherical_dist (note if necessary, use the module function and provide from_lon_lat=[] parameter.)
+		#print('*** DEBUG: LI:: {}, {}'.format(lons.shape, lats.shape))        
+		Rs_sph = self.spherical_dist(to_lon_lat = numpy.array([lons, lats]))
+		#
+		#print('*** DEBUG: LI_shp: {}'.format(Rs_sph.shape))
+		# works for 1-D and 2-D type LL inputs so far...
+		#print('*** DEBUG: Rs_sph.shape:: {}'.format(numpy.shape(Rs_sph)))
+		#
+		#Rs_sph = spherical_dist(lon_lat_from=[self.lon, self.lat], lon_lat_to=numpy.array([lons, lats]))
+		dxs = (lons - self.lon)*numpy.cos(.5*(self.lat + lats)*deg2rad)*deg2km
+		dys = (lats - self.lat)*deg2km
+		#
+		# rotation is being done like:
+		# dx_prime = self.e_vals_n[0]*numpy.dot([dx, dy],self.e_vecs.T[0])
+		#dy_prime = self.e_vals_n[1]*numpy.dot([dx, dy],self.e_vecs.T[1])
+		# note that this should be equivalent to numpy.dot([dx,dy], e_vecs_matrix)
+		# where e_vecs_matrix is the eigen-vectors as columns.
+		#dxs_dys_prime = ( (numpy.dot( numpy.array([dxs, dys]).T, self.e_vecs))*numpy.array(self.e_vals_n) )
+		#
+		# NOTE: This get a bit messy with different input shapes. I think we can fix it (make it stable) by forcing
+		#  lat, lon to be atleast_2d(). A better approach might be to simply record the input shapes of the spatial
+		# . arrays, reshape them to 1D each (so [[dx, dy], [dx, dy], ...] to do the rotation, then re-shape
+		#   dxs, dys, and their _prime counterpart(s)
+		#dxs_dys_prime = ( (numpy.dot( numpy.array([dxs, dys]).T, self.e_vecs))*numpy.array(self.e_vals_n) ).swapaxes(0,1)
+		dxs_dys_prime = ( (numpy.dot( numpy.array([dxs.ravel(), dys.ravel()]).T, self.e_vecs))*numpy.array(self.e_vals_n) )
+		#sh_dxs = dxs.shape
+		#sh_dys = dys.shape
+		#dxs = dxs.ravel()
+		#dys = dys.ravel()
+		#dxs_dys_prime = numpy.dot( numpy.array([dxs, dys]).T, self.e_vecs)*numpy.array(self.e_vals_n)
+		#
+		#print('*** DEBUG: dxs_dys_prime: {}'.format(dxs_dys_prime.shape))
+		# ... and it *might* be right up to here (we have a [20,20,2] shape (so 2x20 points, each with an (x',y') component.
+		#R_primes = Rs_sph * numpy.linalg.norm(dxs_dys_prime, axis=1)/numpy.linalg.norm([dxs,dys], axis=0)  # note, (dx,dy), (dxs_dys_prime) are transposed relative to on another.
+		#print('*** DEBUG: {}'.format(numpy.shape([dxs,dys])))
+		#print('*** DEBUG: shapes: {}, {}'.format( numpy.shape(numpy.linalg.norm(dxs_dys_prime, axis=-1)), numpy.shape(numpy.linalg.norm([dxs,dys], axis=0))))
+		# 
+		# This produces an x/0 exception/warning for events on a lattice node (interscetion). which produces a nan, but does not
+		#   break. 
+		#
+		#print('*** DEBUG: Rs_sph.shapes: Rs:{}, dx_dy_prime:{}, norm_prime:{}, norm:{}'.format(Rs_sph.shape, dxs_dys_prime.shape, numpy.linalg.norm(dxs_dys_prime, axis=-1).shape, numpy.linalg.norm([dxs,dys], axis=0).shape) )
+		#R_primes = Rs_sph * numpy.linalg.norm(dxs_dys_prime, axis=-1)/numpy.linalg.norm([dxs,dys], axis=0)
+		R_primes = Rs_sph * (numpy.linalg.norm(dxs_dys_prime, axis=1)/numpy.linalg.norm([dxs.ravel(),dys.ravel()], axis=0)).reshape(Rs_sph.shape)
+		R_primes[numpy.isnan(R_primes)]=0.
+		#
+		# now, restore shape:
+		#dxs.shape=sh_dxs
+		#dys.shape=sh_dys
+		#
+		#print('*** DEBUG: shape R_primes: {}'.format(numpy.shape(R_primes)))
+		#
+		# now we have all of the transformed distances, etc. do some science:
+		#radial_densities = self.chi_norm*((self.r_0 + R_primes)**(-q))
+		#circumf = 2.*math.pi*(self.r_0 + R_primes)
+		##
+		## @spatial_intensity_factor: corrects for local aftershock density in rotational type transforms.
+		##  aka, in rotations, space is effectively compressed (by trigonometry), so intensity is boosted. for equal-area
+		##  transforms, spatil_intensity_factor=1.0
+		##
+		#spatialdensity = self.spatial_intensity_factor*radial_density/circumf
+		#
+		# combine these calculations:
+		#print('** DEBUG: R_primes:: ', Rs_sph)
+		spatialdensities = (self.spatial_intensity_factor*self.chi_norm/(2.*math.pi))*((self.r_0 + R_primes)**(-q-1.))
+		#
+		# TODO: this needs to be some sort of dot or outer-product, so that we get a cartesian expansion.
+		#return spatialdensityies*orates
+		# this should be shape=(n_orates, n_densities)
+		# NOTE: this is where we might loose our input shape. outer() flattens the output.
+		#   so... what's the best approach? it seems more intuitive to return a complimentary shape, so
+		# .  .reshape(len(orates), *spatialdensities.shape
+		#return numpy.outer(orates, spatialdensities)
+		# 
+		# return as a time series of XY grids.
+		return numpy.outer(orates, spatialdensities).reshape(*orates.shape, *spatialdensities.shape)
+		#
+		# what if we just do the outer product... for now, to test some thingsL
+		#return numpy.array([t*spatialdensities for t in orates])
+		#pass
+	#
 	#def local_intensity(self, t=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 	def local_intensity(self, t=None, t_to=None, lon=None, lat=None, p=None, q=None, t0_prime=None):
 		'''
@@ -1457,6 +1615,8 @@ class Earthquake(object):
 		# calculate ETAS intensity.
 		# note: allow p,q input values to override defaults. so nominally, we might want to use one value of p (or q) to solve the initial ETAS rate density,
 		# but then make a map using soemthing else. for example, we might use p=0 (or at least p<p_0) to effectivly modify (eliminate) the time dependence.
+		# NOTE: Haven't we already computed orate during __init__? we want ideally to retain options to override or to use the pre-calc values (which will
+		# be faster)
 		# yoder:
 		orate = self.omori_rate(t=t, t_to=t_to, p=p)
 		#
@@ -1465,7 +1625,7 @@ class Earthquake(object):
 #		#
 #		# yoder: allow t_now < t < t_future contributions for cumiulatiive.
 #		if t_to is not None:
-#			t = max(t, self.event_date_float)
+#			t = t, self.event_date_float)
 #		#
 #		# TODO: compute orate from self.omori_rate(), then either skip this check or do this check on if orate<=0
 #		delta_t = (t - self.event_date_float)*days2secs
@@ -1548,7 +1708,7 @@ class Earthquake(object):
 		plt.clf()
 		#
 		# axes:
-		x_max = max(self.e_vals_n)
+		x_max = numpy.max(self.e_vals_n)
 		plt.plot([x*x_max for x in [-1., 1.]], [0.,0.], 'k-', lw=2)
 		plt.plot( [0.,0.], [x*x_max for x in [-1., 1.]], 'k-', lw=2)
 		plt.plot([-1., 1.], [0.,0.], 'k-', lw=2)
@@ -1694,6 +1854,7 @@ def make_ETAS_catalog_mpp(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2
 		n_tries=0
 		while n_tries<=n_tries_max:
 			try:
+				# 
 				# 2019-09-15 yoder: replacing comcat and catfromANSS with new comcat-anss web api. All of these should work:
 				incat = atp.ANSS_Comcat_catalog(min_lon=lons[0], max_lon=lons[1], min_lat=lats[0], max_lat=lats[1],
 												m_c = mc, from_date=date_range[0], to_date=date_range[1], Nmax=None).as_recarray()
@@ -2709,6 +2870,8 @@ if __name__=='__main__':
 else:
 	plt.ion()
 	
+def simple_date_string(dtm, delim='-'):
+	return delim.join([str(x) for x in [dtm.year, dtm.month, dtm.day]])
 
 
 	
