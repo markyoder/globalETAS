@@ -608,8 +608,9 @@ class Global_ETAS_model(object):
 			# TODO: does this work???
 			# will this auto-vectorize?
 			#local_intensities = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=Xs['lon'], lat=Xs['lat'], p=self.p_etas)
-			
-			for site_index in site_indices:
+			#
+			# NOTE: numpy no longer supports/corrects not-int type indices, so be sure they get converted.
+			for site_index in site_indices.astype(int):
 				#X = lattice_dict[site_index]
 				#x,y = (self.ETAS_array[['lon', 'lat']])[site_index]
 				#print('*** DEBUG dtype: ', self.ETAS_array.dtype)
