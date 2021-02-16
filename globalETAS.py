@@ -580,7 +580,6 @@ class Global_ETAS_model(object):
 			#
 			# yoder 2019_07_23: these should probaby be numpy.arrays. good guess is that .intersection() returns an array,
 			#  so we should probably use that, and then use numpy.append().
-			# site_indices = list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max)))
 			site_indices = numpy.array(list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max)))).astype(int)
 			if len(site_indices)==0: continue
 			# ... and if we wrap around the other side of the world...
@@ -613,33 +612,15 @@ class Global_ETAS_model(object):
 			#local_intensities = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=Xs['lon'], lat=Xs['lat'], p=self.p_etas)
 			# ... probably not, but we have the newer local_intensiteis() function, which should work. note it is designed to take an array
 			# of times as well...
-			
-			#X = self.ETAS_array['x'][site_indices]
-			#print('*** DEBUG: dtype: ', self.ETAS_array.dtype)
-			#print('*** ', self.ETAS_array['x'].shape)
-			#print('** * ', self.ETAS_array[site_indices].shape)
-			#print('** ** ', self.ETAS_array[site_indices].dtype)
-			#print('** *** ', self.ETAS_array[site_indices]['x'].shape)
-			#X = self.ETAS_array[site_indices]['x']
-			#print('*** *** X : ', X)
-			#break
-			
-			# def local_intensities(self, ts=None, ts_to=None, lons=None, lats=None, p=None, q=None, t0_primne=None):
-			#local_intensities = eq.local_intensities(ts=numpy.atleast_1d([self.t_forecast]), ts_to=(self.t_future if self.t_future is None else
 			#
 			#print('*** DEBUG: ', len(self.ETAS_array['y']), len(self.ETAS_array['x']), len(site_indices))
-			if numpy.isnan(site_indices).any() or len(site_indices)==0:
-				print('*** ERROR: site_indices: ', site_indices)
-				raise Exception('site_indices exception.')
+#			if numpy.isnan(site_indices).any() or len(site_indices)==0:
+#				print('*** ERROR: site_indices: ', site_indices)
+#				raise Exception('site_indices exception.')
 			#
-			try:
-				local_intensities = eq.local_intensities(ts=numpy.atleast_1d(self.t_forecast), ts_to=(self.t_future if self.t_future is None else numpy.atleast_1d(self.t_future)), lons=self.ETAS_array['x'][site_indices], lats=self.ETAS_array['y'][site_indices], p=self.p_etas)
-			except:
-				print('*** ERROR: local_intensities: ', site_indices)
-				raise Exception('site_indices exception.')
+			local_intensities = eq.local_intensities(ts=numpy.atleast_1d(self.t_forecast), ts_to=(self.t_future if self.t_future is None else numpy.atleast_1d(self.t_future)), lons=self.ETAS_array['x'][site_indices], lats=self.ETAS_array['y'][site_indices], p=self.p_etas)
+
 			#
-			#print('*** DEBUG: shapes:: ', local_intensities.shape, (self.ETAS_array['z'])[site_indices].shape)
-			#print('*** DEBUG: site_indices: ', site_indices)
 			# handle nan values?
 			local_intensities[numpy.isnan(local_intensities)] = 0.
 			#
