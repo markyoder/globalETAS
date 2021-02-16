@@ -581,7 +581,7 @@ class Global_ETAS_model(object):
 			# yoder 2019_07_23: these should probaby be numpy.arrays. good guess is that .intersection() returns an array,
 			#  so we should probably use that, and then use numpy.append().
 			# site_indices = list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max)))
-			site_indices = numpy.array(list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max))))
+			site_indices = numpy.array(list(lattice_index.intersection((lon_min, lat_min, lon_max, lat_max)))).astype(int)
 			if len(site_indices)==0: continue
 			# ... and if we wrap around the other side of the world...
 			# there's probably a smarter way to do this...
@@ -590,14 +590,16 @@ class Global_ETAS_model(object):
 				#new_lon_min = 180.+(lon_min+180.)
 				new_lon_min = 360. + lon_min
 				#site_indices += list(lattice_index.intersection((new_lon_min, lat_min, 180., lat_max)))
-				site_indices = numpy.append(site_indices, list(lattice_index.intersection((new_lon_min, lat_min, 180., lat_max))))
+				site_indices = numpy.append(site_indices, list(lattice_index.intersection((new_lon_min, lat_min, 180., lat_max)))).astype(int)
 			if lon_max>180.:
 				#new_lon_max = lon_max%(-180.)
 				#new_lon_max = -180. + lon_max-180.
 				new_lon_max = -360. + lon_max
 				#site_indices += list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max)))
-				site_indices = numpy.append(site_indices, list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max))))
+				site_indices = numpy.append(site_indices, list(lattice_index.intersection((-180., lat_min, new_lon_max, lat_max)))).astype(int)
 			#
+			#site_indices=site_indices.astype(int)
+			
 			#print("LLRange: ", lon_min, lat_min, lon_max, lat_max, len(list(site_indices)))
 			#
 			# TODO: I think we can get a performance boost by doing the elliptical transform on all (sub-set of) points at once, in a
@@ -625,8 +627,16 @@ class Global_ETAS_model(object):
 			# def local_intensities(self, ts=None, ts_to=None, lons=None, lats=None, p=None, q=None, t0_primne=None):
 			#local_intensities = eq.local_intensities(ts=numpy.atleast_1d([self.t_forecast]), ts_to=(self.t_future if self.t_future is None else
 			#
-			local_intensities = eq.local_intensities(ts=numpy.atleast_1d(self.t_forecast), ts_to=(self.t_future if self.t_future is None else
-			 numpy.atleast_1d(self.t_future)), lons=self.ETAS_array[site_indices]['x'], lats=self.ETAS_array[site_indices]['y'], p=self.p_etas)
+			#print('*** DEBUG: ', len(self.ETAS_array['y']), len(self.ETAS_array['x']), len(site_indices))
+			if numpy.isnan(site_indices).any() or len(site_indices)==0:
+				print('*** ERROR: site_indices: ', site_indices)
+				raise Exception('site_indices exception.')
+			#
+			try:
+				local_intensities = eq.local_intensities(ts=numpy.atleast_1d(self.t_forecast), ts_to=(self.t_future if self.t_future is None else numpy.atleast_1d(self.t_future)), lons=self.ETAS_array['x'][site_indices], lats=self.ETAS_array['y'][site_indices], p=self.p_etas)
+			except:
+				print('*** ERROR: local_intensities: ', site_indices)
+				raise Exception('site_indices exception.')
 			#
 			#print('*** DEBUG: shapes:: ', local_intensities.shape, (self.ETAS_array['z'])[site_indices].shape)
 			#print('*** DEBUG: site_indices: ', site_indices)
