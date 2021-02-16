@@ -182,9 +182,9 @@ class Global_ETAS_model(object):
 		if lons is None and catalog is None: lons = [-180., 180.]
 		#
 		# for now, assume the catalog is string-indexed -- aka, recarray, PANDAS,etc.
-		if lats is None and not (catalog is None or len(catalog) is 0): lats = [min(catalog['lat']), max(catalog['lat'])]
-		if lons is None and not (catalog is None or len(catalog) is 0): lons = [min(catalog['lon']), max(catalog['lon'])]
-		if mc   is None and not (catalog is None or len(catalog) is 0): mc = min(catalog['mag'])
+		if lats is None and not (catalog is None or len(catalog) == 0): lats = [min(catalog['lat']), max(catalog['lat'])]
+		if lons is None and not (catalog is None or len(catalog) == 0): lons = [min(catalog['lon']), max(catalog['lon'])]
+		if mc   is None and not (catalog is None or len(catalog) == 0): mc = min(catalog['mag'])
 		#
 		# and handle some specific cases...
 		if isinstance(t_now, float):
@@ -1407,7 +1407,7 @@ class Earthquake(object):
 		#return orate
 	#
 	# TODO:vectorize local_intensity. let's just write a vectorized version here, since it is not actually a trivial thing to do.
-	def local_intensities(self, ts=None, ts_to=None, lons=None, lats=None, p=None, q=NOne, t0_primne=None):
+	def local_intensities(self, ts=None, ts_to=None, lons=None, lats=None, p=None, q=None, t0_primne=None):
 		# copy self.local_intensity() model, but vectorize spatial and temporal distribution, so we return a bloc of (n_lat, n_lon, n_time) data.
 		#
 		pass

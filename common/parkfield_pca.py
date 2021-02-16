@@ -92,15 +92,14 @@ def parkfield_pca(L_r_factor=3.0):
 	
 	#plt.plot([x, x + Lrx*e_vecs[0][0]], [y, y + Lry*e_vecs[0][1]], ls='-', marker='o', color='r')
 	#plt.plot([x, x + Lrx*e_vecs[1][0]], [y, y + Lry*e_vecs[1][1]], ls='-', marker='^', color='m')
-	
-	'''
-	#<<<<<<< HEAD
-	plt.plot([x, x + Wts[0]*Lry*e_vecs[0][0]], [y, y + Wts[0]*Lry*e_vecs[0][1]], ls='-', marker='o', color='r')
-	plt.plot([x, x + Wts[1]*Lry*e_vecs[1][0]], [y, y + Wts[1]*Lry*e_vecs[1][1]], ls='-', marker='^', color='m')
-	plt.plot(*list(zip(*circle_xy)), ls='-', marker='', lw=2.)
-	plt.plot(*list(zip(*circle_xy_prime)), ls='--', color='r', marker='', lw=1.5, alpha=.7, zorder=11)
-	#=======
-	'''
+	#
+	#
+	# plt.plot([x, x + Wts[0]*Lry*e_vecs[0][0]], [y, y + Wts[0]*Lry*e_vecs[0][1]], ls='-', marker='o', color='r')
+	# plt.plot([x, x + Wts[1]*Lry*e_vecs[1][0]], [y, y + Wts[1]*Lry*e_vecs[1][1]], ls='-', marker='^', color='m')
+	# plt.plot(*list(zip(*circle_xy)), ls='-', marker='', lw=2.)
+	# plt.plot(*list(zip(*circle_xy_prime)), ls='--', color='r', marker='', lw=1.5, alpha=.7, zorder=11)
+	#
+	#
 	#ax1 = numpy.dot(
 	
 	plt.plot([x_pf, x_pf + Wts[0]*Lry*e_vecs[0][0]], [y_pf, y_pf + Wts[0]*Lry*e_vecs[0][1]], ls='-', marker='o', color='r')
