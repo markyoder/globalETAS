@@ -2873,6 +2873,8 @@ if __name__=='__main__':
 else:
 	plt.ion()
 	
+def simple_date_string(dtm, delim='-'):
+	return delim.join([str(x) for x in [dtm.year, dtm.month, dtm.day]])
 
 
 	
