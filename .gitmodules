@@ -6,7 +6,7 @@
 	url = https://github.com/markyoder/optimizers.git
 [submodule "yodiipy"]
 	path = yodiipy
-	url = https://github.com/markyoder/yodiipy.git
+	url = git@github.com:markyoder/yodiipy.git
 [submodule "contours2kml"]
 	path = contours2kml
 	url = https://github.com/markyoder/contours2kml.git
