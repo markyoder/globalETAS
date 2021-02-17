@@ -21,11 +21,12 @@ which tells git to run two commands:
 
 We're working on making this happen as smoothly as possible, but it may still be necessary to install a few extra bits. We recommend using Anaconda Python 3.x; for those stubborn amongst us who insist to run on their system Python, you an probably just replace "conda" installations with "pip":
 
-- on a fresh linux install... stuff we have to do besides just clone this:
-   - pip install geopy
-   - conda install basemap
-   - pip install geographiclib
-   - conda install -c ioos rtree
+- on a fresh linux install... stuff we have to do besides just clone this (NOTE: you may or may not need to specify the chanel, `-c conda-forge`:
+   - `pip install geopy`
+   - `conda install basemap`
+   - `conda install -c conda-forge basemap-data-hires`
+   - `pip install geographiclib`
+   - `conda install -c ioos rtree`
       ** newer versions of Anaconda (and other Python 3.6) may require an updated rtree library; try:
      conda install -c conda-forge rtree
       ** in general, you can search for an appropriate installation with:
