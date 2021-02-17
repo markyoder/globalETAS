@@ -5,7 +5,12 @@ This repository contains all the base code for globalETAS. Most of the salient c
 
 In addition to *.py modules, there are a bunch of *.ipynb "jupyter notebooks," the modern answer to ipython notebooks. These do/will include some unit tests, demo scripts, and sample implementations/reports for several significant earthquakes over the past several years. Perticularly, the newer notebooks can serve as a nice template for a new earthquake of interest; as with everything else, these are a work in progress.
 
-Some things to look into: There may be issues with notebooks and multi-processing. I believe I have found instances where mpp data do not appear to pipe back correctly to the parent process, but this needs to be confirmed.
+TODOs: An incomplete list
+- There may be issues with notebooks and multi-processing. I believe I have found instances where mpp data do not appear to pipe back correctly to the parent process, but this needs to be confirmed. Most folks familiar with Python MPP and notebooks will say it's a twitchy combination. In particular, during development, if your processes are crashing, your notbook is probably crashing too. Be prepared to restart your service.
+- Catalogs: 
+ - There seems to be no good solution right now. I used to use a web API hack of the ANSS catalog, but that was abandoned for USGS's ComCat, which was awesome for a couple of years (just `conda install libcomcat`), but now seems to be not terribly well supported, so it does not easily install on newer Python, and particularly in combination with some other packages. 
+ - So you can install comcat it en an `environment`, but again, there can be some difficulty playing with other packages. Also, it's really big, so may not play well in user-HPC enviornments (where `$HOME` spase is limited).
+ - I wrote a little hack to the comcat web API which works really well, except that it is limited to small subcatalogs, so a major TODO is to write a composite wrapper to break large queries (how do we know -- in advance, that a query is large?) into small queries and then put them together.
 
 Cloning:
  > git clone --recursive https://github.com/markyoder/globalETAS.git
