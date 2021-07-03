@@ -1,0 +1,135 @@
+
+class nETAS-mapper()
+    def __init__(self):
+        # TODO: everything. we need a viable inheritance model... I think this can inherit from Global_ETAS_model(),
+        #  which we might rename to nETAS_model or use nETAS_compute or something). MPP handler(s) can also inherit,
+        #  but we'll want to come up with a streamlined way for the compute, plotting, and mapping classes to interac.
+        pass
+    #
+    def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=None, d_lat_range=None, lats_map=None, lons_map=None, ax=None, do_states=True, do_rivers=True, lake_color='blue', lat_label_indices=[1,1,0,0], lon_label_indices=[0,0,1,1]):
+        '''
+        # TODO: we end up matching up a bunch of procedural calls, which is a big pain. we should write an ETAS_Map() class
+        # which includes the contour,etc. figures... but we can keep the variables, like lon_label_indices, etc.
+        # in one place...
+        #
+        # plot contours over a map.
+        '''
+        #lons_map = (lons_map or self.lons)
+        #lats_map = (lats_map or self.lats)
+        if lons_map is None: lons_map = self.lons
+        if lats_map is None: lats_map = self.lats
+        #
+        # first, get contours:
+        #etas_contours = self.calc_etas_contours(n_contours=n_contours, fignum=fignum, contour_fig_file=contour_fig_file, contour_kml_file=contour_kml_file, kml_contours_bottom=kml_contours_bottom, kml_contours_top=kml_contours_top, alpha_kml=alpha_kml, refresh_etas=refresh_etas)
+        #
+        # now, clear away the figure and set up the basemap...
+        #
+        d_lon_range = (d_lon_range or 1.)
+        d_lat_range = (d_lat_range or 1.)
+        #
+        if ax==None:
+            plt.figure(fignum, fig_size)
+            plt.clf()
+            ax=plt.gca()
+        #
+        #lons, lats = self.lons, self.lats
+        #cntr = [numpy.mean(lons), numpy.mean(lats)]
+        cntr = [numpy.mean(lons_map), numpy.mean(lats_map)]
+        #cm = Basemap(llcrnrlon=self.lons[0], llcrnrlat=self.lats[0], urcrnrlon=self.lons[1], urcrnrlat=self.lats[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1])
+        cm = Basemap(llcrnrlon=lons_map[0], llcrnrlat=lats_map[0], urcrnrlon=lons_map[1], urcrnrlat=lats_map[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1], ax=ax)
+        #
+        #cm.drawlsmask(land_color='0.8', ocean_color='b', resolution=map_resolution)
+        cm.drawcoastlines(color='gray', zorder=1)
+        cm.drawcountries(color='black', zorder=1)
+        if do_states: cm.drawstates(color='black', zorder=1)
+        if do_rivers: cm.drawrivers(color='blue', zorder=1)
+        cm.fillcontinents(color='beige', lake_color=lake_color, zorder=0)
+        # drawlsmask(land_color='0.8', ocean_color='w', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution='l', grid=5, **kwargs)
+        #cm.drawlsmask(land_color='0.8', ocean_color='c', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution=self.mapres, grid=5)
+        # lat_label_indices
+        #cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=[0,0,1,1])
+        #cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
+        cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=lon_label_indices)
+        cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=lat_label_indices)
+
+        #
+        return cm
+    def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap=None, lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None, do_colorbar=True, do_states=True, do_rivers=True, lake_color='blue', Z=None ):
+        #
+        #map_cmap = map_cmap or self.map_cmap
+        if map_cmap is None: map_cmap = self.cmap_contours
+        #
+        n_contours = (n_contours or self.n_contours)
+        if ax is None:
+            fg=plt.figure(fignum)
+            ax=fg.gca()
+        #
+        # mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=0)
+        #cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
+        cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection, d_lon_range=lon_interval, d_lat_range=lat_interval, lons_map=lons_map, lats_map=lats_map, ax=ax, do_states=do_states, do_rivers=do_rivers, lake_color=lake_color)
+        #
+        fg=plt.gcf()
+        #
+        X,Y = cm(numpy.array(self.lonses), numpy.array(self.latses))
+        #print("xylen: ", len(X), len(Y))
+        #
+        # yoder 2017-06-10: allow Z values to be passed in, so we can plot derived values. now, is it bettter to pass Z directly, or lattice sites? probably Z, so we can use log/not-log values.
+        if Z is None: Z = numpy.log10(self.lattice_sites)
+        #etas_contours = ax.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
+        etas_contours = ax.contourf(X,Y, Z, n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
+        # ax.colorbar() ??
+        if do_colorbar:
+            #plt.colorbar(ax)
+            # getting a few cases in extended scripts where this fails due to... don't know maybe another
+            # error where a bunch of figures get stacked on top of one another. let's just error-trap
+            # it for now and sort it out later.
+            try:
+                plt.colorbar(etas_contours, cax=None, ax=ax, cmap=map_cmap)
+            except:
+                print('DEBUG: error creating colorbar() in globalETAS.make_etas_contourmap()')
+            #mpl.colorbar.ColorbarBase(ax=ax, cmap=map_cmap, values=sorted(Z.ravel()), orientation="vertical")
+        #
+        self.cm=cm
+        self.etas_contours = etas_contours
+        #
+        return cm
+        #
+    #
+    def make_etas_boxy_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet'):
+        #
+        cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
+        c_map = plt.get_cmap(map_cmap)
+        zs = numpy.log10(self.ETAS_array['z'])
+        cNorm = mpl.colors.Normalize(vmin=min(zs), vmax=numpy.nanmax(zs))
+        scalarMap = mpl.cm.ScalarMappable(norm=cNorm, cmap=c_map)
+        #
+        for rw in self.ETAS_array:
+            plt.fill_between(x=[rw['x']-self.d_lon/2., rw['x']+self.d_lon/2.], y1=[rw['y']-.5*self.d_lat, rw['y']-.5*self.d_lat], y2=[rw['y']+.5*self.d_lat, rw['y']+.5*self.d_lat], color=scalarMap.to_rgba(numpy.log10(rw['z'])))
+        #plt.colorbar()        # not sure how to make this work for non-contour plot...
+        #
+        return cm
+        #
+    def plot_mainshock_and_aftershocks(self, m0=6.0, n_contours=25, mainshock=None, fignum=0, ax=None):
+        #
+        map_etas = self.make_etas_contour_map(n_contours=n_contours, fignum=fignum, ax=ax)
+        if mainshock is None:
+            mainshock = self.catalog[0]
+            for rw in self.catalog:
+                if rw['mag']>mainshock['mag']: mainshock=rw
+        ms=mainshock
+        #
+        ax = (ax or plt.gca())
+        #
+        for eq in self.catalog:
+            if eq['mag']<m0 or eq['event_date']<ms['event_date']: continue
+            if eq==ms:
+                x,y = map_etas(eq['lon'], eq['lat'])
+                ax.plot([x], [y], 'k*', zorder=7, ms=20, alpha=.8)
+                ax.plot([x], [y], 'r*', zorder=8, ms=18, label='mainshock', alpha=.8)
+            if eq['event_date']>eq['event_date']:
+                x,y = map_etas(eq['lon'], eq['lat'])
+                ax.plot([x], [y], 'o', zorder=7, ms=20, alpha=.8)
+        #
+        #return plt.gca()
+        return ax
+    #

@@ -5,6 +5,16 @@
 #institution: dept. of physics, UC Davis
 #
 # summary:
+# This module constitutes a third generation implementation of mean-fild etas (Yoder et al. (2014)).
+#  The motivation for this version is code rot. Alas. Matplotlib.basemap is no loner supported and
+#  has gone stale. We will:
+#   1) separate the compute and plotting modules. Possibly separate mapping and non-map functionality.
+#   2) port mapping to cartopy.
+#
+#  This version maintains multiprocessing parallelization. Note that recent implementation of vectorization
+#    significantly improves speed performance. Coupled with high core-count HPC nodes, this all but eliminates
+#    the need for MPI (or other multi-node) parallelization -- though it would probably still be a good idea.
+#
 # these scripts and modules constitute a second generation implementation of the 'mean-field' or
 # 'rupture-length' variant of ETAS published by Yoder et al. (2014) in which initial ETAS (aftershock)
 # productivity from known earthquake scaling relations, earthquake finite extents, and independent
@@ -26,25 +36,18 @@
 #    irregular geometry). we may do something with that here.
 #
 # TODO notes:
-# 1: revisit Bindex model; i think it will be faster, simpler, and lower memory footprint than rtree, and i think the main obstacles to making it work properly
-#    have actually been resolved.
-# 2: revise the boundary selection framework for rtree. basically, there is a problem constraining the boundaries when lat/lon parameters are provided to ETAS.
-# 3: implement (or confirm implementation of) the brute-force version of ETAS, where we loop-loop over all events,locations. for small ETAS, we probably
-#    want to do this anyway and it will be faster because we forego calculating indices.
-# 4: revise the spatial limits: instead of just using n*L_r for spatial extetns, actually calculate the distance for z -> x*z0, aka the distance for 90% reduction.
+# 1) revisit the need for indexing at all; maybe use a simpler indexing like just numpy indexing syntax.
+# 2) Maybe not in the first pass, but is there a way to reorganize to streamline and
+# 3: revise the spatial limits: instead of just using n*L_r for spatial extetns, actually calculate the distance for z -> x*z0, aka the distance for 90% reduction.
 #    this will be similar to the L_r approach, bit will account for proper scaling and should improve the output appearance.
-# 5: modify the MPP handler(s) to inherit from Pool() and actually work like a Pool(), rather than explicitly handling Process() objects. the problem is that when
-#    we divide up the job, we inevitably give one processor a light job and one processor a heavy job, so we spend a lot of time waiting for one process to finish.
-#    yes, there is a bit of overhead in running with n_cpu > n_processors, but it is minor in comparison. also, by dividing the job into lots of small little
-#    jobs, we can probably also reduce the real-time memory footprint, so we can run on smaller systems.
+#
 '''
 #
 import datetime as dtm
 import matplotlib.dates as mpd
 import pytz
 tzutc = pytz.timezone('UTC')
-
-import operator
+#
 import math
 import random
 import numpy
@@ -59,6 +62,7 @@ import os
 import multiprocessing as mpp
 #
 import matplotlib as mpl
+# for now, let's keep plotting routines and just offload mapping...
 import matplotlib.pyplot as plt
 import functools
 #
@@ -67,9 +71,8 @@ import numba
 #
 #import shapely.geometry as sgp
 #
-from mpl_toolkits.basemap import Basemap as Basemap
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-from geographiclib.geodesic import Geodesic as ggp
+#from mpl_toolkits.basemap import Basemap as Basemap
+#from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 #
 #
 #import ANSStools as atp
@@ -79,14 +82,12 @@ import bindex
 from yodiipy import contours2kml as c2kml
 #
 import rtree
-from rtree import index
+#from rtree import index
+#
 import geopy
 from geopy.distance import great_circle
+from geographiclib.geodesic import Geodesic as ggp
 #
-# python3 vs python2 issues:
-# a bit of version 3-2 compatibility:
-if sys.version_info.major>=3:
-	xrange=range
 from eq_params import *
 #
 # TODO: add a p_map (or p, p0 distinction) variable to distinguish the p value for calculating ETAS parameters (in catalog) and p to calculate
@@ -213,7 +214,7 @@ class Global_ETAS_model(object):
 			mc_etas = mc
 		#
 		# inputs massaged; now update class dictionary.
-		self.__dict__.update(locals())
+		self.__dict__.update({ky:val for ky,val in locals().items() if not ky in ('self', '__class__'))
 		#
 		self.latses = numpy.arange(lats[0], lats[1], d_lat)		# note: if we want lats[1], lons[1] inclusive, we need to add +d_lat, +d_lon
 		self.lonses = numpy.arange(lons[0], lons[1], d_lon)		# to the range().
@@ -261,10 +262,10 @@ class Global_ETAS_model(object):
 		#  so it's progbably better to just "if" it:
 		if etas_cat_range[0] is None:
 			etas_cat_range[0] = 0
-		#etas_cat_range[0] = (etas_cat_range[0] or 0)
+		#
 		if etas_cat_range[1] is None:
 			etas_cat_range[1] = len(catalog)
-		#etas_cat_range[1] = (etas_cat_range[1] or len(catalog))
+		#
 		self.etas_cat_range = etas_cat_range
 		print("ETAS over etas_cat_range/xyz_range: ", (self.etas_cat_range, self.etas_xyz_range))
 		#
@@ -295,134 +296,7 @@ class Global_ETAS_model(object):
 		X = self.ETAS_array['z']
 		X.shape=(len(self.latses), len(self.lonses))
 		return X
-	#
-	def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=None, d_lat_range=None, lats_map=None, lons_map=None, ax=None, do_states=True, do_rivers=True, lake_color='blue', lat_label_indices=[1,1,0,0], lon_label_indices=[0,0,1,1]):
-		'''
-		# TODO: we end up matching up a bunch of procedural calls, which is a big pain. we should write an ETAS_Map() class
-		# which includes the contour,etc. figures... but we can keep the variables, like lon_label_indices, etc.
-		# in one place...
-		#
-		# plot contours over a map.
-		'''
-		#lons_map = (lons_map or self.lons)
-		#lats_map = (lats_map or self.lats)
-		if lons_map is None: lons_map = self.lons
-		if lats_map is None: lats_map = self.lats
-		#
-		# first, get contours:
-		#etas_contours = self.calc_etas_contours(n_contours=n_contours, fignum=fignum, contour_fig_file=contour_fig_file, contour_kml_file=contour_kml_file, kml_contours_bottom=kml_contours_bottom, kml_contours_top=kml_contours_top, alpha_kml=alpha_kml, refresh_etas=refresh_etas)
-		#
-		# now, clear away the figure and set up the basemap...
-		#
-		d_lon_range = (d_lon_range or 1.)
-		d_lat_range = (d_lat_range or 1.)
-		#
-		if ax==None:
-			plt.figure(fignum, fig_size)
-			plt.clf()
-			ax=plt.gca()
-		#
-		#lons, lats = self.lons, self.lats
-		#cntr = [numpy.mean(lons), numpy.mean(lats)]
-		cntr = [numpy.mean(lons_map), numpy.mean(lats_map)]
-		#cm = Basemap(llcrnrlon=self.lons[0], llcrnrlat=self.lats[0], urcrnrlon=self.lons[1], urcrnrlat=self.lats[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1])
-		cm = Basemap(llcrnrlon=lons_map[0], llcrnrlat=lats_map[0], urcrnrlon=lons_map[1], urcrnrlat=lats_map[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1], ax=ax)
-		#
-		#cm.drawlsmask(land_color='0.8', ocean_color='b', resolution=map_resolution)
-		cm.drawcoastlines(color='gray', zorder=1)
-		cm.drawcountries(color='black', zorder=1)
-		if do_states: cm.drawstates(color='black', zorder=1)
-		if do_rivers: cm.drawrivers(color='blue', zorder=1)
-		cm.fillcontinents(color='beige', lake_color=lake_color, zorder=0)
-		# drawlsmask(land_color='0.8', ocean_color='w', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution='l', grid=5, **kwargs)
-		#cm.drawlsmask(land_color='0.8', ocean_color='c', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution=self.mapres, grid=5)
-		# lat_label_indices
-		#cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=[0,0,1,1])
-		#cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
-		cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=lon_label_indices)
-		cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=lat_label_indices)
-
-		#
-		return cm
-	def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap=None, lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None, do_colorbar=True, do_states=True, do_rivers=True, lake_color='blue', Z=None ):
-		#
-		#map_cmap = map_cmap or self.map_cmap
-		if map_cmap is None: map_cmap = self.cmap_contours
-		#
-		n_contours = (n_contours or self.n_contours)
-		if ax is None:
-			fg=plt.figure(fignum)
-			ax=fg.gca()
-		#
-		# mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=0)
-		#cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
-		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection, d_lon_range=lon_interval, d_lat_range=lat_interval, lons_map=lons_map, lats_map=lats_map, ax=ax, do_states=do_states, do_rivers=do_rivers, lake_color=lake_color)
-		#
-		fg=plt.gcf()
-		#
-		X,Y = cm(numpy.array(self.lonses), numpy.array(self.latses))
-		#print("xylen: ", len(X), len(Y))
-		#
-		# yoder 2017-06-10: allow Z values to be passed in, so we can plot derived values. now, is it bettter to pass Z directly, or lattice sites? probably Z, so we can use log/not-log values. 
-		if Z is None: Z = numpy.log10(self.lattice_sites)
-		#etas_contours = ax.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
-		etas_contours = ax.contourf(X,Y, Z, n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
-		# ax.colorbar() ??
-		if do_colorbar:
-			#plt.colorbar(ax)
-			# getting a few cases in extended scripts where this fails due to... don't know maybe another
-			# error where a bunch of figures get stacked on top of one another. let's just error-trap
-			# it for now and sort it out later.
-			try:
-				plt.colorbar(etas_contours, cax=None, ax=ax, cmap=map_cmap)
-			except:
-				print('DEBUG: error creating colorbar() in globalETAS.make_etas_contourmap()')
-			#mpl.colorbar.ColorbarBase(ax=ax, cmap=map_cmap, values=sorted(Z.ravel()), orientation="vertical")
-		#
-		self.cm=cm
-		self.etas_contours = etas_contours
-		#
-		return cm
-		#
-	#
-	def make_etas_boxy_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet'):
-		#
-		cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
-		c_map = plt.get_cmap(map_cmap)
-		zs = numpy.log10(self.ETAS_array['z'])
-		cNorm = mpl.colors.Normalize(vmin=min(zs), vmax=numpy.nanmax(zs))
-		scalarMap = mpl.cm.ScalarMappable(norm=cNorm, cmap=c_map)
-		#
-		for rw in self.ETAS_array:
-			plt.fill_between(x=[rw['x']-self.d_lon/2., rw['x']+self.d_lon/2.], y1=[rw['y']-.5*self.d_lat, rw['y']-.5*self.d_lat], y2=[rw['y']+.5*self.d_lat, rw['y']+.5*self.d_lat], color=scalarMap.to_rgba(numpy.log10(rw['z'])))
-		#plt.colorbar()		# not sure how to make this work for non-contour plot...
-		#
-		return cm
-		#
-	def plot_mainshock_and_aftershocks(self, m0=6.0, n_contours=25, mainshock=None, fignum=0, ax=None):
-		#
-		map_etas = self.make_etas_contour_map(n_contours=n_contours, fignum=fignum, ax=ax)
-		if mainshock is None:
-			mainshock = self.catalog[0]
-			for rw in self.catalog:
-				if rw['mag']>mainshock['mag']: mainshock=rw
-		ms=mainshock
-		#
-		ax = (ax or plt.gca())
-		#
-		for eq in self.catalog:
-			if eq['mag']<m0 or eq['event_date']<ms['event_date']: continue
-			if eq==ms:
-				x,y = map_etas(eq['lon'], eq['lat'])
-				ax.plot([x], [y], 'k*', zorder=7, ms=20, alpha=.8)
-				ax.plot([x], [y], 'r*', zorder=8, ms=18, label='mainshock', alpha=.8)
-			if eq['event_date']>eq['event_date']:
-				x,y = map_etas(eq['lon'], eq['lat'])
-				ax.plot([x], [y], 'o', zorder=7, ms=20, alpha=.8)	
-		#
-		#return plt.gca()
-		return ax
-	#
+	
 	def calc_etas_contours(self, n_contours=None, fignum=0, contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha_kml=.5, refresh_etas=False):
 		# wrapper for one-stop-shopping ETAS calculations.
 		# (and these calc_contours schemes need to be cleaned up a bit. there is a bit of redundancy and disorganization)
@@ -534,7 +408,7 @@ class Global_ETAS_model(object):
 		print('** len(self.ETAS_array)[{}] = {}'.format(os.getpid(), len(self.ETAS_array)))
 		#
 		# make an rtree index:
-		lattice_index = index.Index()
+		lattice_index = rtree.index.Index()
 		# build index. we should build directly from ETAS_array, particualrly since we'll be (maybe) building an mpp version that splits up ETAS_array between proceses.
 		#[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lat,lon) in enumerate(itertools.product(latses,lonses))]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
 		[lattice_index.insert(j, (lon, lat, lon, lat)) for j, (lon, lat, z) in enumerate(self.ETAS_array)]	# like [[lat0,lon0],[lat0,lon1], [lat0,lon2]...]
@@ -2001,7 +1875,7 @@ def make_ETAS_catalog(incat=None, lats=[32., 38.], lons=[-117., -114.], mc=2.5, 
 	#print('**debug: catalog_processing range: {}/{}'.format(catalog_range, len(incat)))
 	#
 	# first, make a spatial index of the catalog:
-	anss_index = index.Index()
+	anss_index = rtree.index.Index()
 	[anss_index.insert(j, (rw['lon'], rw['lat'], rw['lon'], rw['lat'])) for j,rw in enumerate(incat)]
 	#
 	# now, calculate etas properties....
@@ -2519,7 +2393,7 @@ def griddata_plot_xyz(xyz, n_x=None, n_y=None):
 	cs = plt.contourf(xi,yi,zi,15,cmap=plt.cm.rainbow,vmax=abs(zi).max(), vmin=-abs(zi).min())
 	plt.colorbar()
 #
-def griddata_brute_plot(xyz, xrange=None, yrange=None, dx=None, dy=None):
+def griddata_brute_plot(xyz, X_range=None, Y_range=None, dx=None, dy=None):
 	# do a brute force grid-n-contour of an xyz input.
 	# ... in the future, use plt.imshow()
 	#
