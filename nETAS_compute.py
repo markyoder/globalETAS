@@ -54,7 +54,6 @@ import numpy
 import scipy
 import scipy.optimize as spo
 import itertools
-import sys
 #import scipy.optimize as spo
 import sys
 import os
@@ -192,9 +191,7 @@ class Global_ETAS_model(object):
 		if isinstance(t_now, float):
 			self.t_forecast = t_now
 		elif isinstance(t_now, numpy.datetime64):
-			# TODO: .tolist() may no longer accomplish the desired conversion...
 			self.t_forecast = mpd.date2num(t_now.astype(dtm.datetime))
-			#self.t_forecast = mpd.date2num(t_now.tolist())
 		else:
 			self.t_forecast = mpd.date2num(t_now)
 		#
@@ -207,14 +204,12 @@ class Global_ETAS_model(object):
 			else:
 				t_future = mpd.date2num(t_future)
 		self.t_future = t_future
-
 		#
-		#mc_etas = (mc_etas or mc)	# mc_eats: minimum mag. for etas calculations -- aka, mc for the catalog, but only do etas for m>mc_eatas.
 		if mc_etas is None:
 			mc_etas = mc
 		#
 		# inputs massaged; now update class dictionary.
-		self.__dict__.update({ky:val for ky,val in locals().items() if not ky in ('self', '__class__'))
+		self.__dict__.update({ky:val for ky,val in locals().items() if not ky in ('self', '__class__')})
 		#
 		self.latses = numpy.arange(lats[0], lats[1], d_lat)		# note: if we want lats[1], lons[1] inclusive, we need to add +d_lat, +d_lon
 		self.lonses = numpy.arange(lons[0], lons[1], d_lon)		# to the range().
@@ -228,11 +223,9 @@ class Global_ETAS_model(object):
 		#etas_xyz_range[0] = (etas_xyz_range[0] or 0)
 		#etas_xyz_range[1] = (etas_xyz_range[1] or self.n_lat*self.n_lon)
 		#
-		self.ETAS_array = numpy.array([])
-		# [etas_xyz_range[0]:etas_xyz_range[1]]
-		#
-		# TODO: consider wrapping this two-step into one-step. can we save memory (even if intermittently) by doing so? this might be one of those cases where we can't nest these steps; we need to instantiate
-		#  the interim output object before we input it into the next function (aka, make the ND-array, then wrap as a recarray).
+		# TODO: construct ETAS_array with a numpuy function, instead of iterating over a list(-comprehension). See if we can create a structured array
+		#   in a single pass, instead of a recarray (which might be the same thing
+		#   by now...).
 		self.ETAS_array = numpy.array([[lon, lat, 0.] for j, (lat,lon) in enumerate(itertools.product(self.latses, self.lonses)) if (j>= etas_xyz_range[0] and j<etas_xyz_range[1])])
 		self.ETAS_array = numpy.core.records.fromarrays(zip(*self.ETAS_array), dtype = [('x', '>f8'), ('y', '>f8'), ('z', '>f8')])
 		#
@@ -476,26 +469,7 @@ class Global_ETAS_model(object):
 			
 			#print("LLRange: ", lon_min, lat_min, lon_max, lat_max, len(list(site_indices)))
 			#
-			# TODO: I think we can get a performance boost by doing the elliptical transform on all (sub-set of) points at once, in a
-			#   linear algebra operation, so we have the relevant lattice sites; now transform them, and loop through XY_prime=dot(E, XY)
-			#  ... but I think to do this, we need to do all of the computations here, in a sequence that replaces this loop (aka, rewrite the
-			#   local_intensity(), elliptical_transform(), etc. bits here.
-			#Xs = (self.ETAS_array[['x'], ['y']])[site_indices]
-			#
-			# TODO: does this work???
-			# will this auto-vectorize?
-			#local_intensities = eq.local_intensity(t=self.t_forecast, t_to=self.t_future, lon=Xs['lon'], lat=Xs['lat'], p=self.p_etas)
-
-			# ... probably not, but we have the newer local_intensiteis() function, which should work. note it is designed to take an array
-			# of times as well...
-			#
-			#print('*** DEBUG: ', len(self.ETAS_array['y']), len(self.ETAS_array['x']), len(site_indices))
-#			if numpy.isnan(site_indices).any() or len(site_indices)==0:
-#				print('*** ERROR: site_indices: ', site_indices)
-#				raise Exception('site_indices exception.')
-			#
 			local_intensities = eq.local_intensities(ts=numpy.atleast_1d(self.t_forecast), ts_to=(self.t_future if self.t_future is None else numpy.atleast_1d(self.t_future)), lons=self.ETAS_array['x'][site_indices], lats=self.ETAS_array['y'][site_indices], p=self.p_etas)
-
 			#
 			# handle nan values?
 			local_intensities[numpy.isnan(local_intensities)] = 0.

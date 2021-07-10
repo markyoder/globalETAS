@@ -1,61 +1,98 @@
-
-class nETAS-mapper()
-    def __init__(self):
+'''
+# mapping functions for nETAS / globalETAS
+'''
+#
+import datetime as dtm
+import matplotlib.dates as mpd
+import pytz
+tzutc = pytz.timezone('UTC')
+#
+import math
+import random
+import numpy
+import scipy
+import scipy.optimize as spo
+import itertools
+import sys
+import os
+import multiprocessing as mpp
+#
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import cartopy
+#
+# let's see if we can compile some of thes functions.
+import numba
+#
+from yodiipy import contours2kml as c2kml
+#
+import geopy
+from geopy.distance import great_circle
+from geographiclib.geodesic import Geodesic as ggp
+#
+class nETAS_mapper():
+    def __init__(self, nETAS_input=None, **kwargs):
         # TODO: everything. we need a viable inheritance model... I think this can inherit from Global_ETAS_model(),
         #  which we might rename to nETAS_model or use nETAS_compute or something). MPP handler(s) can also inherit,
         #  but we'll want to come up with a streamlined way for the compute, plotting, and mapping classes to interac.
-        pass
+        #
+        # this can stand alone(ish) if we pass it an ETAS object as an input. Alternatively,
+        #  we'll create a composite class like globalETAS(nETAS_compute, nETAS_mapper)
+        #
+        self.__dict__.update({ky:vl for ky,vl in kwargs.items() if not ky in ('self', '__class__')})
+        #self.__dict__.update({ky:vl for ky,vl in locals().items() if not ky in ('self', '__class__')})
+        #if not nETAS_input is None:
+        #    self.__dict__.update({ky:vl} for ky,vl in nETAS_input.__dict__.items() if not ky in ('self', '__class__'))
+        
     #
-    def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', d_lon_range=None, d_lat_range=None, lats_map=None, lons_map=None, ax=None, do_states=True, do_rivers=True, lake_color='blue', lat_label_indices=[1,1,0,0], lon_label_indices=[0,0,1,1]):
+    def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', lon_line_spacing=None, lat_line_spacing=None, lats_map=None, lons_map=None, ax=None, do_states=True, do_rivers=True, lake_color='blue', lat_label_indices=[1,1,0,0], lon_label_indices=[0,0,1,1]):
         '''
         # TODO: we end up matching up a bunch of procedural calls, which is a big pain. we should write an ETAS_Map() class
         # which includes the contour,etc. figures... but we can keep the variables, like lon_label_indices, etc.
         # in one place...
         #
-        # plot contours over a map.
+        # @map_projection: a cartopy.crs.{Projection} instance. TODO: create a string->object
+        #  dict to pass as short strings; for now, I think it has to be a class instance.
+        # @ax: Axis to plot onto. NOTE: the projection for the axis MUST BE SET in advance. So,
+        #  if using this function to plot into an existing axis, set the prjection when the axis
+        #  is created.
         '''
-        #lons_map = (lons_map or self.lons)
-        #lats_map = (lats_map or self.lats)
+        #
         if lons_map is None: lons_map = self.lons
         if lats_map is None: lats_map = self.lats
+        cntr = [numpy.mean(lons_map), numpy.mean(lats_map)]
         #
-        # first, get contours:
-        #etas_contours = self.calc_etas_contours(n_contours=n_contours, fignum=fignum, contour_fig_file=contour_fig_file, contour_kml_file=contour_kml_file, kml_contours_bottom=kml_contours_bottom, kml_contours_top=kml_contours_top, alpha_kml=alpha_kml, refresh_etas=refresh_etas)
-        #
-        # now, clear away the figure and set up the basemap...
-        #
-        d_lon_range = (d_lon_range or 1.)
-        d_lat_range = (d_lat_range or 1.)
+        lon_line_spacing = (lon_line_spacing or 1.)
+        lat_line_spacing = (lat_line_spacing or 1.)
         #
         if ax==None:
+            #
+            if map_projection is None or isinstance(map_projection, str):
+                map_projection=cartopy.crs.PlateCarree(central_longitude = cntr[0])
+            #
             plt.figure(fignum, fig_size)
             plt.clf()
-            ax=plt.gca()
+            ax=plt.axes(projection=map_projection)
         #
-        #lons, lats = self.lons, self.lats
-        #cntr = [numpy.mean(lons), numpy.mean(lats)]
-        cntr = [numpy.mean(lons_map), numpy.mean(lats_map)]
-        #cm = Basemap(llcrnrlon=self.lons[0], llcrnrlat=self.lats[0], urcrnrlon=self.lons[1], urcrnrlat=self.lats[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1])
-        cm = Basemap(llcrnrlon=lons_map[0], llcrnrlat=lats_map[0], urcrnrlon=lons_map[1], urcrnrlat=lats_map[1], resolution=map_resolution, projection=map_projection, lon_0=cntr[0], lat_0=cntr[1], ax=ax)
+        ax.set_extent(numpy.ravel([lons_map, lats_map]) )
+        ax.coastlines(color='gray', zorder=1)
+        
+        #cm.drawcountries(color='black', zorder=1)
+        #if do_states: cm.drawstates(color='black', zorder=1)
+        #if do_rivers: cm.drawrivers(color='blue', zorder=1)
+        #cm.fillcontinents(color='beige', lake_color=lake_color, zorder=0)
         #
-        #cm.drawlsmask(land_color='0.8', ocean_color='b', resolution=map_resolution)
-        cm.drawcoastlines(color='gray', zorder=1)
-        cm.drawcountries(color='black', zorder=1)
-        if do_states: cm.drawstates(color='black', zorder=1)
-        if do_rivers: cm.drawrivers(color='blue', zorder=1)
-        cm.fillcontinents(color='beige', lake_color=lake_color, zorder=0)
-        # drawlsmask(land_color='0.8', ocean_color='w', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution='l', grid=5, **kwargs)
-        #cm.drawlsmask(land_color='0.8', ocean_color='c', lsmask=None, lsmask_lons=None, lsmask_lats=None, lakes=True, resolution=self.mapres, grid=5)
-        # lat_label_indices
-        #cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=[0,0,1,1])
-        #cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=[1, 1, 0, 0])
-        cm.drawmeridians(numpy.arange(int(lons_map[0]/d_lon_range)*d_lon_range, lons_map[1], d_lon_range), color='k', labels=lon_label_indices)
-        cm.drawparallels(numpy.arange(int(lats_map[0]/d_lat_range)*d_lat_range, lats_map[1], d_lat_range), color='k', labels=lat_label_indices)
+        #
+        ax.gridlines(label=True, color='black', alpha=.7, linestyle='--', xlocs=numpy.arange(int(lons_map[0]/lon_line_spacing)*lon_line_spacing),\
+            ylocs=numpy.arange(int(lats_map[0]/lat_line_spacing)*lat_line_spacing)\
+            )
 
         #
-        return cm
+        return ax
+    #
     def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap=None, lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None, do_colorbar=True, do_states=True, do_rivers=True, lake_color='blue', Z=None ):
         #
+        
         #map_cmap = map_cmap or self.map_cmap
         if map_cmap is None: map_cmap = self.cmap_contours
         #
@@ -64,9 +101,7 @@ class nETAS-mapper()
             fg=plt.figure(fignum)
             ax=fg.gca()
         #
-        # mm.draw_map(d_lat_range=10., d_lon_range=20., fignum=0)
-        #cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection)
-        cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection, d_lon_range=lon_interval, d_lat_range=lat_interval, lons_map=lons_map, lats_map=lats_map, ax=ax, do_states=do_states, do_rivers=do_rivers, lake_color=lake_color)
+        cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection, lon_line_spacing=lon_interval, lat_line_spacing=lat_interval, lons_map=lons_map, lats_map=lats_map, ax=ax, do_states=do_states, do_rivers=do_rivers, lake_color=lake_color)
         #
         fg=plt.gcf()
         #
