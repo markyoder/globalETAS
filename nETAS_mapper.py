@@ -45,7 +45,7 @@ class nETAS_mapper():
         #    self.__dict__.update({ky:vl} for ky,vl in nETAS_input.__dict__.items() if not ky in ('self', '__class__'))
         
     #
-    def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection='cyl', lon_line_spacing=None, lat_line_spacing=None, lats_map=None, lons_map=None, ax=None, do_states=True, do_rivers=True, lake_color='blue', lat_label_indices=[1,1,0,0], lon_label_indices=[0,0,1,1]):
+    def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection=None, lon_line_spacing=None, lat_line_spacing=None, lats_map=None, lons_map=None, ax=None, do_states=True, do_rivers=True, lake_color='blue', lat_label_indices=[1,1,0,0], lon_label_indices=[0,0,1,1], **kwargs):
         '''
         # TODO: we end up matching up a bunch of procedural calls, which is a big pain. we should write an ETAS_Map() class
         # which includes the contour,etc. figures... but we can keep the variables, like lon_label_indices, etc.
@@ -61,6 +61,7 @@ class nETAS_mapper():
         if lons_map is None: lons_map = self.lons
         if lats_map is None: lats_map = self.lats
         cntr = [numpy.mean(lons_map), numpy.mean(lats_map)]
+        self.lon0 = cntr[0]
         #
         lon_line_spacing = (lon_line_spacing or 1.)
         lat_line_spacing = (lat_line_spacing or 1.)
@@ -68,11 +69,13 @@ class nETAS_mapper():
         if ax==None:
             #
             if map_projection is None or isinstance(map_projection, str):
-                map_projection=cartopy.crs.PlateCarree(central_longitude = cntr[0])
+                map_projection=cartopy.crs.PlateCarree(central_longitude = self.lon0)
             #
             plt.figure(fignum, fig_size)
             plt.clf()
             ax=plt.axes(projection=map_projection)
+        #
+        self.map_projection = map_projection
         #
         ax.set_extent(numpy.ravel([lons_map, lats_map]) )
         ax.coastlines(color='gray', zorder=1)
@@ -90,44 +93,36 @@ class nETAS_mapper():
         #
         return ax
     #
-    def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap=None, lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None, do_colorbar=True, do_states=True, do_rivers=True, lake_color='blue', Z=None ):
+    def make_etas_contour_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.5, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap=None, lat_interval=None, lon_interval=None, lats_map=None, lons_map=None, ax=None, do_colorbar=True, do_states=True, do_rivers=True, lake_color='blue', Z=None , **kwargs):
         #
-        
-        #map_cmap = map_cmap or self.map_cmap
+        ax = self.draw_map(**{k:v for k,v in locals().items() if not k in ('self', '__class')})
         if map_cmap is None: map_cmap = self.cmap_contours
         #
         n_contours = (n_contours or self.n_contours)
-        if ax is None:
-            fg=plt.figure(fignum)
-            ax=fg.gca()
-        #
-        cm = self.draw_map(fignum=fignum, fig_size=fig_size, map_resolution=map_resolution, map_projection=map_projection, lon_line_spacing=lon_interval, lat_line_spacing=lat_interval, lons_map=lons_map, lats_map=lats_map, ax=ax, do_states=do_states, do_rivers=do_rivers, lake_color=lake_color)
+        #if ax is None:
+        #    fg=plt.figure(fignum)
+        #    ax=fg.gca()
+        
         #
         fg=plt.gcf()
         #
-        X,Y = cm(numpy.array(self.lonses), numpy.array(self.latses))
-        #print("xylen: ", len(X), len(Y))
-        #
-        # yoder 2017-06-10: allow Z values to be passed in, so we can plot derived values. now, is it bettter to pass Z directly, or lattice sites? probably Z, so we can use log/not-log values.
+        # X,Y = cm(numpy.array(self.lonses), numpy.array(self.latses))
+        X = self.lonses - self.lon0
+        Y = self.latses
         if Z is None: Z = numpy.log10(self.lattice_sites)
-        #etas_contours = ax.contourf(X,Y, numpy.log10(self.lattice_sites), n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
-        etas_contours = ax.contourf(X,Y, Z, n_contours, zorder=8, alpha=alpha, cmap=map_cmap)
+        #
+        etas_contours = ax.contourf(X,Y, Z, n_contours, zorder=8, alpha=alpha,\
+            transform=self.map_projection, cmap=map_cmap)
         # ax.colorbar() ??
         if do_colorbar:
-            #plt.colorbar(ax)
-            # getting a few cases in extended scripts where this fails due to... don't know maybe another
-            # error where a bunch of figures get stacked on top of one another. let's just error-trap
-            # it for now and sort it out later.
             try:
                 plt.colorbar(etas_contours, cax=None, ax=ax, cmap=map_cmap)
             except:
                 print('DEBUG: error creating colorbar() in globalETAS.make_etas_contourmap()')
-            #mpl.colorbar.ColorbarBase(ax=ax, cmap=map_cmap, values=sorted(Z.ravel()), orientation="vertical")
         #
-        self.cm=cm
         self.etas_contours = etas_contours
         #
-        return cm
+        return ax
         #
     #
     def make_etas_boxy_map(self, n_contours=None, fignum=0, fig_size=(6.,6.), contour_fig_file=None, contour_kml_file=None, kml_contours_bottom=0., kml_contours_top=1.0, alpha=.6, alpha_kml=.5, refresh_etas=False, map_resolution='i', map_projection='cyl', map_cmap='jet'):
