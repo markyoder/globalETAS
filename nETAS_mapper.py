@@ -45,7 +45,7 @@ class nETAS_mapper():
         #    self.__dict__.update({ky:vl} for ky,vl in nETAS_input.__dict__.items() if not ky in ('self', '__class__'))
         
     #
-    def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection=None, lon_line_spacing=None, lat_line_spacing=None, lats_map=None, lons_map=None, ax=None, do_states=True, do_rivers=True, lake_color='blue', lat_label_indices=[1,1,0,0], lon_label_indices=[0,0,1,1], **kwargs):
+    def draw_map(self, fignum=0, fig_size=(6.,6.), map_resolution='i', map_projection=None, lon_line_spacing=None, lat_line_spacing=None, lats_map=None, lons_map=None, ax=None, do_states=True, do_rivers=True, lake_color='blue', **kwargs):
         '''
         # TODO: we end up matching up a bunch of procedural calls, which is a big pain. we should write an ETAS_Map() class
         # which includes the contour,etc. figures... but we can keep the variables, like lon_label_indices, etc.
@@ -144,7 +144,11 @@ class nETAS_mapper():
         #
         return ax
         #
-    def plot_mainshock_and_aftershocks(self, m0=6.0, n_contours=25, mainshock=None, fignum=0, ax=None):
+    def plot_imshow(self, alpha=.8, cmap='jet', ax=None, **kwargs):
+        ax = self.draw_map(ax=ax,**kwargs)
+        #
+        ax.imshow(numpy.log10(self.lattice_sites), extent=numpy.ravel([self.lons, self.lats]), alpha=alpha, origin='lower', cmap=cmap)
+    def plot_mainshock_and_aftershocks(self, m0=6.0, n_contours=25, mainshock=None, fignum=0, ax=None, ms_marker='*', as_marker='.'):
         #
         #map_etas = self.make_etas_contour_map(n_contours=n_contours, fignum=fignum, ax=ax)
         if mainshock is None:
@@ -161,10 +165,10 @@ class nETAS_mapper():
             y = eq['lat']
             if eq==ms:
                 #
-                ax.plot([x], [y], 'k*', zorder=7, ms=20, alpha=.8, transform=ax.projection)
-                ax.plot([x], [y], 'r*', zorder=8, ms=18, label='mainshock', alpha=.8, transform=ax.projection)
-            if eq['event_date']>eq['event_date']:
-                ax.plot([x], [y], 'o', zorder=7, ms=20, alpha=.8, transform=ax.projection)
+                ax.plot([x], [y], f'k{ms_marker}', zorder=7, ms=20, alpha=.8, transform=ax.projection)
+                ax.plot([x], [y], f'r{ms_marker}', zorder=8, ms=18, label='mainshock', alpha=.8, transform=ax.projection)
+            if eq['event_date']>ms['event_date']:
+                ax.plot([x], [y], as_marker, zorder=7, ms=20, alpha=.8, transform=ax.projection)
         #
         #return plt.gca()
         return ax
